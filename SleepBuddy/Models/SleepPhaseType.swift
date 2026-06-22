@@ -11,7 +11,7 @@ enum SleepPhaseType: String, Codable, CaseIterable {
         case .awake: return .orange
         case .light: return .blue
         case .deep:  return .indigo
-        case rem:    return .purple
+        case .rem:   return .purple
         }
     }
 
