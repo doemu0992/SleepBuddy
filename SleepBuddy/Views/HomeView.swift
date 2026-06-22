@@ -216,30 +216,49 @@ struct AlarmSetupSheet: View {
 
     var body: some View {
         NavigationStack {
-            Form {
-                Section {
-                    Toggle("Smart Alarm aktivieren", isOn: $alarm.isEnabled)
-                        .tint(.indigo)
-                } footer: {
-                    Text("SleepBuddy weckt dich im optimalen Leichtschlafmoment innerhalb deines Zeitfensters.")
-                }
-
-                if alarm.isEnabled {
-                    Section("Aufwachfenster") {
-                        DatePicker("Frühestens", selection: $alarm.earliestWakeTime, displayedComponents: .hourAndMinute)
-                        DatePicker("Spätestens", selection: $alarm.latestWakeTime, displayedComponents: .hourAndMinute)
+            ScrollView {
+                VStack(spacing: 20) {
+                    VStack(spacing: 8) {
+                        Image(systemName: "alarm.fill")
+                            .font(.system(size: 32)).foregroundStyle(.indigo)
+                        Text("Smart Alarm")
+                            .font(.title3.bold())
+                        Text("Weckt dich im optimalen Leichtschlafmoment innerhalb deines Zeitfensters.")
+                            .font(.subheadline).foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
                     }
+                    .frame(maxWidth: .infinity).padding(.bottom, 4)
 
-                    Section {
-                        HStack {
+                    VStack(spacing: 0) {
+                        Toggle("Smart Alarm aktivieren", isOn: $alarm.isEnabled)
+                            .tint(.indigo)
+                            .font(.subheadline)
+                            .padding(16)
+                    }
+                    .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
+
+                    if alarm.isEnabled {
+                        VStack(spacing: 0) {
+                            DatePicker("Frühestens", selection: $alarm.earliestWakeTime, displayedComponents: .hourAndMinute)
+                                .font(.subheadline).padding(16)
+                            Divider().padding(.leading, 16)
+                            DatePicker("Spätestens", selection: $alarm.latestWakeTime, displayedComponents: .hourAndMinute)
+                                .font(.subheadline).padding(16)
+                        }
+                        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
+
+                        HStack(spacing: 10) {
                             Image(systemName: "info.circle").foregroundStyle(.indigo)
                             Text("Der Alarm klingt sobald eine Leichtschlafphase im Fenster erkannt wird. Spätestens zum letzten Zeitpunkt wirst du geweckt.")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                                .font(.caption).foregroundStyle(.secondary)
                         }
+                        .padding(16)
+                        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
                     }
                 }
+                .padding(.horizontal).padding(.vertical, 24)
             }
+            .background(Color(.systemGroupedBackground))
             .navigationTitle("Smart Alarm")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

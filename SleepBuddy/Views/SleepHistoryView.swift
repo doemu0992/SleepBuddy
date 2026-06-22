@@ -6,31 +6,30 @@ struct SleepHistoryView: View {
     @Environment(\.modelContext) private var modelContext
 
     var body: some View {
-        NavigationStack {
-            Group {
-                if sessions.filter({ !$0.isActive }).isEmpty {
-                    ContentUnavailableView(
-                        "Keine Schlafdaten",
-                        systemImage: "moon.zzz",
-                        description: Text("Starte deine erste Schlafaufzeichnung")
-                    )
-                } else {
-                    List {
-                        ForEach(sessions.filter { !$0.isActive }) { session in
-                            NavigationLink(destination: SleepDetailView(session: session)) {
-                                SleepSessionRow(session: session)
-                            }
+        Group {
+            if sessions.filter({ !$0.isActive }).isEmpty {
+                ContentUnavailableView(
+                    "Keine Schlafdaten",
+                    systemImage: "moon.zzz",
+                    description: Text("Starte deine erste Schlafaufzeichnung")
+                )
+            } else {
+                List {
+                    ForEach(sessions.filter { !$0.isActive }) { session in
+                        NavigationLink(destination: SleepDetailView(session: session)) {
+                            SleepSessionRow(session: session)
                         }
-                        .onDelete(perform: delete)
                     }
-                    .listStyle(.insetGrouped)
-                    .toolbar {
-                        EditButton()
-                    }
+                    .onDelete(perform: delete)
+                }
+                .listStyle(.insetGrouped)
+                .toolbar {
+                    EditButton()
                 }
             }
-            .navigationTitle("Verlauf")
         }
+        .navigationTitle("Verlauf")
+        .navigationBarTitleDisplayMode(.large)
     }
 
     private func delete(at offsets: IndexSet) {

@@ -98,7 +98,7 @@ struct SleepDetailView: View {
         }
         .padding(12)
         .background(Color(.secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 14))
+        .clipShape(RoundedRectangle(cornerRadius: 16))
     }
 
     private func pct(_ dur: TimeInterval) -> Int {
@@ -124,7 +124,7 @@ struct SleepDetailView: View {
         }
         .padding()
         .background(Color(.secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 14))
+        .clipShape(RoundedRectangle(cornerRadius: 16))
     }
 
     private func extraStat(_ value: String, icon: String, color: Color, label: String) -> some View {
