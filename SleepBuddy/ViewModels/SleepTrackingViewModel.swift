@@ -3,6 +3,7 @@ import SwiftData
 import Observation
 
 @Observable
+@MainActor
 final class SleepTrackingViewModel {
     private(set) var currentSession: SleepSession?
     private(set) var currentPhase: SleepPhaseType = .awake
@@ -31,6 +32,7 @@ final class SleepTrackingViewModel {
         currentPhase = .awake
 
         audioService.onFeaturesUpdated = { [weak self] features in
+            // AudioAnalysisService already dispatches this to main queue
             self?.handleFeatures(features)
         }
 
@@ -48,7 +50,6 @@ final class SleepTrackingViewModel {
         audioService.stop()
         classifier.reset()
 
-        // Close the last open phase
         finalizeCurrentPhase(endDate: .now, session: session)
 
         session.endDate = .now

@@ -46,10 +46,12 @@ final class HealthKitService {
 
         try await store.save(samples)
 
-        // Share quality score via App Group for PainDiary
-        let defaults = UserDefaults(suiteName: "group.com.doemu0992.sleepbuddy")
-        defaults?.set(session.computedQualityScore, forKey: "lastNightSleepQuality")
-        defaults?.set(session.startDate, forKey: "lastNightSleepDate")
+        // Share quality score via App Group for PainDiary (only if App Group is provisioned)
+        if let defaults = UserDefaults(suiteName: "group.com.doemu0992.sleepbuddy") {
+            defaults.set(session.computedQualityScore, forKey: "lastNightSleepQuality")
+            defaults.set(session.startDate, forKey: "lastNightSleepDate")
+            defaults.synchronize()
+        }
     }
 
     private func hkValue(for phase: SleepPhaseType) -> Int {
