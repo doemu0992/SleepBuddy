@@ -7,6 +7,6 @@ struct SleepBuddyApp: App {
         WindowGroup {
             ContentView()
         }
-        .modelContainer(for: [SleepSession.self, SleepPhase.self])
+        .modelContainer(for: [SleepSession.self, SleepPhase.self, TrainingSample.self])
     }
 }

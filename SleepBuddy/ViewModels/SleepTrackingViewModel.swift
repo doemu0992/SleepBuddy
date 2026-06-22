@@ -13,17 +13,23 @@ final class SleepTrackingViewModel {
     let insights = SleepInsightService()
 
     private let audioService = AudioAnalysisService()
-    private let classifier = MLSleepClassifier()
+    let classifier = MLSleepClassifier()
     private let healthKit = HealthKitService()
 
     private var modelContext: ModelContext?
     private var currentPhaseStartDate = Date()
 
-    var isUsingMLModel: Bool { classifier.isMLAvailable }
+    var isUsingML: Bool { classifier.sampleCount >= 40 }
+    var sampleCount: Int { classifier.sampleCount }
+
+    // MARK: - Setup
 
     func configure(modelContext: ModelContext) {
         self.modelContext = modelContext
+        classifier.loadSamples(from: modelContext)
     }
+
+    // MARK: - Tracking
 
     func startTracking() {
         guard !isTracking else { return }
@@ -52,12 +58,17 @@ final class SleepTrackingViewModel {
         guard isTracking, let session = currentSession else { return }
 
         audioService.stop()
-        classifier.reset()
 
         finalizeCurrentPhase(endDate: .now, session: session)
         session.endDate = .now
         session.sleepQualityScore = session.computedQualityScore
 
+        // Persist this night's training samples BEFORE resetting
+        if let context = modelContext {
+            classifier.flushSessionBuffer(to: context)
+        }
+
+        classifier.reset()
         try? modelContext?.save()
 
         if healthKit.isAuthorized {
@@ -66,8 +77,15 @@ final class SleepTrackingViewModel {
 
         isTracking = false
 
-        // Generate AI insights after tracking ends
         await insights.generateInsights(for: session)
+    }
+
+    /// Called from SleepDetailView when user corrects a phase label.
+    func correctPhase(_ phase: SleepPhase, to newType: SleepPhaseType) {
+        guard let context = modelContext else { return }
+        phase.phaseType = newType
+        classifier.correctSamples(from: phase.startDate, to: phase.endDate, correctPhase: newType, context: context)
+        try? context.save()
     }
 
     func clearError() { errorMessage = nil }
@@ -75,6 +93,8 @@ final class SleepTrackingViewModel {
     func requestHealthKitAccess() async {
         await healthKit.requestAuthorization()
     }
+
+    // MARK: - Private
 
     private func handleFeatures(_ features: AudioFeatures) {
         let result = classifier.classify(features: features)

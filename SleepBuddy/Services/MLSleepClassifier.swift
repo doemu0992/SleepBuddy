@@ -1,48 +1,65 @@
 import CoreML
 import Foundation
+import SwiftData
 
-/// CoreML-based sleep phase classifier.
-/// Falls back to signal-based rules when no trained model is available.
-/// To train: collect AudioFeatures + ground truth labels, export via Create ML.
+/// Entry point for sleep phase classification.
+/// Uses on-device learned k-NN (OnlineSleepClassifier) enriched by any
+/// trained CoreML model that may be bundled in the future.
 final class MLSleepClassifier {
 
-    private var model: MLModel?
-    private let signalClassifier = SleepPhaseClassifier()
-
-    private(set) var isMLAvailable = false
+    let onlineClassifier = OnlineSleepClassifier()
+    private var coreMLModel: MLModel?
+    private(set) var isCoreMLAvailable = false
 
     init() {
-        loadModel()
+        loadCoreMLModel()
     }
 
-    private func loadModel() {
-        // Looks for SleepPhaseClassifier.mlmodelc in the app bundle.
-        // To generate: use Create ML with time-series audio features as input.
-        guard let modelURL = Bundle.main.url(forResource: "SleepPhaseClassifier", withExtension: "mlmodelc"),
-              let loaded = try? MLModel(contentsOf: modelURL) else {
-            isMLAvailable = false
+    // MARK: - Setup
+
+    func loadSamples(from context: ModelContext) {
+        onlineClassifier.loadSamples(from: context)
+    }
+
+    private func loadCoreMLModel() {
+        guard let url = Bundle.main.url(forResource: "SleepPhaseClassifier", withExtension: "mlmodelc"),
+              let model = try? MLModel(contentsOf: url) else {
+            isCoreMLAvailable = false
             return
         }
-        model = loaded
-        isMLAvailable = true
+        coreMLModel = model
+        isCoreMLAvailable = true
     }
 
+    // MARK: - Classification
+
     func classify(features: AudioFeatures) -> (phase: SleepPhaseType, confidence: Double) {
-        if isMLAvailable, let result = mlClassify(features: features) {
+        // CoreML takes priority if available (highest quality when trained model exists)
+        if isCoreMLAvailable, let result = coreMLClassify(features: features) {
             return result
         }
-        // Fallback to signal-based classifier
-        return signalClassifier.classify(features: features)
+        // Otherwise: online k-NN (learns from every night)
+        return onlineClassifier.classify(features: features)
     }
 
     func reset() {
-        signalClassifier.reset()
+        onlineClassifier.reset()
     }
+
+    func flushSessionBuffer(to context: ModelContext) {
+        onlineClassifier.flushSessionBuffer(to: context)
+    }
+
+    func correctSamples(from start: Date, to end: Date, correctPhase: SleepPhaseType, context: ModelContext) {
+        onlineClassifier.correctSamples(from: start, to: end, correctPhase: correctPhase, context: context)
+    }
+
+    var sampleCount: Int { onlineClassifier.sampleCount }
 
     // MARK: - CoreML inference
 
-    private func mlClassify(features: AudioFeatures) -> (phase: SleepPhaseType, confidence: Double)? {
-        guard let model else { return nil }
+    private func coreMLClassify(features: AudioFeatures) -> (phase: SleepPhaseType, confidence: Double)? {
+        guard let model = coreMLModel else { return nil }
 
         let input: [String: Any] = [
             "averageAmplitude": Double(features.averageAmplitude),
@@ -54,19 +71,16 @@ final class MLSleepClassifier {
         guard let provider = try? MLDictionaryFeatureProvider(dictionary: input),
               let output = try? model.prediction(from: provider),
               let labelValue = output.featureValue(for: "phase"),
-              let label = labelValue.stringValue.isEmpty ? nil : labelValue.stringValue else {
-            return nil
-        }
+              !labelValue.stringValue.isEmpty else { return nil }
 
+        let label = labelValue.stringValue
         let confidence: Double
-        if let probsFeature = output.featureValue(for: "phaseProbability"),
-           let probs = probsFeature.dictionaryValue as? [String: Double] {
+        if let probs = output.featureValue(for: "phaseProbability")?.dictionaryValue as? [String: Double] {
             confidence = probs[label] ?? 0.7
         } else {
             confidence = 0.7
         }
 
-        let phase = SleepPhaseType(rawValue: label) ?? .awake
-        return (phase, confidence)
+        return (SleepPhaseType(rawValue: label) ?? .awake, confidence)
     }
 }

@@ -1,8 +1,11 @@
 import SwiftUI
+import SwiftData
 
 struct SleepDetailView: View {
     let session: SleepSession
     @State private var insightService = SleepInsightService()
+    @State private var correctingPhase: SleepPhase?
+    @Environment(\.modelContext) private var modelContext
 
     var body: some View {
         ScrollView {
@@ -22,7 +25,14 @@ struct SleepDetailView: View {
                 await insightService.generateInsights(for: session)
             }
         }
+        .sheet(item: $correctingPhase) { phase in
+            PhaseCorrectionSheet(phase: phase) { newType in
+                applyCorrection(phase: phase, newType: newType)
+            }
+        }
     }
+
+    // MARK: - AI Insight Card
 
     private var aiInsightCard: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -56,8 +66,7 @@ struct SleepDetailView: View {
                                     .foregroundStyle(.indigo)
                                     .font(.caption)
                                     .padding(.top, 2)
-                                Text(rec)
-                                    .font(.subheadline)
+                                Text(rec).font(.subheadline)
                             }
                         }
                     }
@@ -72,6 +81,8 @@ struct SleepDetailView: View {
         .background(Color(.secondarySystemGroupedBackground))
         .clipShape(RoundedRectangle(cornerRadius: 16))
     }
+
+    // MARK: - Header Card
 
     private var headerCard: some View {
         VStack(spacing: 16) {
@@ -103,6 +114,8 @@ struct SleepDetailView: View {
         .padding(.vertical, 8)
     }
 
+    // MARK: - Phase Breakdown
+
     private var phaseBreakdownCard: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Schlafphasen-Verteilung")
@@ -120,8 +133,7 @@ struct SleepDetailView: View {
                             Circle().fill(type.color).frame(width: 10, height: 10)
                             Text(type.rawValue)
                             Spacer()
-                            Text(duration.formattedDuration)
-                                .foregroundStyle(.secondary)
+                            Text(duration.formattedDuration).foregroundStyle(.secondary)
                         }
                         .font(.subheadline)
                     }
@@ -137,31 +149,114 @@ struct SleepDetailView: View {
         .clipShape(RoundedRectangle(cornerRadius: 16))
     }
 
+    // MARK: - Phase Timeline (with correction)
+
     private var phaseTimelineCard: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Zeitverlauf")
-                .font(.headline)
+            HStack {
+                Text("Zeitverlauf")
+                    .font(.headline)
+                Spacer()
+                Text("Tippe zum Korrigieren")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
 
             ForEach(session.phases, id: \.startDate) { phase in
-                HStack {
-                    Image(systemName: phase.phaseType.icon)
-                        .foregroundStyle(phase.phaseType.color)
-                        .frame(width: 24)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(phase.phaseType.rawValue).font(.subheadline.bold())
-                        Text("\(phase.startDate.formatted(date: .omitted, time: .shortened)) – \(phase.endDate.formatted(date: .omitted, time: .shortened))")
+                Button {
+                    correctingPhase = phase
+                } label: {
+                    HStack {
+                        Image(systemName: phase.phaseType.icon)
+                            .foregroundStyle(phase.phaseType.color)
+                            .frame(width: 24)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(phase.phaseType.rawValue)
+                                .font(.subheadline.bold())
+                                .foregroundStyle(.primary)
+                            Text("\(phase.startDate.formatted(date: .omitted, time: .shortened)) – \(phase.endDate.formatted(date: .omitted, time: .shortened))")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Text(phase.duration.formattedDuration)
                             .font(.caption)
                             .foregroundStyle(.secondary)
+                        Image(systemName: "chevron.right")
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
                     }
-                    Spacer()
-                    Text(phase.duration.formattedDuration)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
                 }
             }
         }
         .padding()
         .background(Color(.secondarySystemGroupedBackground))
         .clipShape(RoundedRectangle(cornerRadius: 16))
+    }
+
+    // MARK: - Correction
+
+    private func applyCorrection(phase: SleepPhase, newType: SleepPhaseType) {
+        let classifier = MLSleepClassifier()
+        classifier.loadSamples(from: modelContext)
+        classifier.correctSamples(from: phase.startDate, to: phase.endDate, correctPhase: newType, context: modelContext)
+        phase.phaseType = newType
+        try? modelContext.save()
+    }
+}
+
+// MARK: - Phase Correction Sheet
+
+struct PhaseCorrectionSheet: View {
+    let phase: SleepPhase
+    let onCorrect: (SleepPhaseType) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    Text("Welche Schlafphase war das wirklich?")
+                        .foregroundStyle(.secondary)
+                } header: {
+                    Text("\(phase.startDate.formatted(date: .omitted, time: .shortened)) – \(phase.endDate.formatted(date: .omitted, time: .shortened))")
+                }
+
+                Section("Phase wählen") {
+                    ForEach(SleepPhaseType.allCases, id: \.self) { type in
+                        Button {
+                            onCorrect(type)
+                            dismiss()
+                        } label: {
+                            HStack {
+                                Image(systemName: type.icon)
+                                    .foregroundStyle(type.color)
+                                    .frame(width: 28)
+                                Text(type.rawValue)
+                                    .foregroundStyle(.primary)
+                                Spacer()
+                                if type == phase.phaseType {
+                                    Image(systemName: "checkmark")
+                                        .foregroundStyle(.indigo)
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Section {
+                    Text("Korrekturen verbessern den Klassifikator dauerhaft — je mehr du korrigierst, desto genauer wird die App.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .navigationTitle("Phase korrigieren")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Abbrechen") { dismiss() }
+                }
+            }
+        }
     }
 }
