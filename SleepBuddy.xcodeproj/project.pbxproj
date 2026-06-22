@@ -36,6 +36,13 @@
 		AA000027 /* CoreMotion.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = AA100029 /* CoreMotion.framework */; };
 		AA000028 /* CoreML.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = AA100030 /* CoreML.framework */; };
 		AA000029 /* UserNotifications.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = AA100031 /* UserNotifications.framework */; };
+		AA000030 /* ProfilView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100032 /* ProfilView.swift */; };
+		AA000031 /* EinstellungenView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100033 /* EinstellungenView.swift */; };
+		AA000032 /* NotificationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100034 /* NotificationManager.swift */; };
+		AA000033 /* SharedProfil.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100035 /* SharedProfil.swift */; };
+		AA000034 /* SleepNightSummary.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100036 /* SleepNightSummary.swift */; };
+		AA000035 /* SleepSoundEvent.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100037 /* SleepSoundEvent.swift */; };
+		AA000036 /* SoundEventService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100038 /* SoundEventService.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -70,6 +77,13 @@
 		AA100029 /* CoreMotion.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreMotion.framework; path = System/Library/Frameworks/CoreMotion.framework; sourceTree = SDKROOT; };
 		AA100030 /* CoreML.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreML.framework; path = System/Library/Frameworks/CoreML.framework; sourceTree = SDKROOT; };
 		AA100031 /* UserNotifications.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UserNotifications.framework; path = System/Library/Frameworks/UserNotifications.framework; sourceTree = SDKROOT; };
+		AA100032 /* ProfilView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfilView.swift; sourceTree = "<group>"; };
+		AA100033 /* EinstellungenView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EinstellungenView.swift; sourceTree = "<group>"; };
+		AA100034 /* NotificationManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationManager.swift; sourceTree = "<group>"; };
+		AA100035 /* SharedProfil.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedProfil.swift; sourceTree = "<group>"; };
+		AA100036 /* SleepNightSummary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepNightSummary.swift; sourceTree = "<group>"; };
+		AA100037 /* SleepSoundEvent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepSoundEvent.swift; sourceTree = "<group>"; };
+		AA100038 /* SoundEventService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoundEventService.swift; sourceTree = "<group>"; };
 		AA200001 /* SleepBuddy.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SleepBuddy.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -113,6 +127,8 @@
 				AA100004 /* SleepPhase.swift */,
 				AA100005 /* SleepPhaseType.swift */,
 				AA100022 /* TrainingSample.swift */,
+				AA100036 /* SleepNightSummary.swift */,
+				AA100037 /* SleepSoundEvent.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -125,6 +141,8 @@
 				AA100013 /* SleepHistoryView.swift */,
 				AA100014 /* SleepDetailView.swift */,
 				AA100015 /* SleepPhaseBarView.swift */,
+				AA100032 /* ProfilView.swift */,
+				AA100033 /* EinstellungenView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -142,6 +160,8 @@
 			isa = PBXGroup;
 			children = (
 				AA100006 /* AudioAnalysisService.swift */,
+				AA100034 /* NotificationManager.swift */,
+				AA100035 /* SharedProfil.swift */,
 				AA100007 /* SleepPhaseClassifier.swift */,
 				AA100008 /* HealthKitService.swift */,
 				AA100023 /* MotionAnalysisService.swift */,
@@ -150,6 +170,7 @@
 				AA100026 /* OnlineSleepClassifier.swift */,
 				AA100027 /* MLSleepClassifier.swift */,
 				AA100028 /* SleepInsightService.swift */,
+				AA100038 /* SoundEventService.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -284,6 +305,13 @@
 				AA000024 /* OnlineSleepClassifier.swift in Sources */,
 				AA000025 /* MLSleepClassifier.swift in Sources */,
 				AA000026 /* SleepInsightService.swift in Sources */,
+				AA000030 /* ProfilView.swift in Sources */,
+				AA000031 /* EinstellungenView.swift in Sources */,
+				AA000032 /* NotificationManager.swift in Sources */,
+				AA000033 /* SharedProfil.swift in Sources */,
+				AA000034 /* SleepNightSummary.swift in Sources */,
+				AA000035 /* SleepSoundEvent.swift in Sources */,
+				AA000036 /* SoundEventService.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

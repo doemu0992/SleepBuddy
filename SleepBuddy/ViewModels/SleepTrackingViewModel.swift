@@ -23,6 +23,7 @@ final class SleepTrackingViewModel {
     private let motionService = MotionAnalysisService()
     private let onsetDetector = SleepOnsetDetector()
     private let healthKit = HealthKitService()
+    let soundEventService = SoundEventService()
 
     private var modelContext: ModelContext?
     private var currentPhaseStartDate = Date()
@@ -58,17 +59,35 @@ final class SleepTrackingViewModel {
 
         onsetDetector.reset()
         classifier.reset()
+        soundEventService.reset()
 
         motionService.onFeaturesUpdated = { [weak self] motion in
             self?.latestMotionFeatures = motion
         }
 
         audioService.onFeaturesUpdated = { [weak self] audio in
+            self?.soundEventService.tick(
+                amplitude: audio.averageAmplitude,
+                snoringScore: audio.snoringIntensity,
+                speechLikelihood: audio.speechLikelihood
+            )
             self?.handleFeatures(audio: audio, motion: self?.latestMotionFeatures ?? .neutral)
+        }
+
+        audioService.onRawChunk = { [weak self] samples, sampleRate, _ in
+            self?.soundEventService.appendSamples(samples, actualSampleRate: sampleRate)
+        }
+
+        soundEventService.onEventCaptured = { [weak self] timestamp, type, duration, fileName in
+            guard let self, let session = self.currentSession, let ctx = self.modelContext else { return }
+            let event = SleepSoundEvent(timestamp: timestamp, type: type, durationSeconds: duration, iCloudFileName: fileName)
+            ctx.insert(event)
+            session.soundEvents.append(event)
         }
 
         do {
             try audioService.start()
+            soundEventService.configure(sampleRate: 44100)
             motionService.start()
             smartAlarm.arm()
             isTracking = true
@@ -85,6 +104,7 @@ final class SleepTrackingViewModel {
         motionService.stop()
         smartAlarm.disarm()
         smartAlarm.stopAlarm()
+        soundEventService.reset()
 
         finalizeCurrentPhase(endDate: .now, session: session)
         session.endDate = .now

@@ -1,10 +1,13 @@
 import SwiftUI
 import SwiftData
+import AVFoundation
 
 struct SleepDetailView: View {
     let session: SleepSession
     @State private var insightService = SleepInsightService()
     @State private var correctingPhase: SleepPhase?
+    @State private var audioPlayer: AVAudioPlayer?
+    @State private var playingEventID: Date?
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
 
@@ -18,6 +21,9 @@ struct SleepDetailView: View {
                 }
                 phaseBarCard
                 aiInsightCard
+                if !session.soundEvents.isEmpty {
+                    soundEventsCard
+                }
                 phaseTimelineCard
             }
             .padding()
@@ -214,6 +220,91 @@ struct SleepDetailView: View {
         .padding()
         .background(Color(.secondarySystemGroupedBackground))
         .clipShape(RoundedRectangle(cornerRadius: 16))
+    }
+
+    // MARK: - Sound Events
+
+    private var soundEventsCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Image(systemName: "waveform.badge.mic").foregroundStyle(.indigo)
+                Text("Schlafgeräusche").font(.headline)
+                Spacer()
+                Text("\(session.soundEvents.count) Ereignisse")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+
+            ForEach(session.soundEvents.sorted { $0.timestamp < $1.timestamp }, id: \.timestamp) { event in
+                HStack(spacing: 12) {
+                    ZStack {
+                        Circle().fill(event.type.color.opacity(0.15)).frame(width: 36, height: 36)
+                        Image(systemName: event.type.icon).foregroundStyle(event.type.color).font(.caption)
+                    }
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(event.type.rawValue).font(.subheadline.bold())
+                        Text(event.timestamp.formatted(date: .omitted, time: .shortened))
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+
+                    Spacer()
+
+                    Text(formatEventDuration(event.durationSeconds))
+                        .font(.caption).foregroundStyle(.secondary)
+
+                    if let fileName = event.iCloudFileName {
+                        Button {
+                            togglePlayback(event: event, fileName: fileName)
+                        } label: {
+                            Image(systemName: playingEventID == event.timestamp ? "stop.circle.fill" : "play.circle.fill")
+                                .font(.title3)
+                                .foregroundStyle(playingEventID == event.timestamp ? .orange : .indigo)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+        }
+        .padding()
+        .background(Color(.secondarySystemGroupedBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+    }
+
+    private func formatEventDuration(_ seconds: TimeInterval) -> String {
+        let s = Int(seconds)
+        return s < 60 ? "\(s)s" : "\(s/60)m \(s%60)s"
+    }
+
+    private func togglePlayback(event: SleepSoundEvent, fileName: String) {
+        if playingEventID == event.timestamp {
+            audioPlayer?.stop()
+            audioPlayer = nil
+            playingEventID = nil
+            return
+        }
+
+        let soundService = SoundEventService()
+        guard let url = soundService.localAudioURL(for: fileName) else { return }
+
+        do {
+            let player = try AVAudioPlayer(contentsOf: url)
+            player.play()
+            audioPlayer = player
+            playingEventID = event.timestamp
+
+            Task {
+                try? await Task.sleep(for: .seconds(player.duration + 0.5))
+                await MainActor.run {
+                    if self.playingEventID == event.timestamp {
+                        self.playingEventID = nil
+                        self.audioPlayer = nil
+                    }
+                }
+            }
+        } catch {
+            // File not yet downloaded from iCloud — trigger download
+            try? FileManager.default.startDownloadingUbiquitousItem(at: url)
+        }
     }
 
     // MARK: - Phase Timeline

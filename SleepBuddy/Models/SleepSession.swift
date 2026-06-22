@@ -20,9 +20,13 @@ final class SleepSession {
     var alarmLatestTime: Date?
     var alarmFiredDate: Date?
 
+    // Sound events (opt-in iCloud audio clips)
+    var soundEvents: [SleepSoundEvent] = []
+
     init(startDate: Date = .now) {
         self.startDate = startDate
         self.phases = []
+        self.soundEvents = []
     }
 
     // MARK: - Derived

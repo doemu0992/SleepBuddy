@@ -17,7 +17,7 @@
     <key>CFBundleExecutable</key>
     <string>$(EXECUTABLE_NAME)</string>
     <key>NSMicrophoneUsageDescription</key>
-    <string>SleepBuddy analysiert deine Atemgeräusche, um Schlafphasen zu erkennen. Audio wird nicht gespeichert.</string>
+    <string>SleepBuddy analysiert deine Atemgeräusche, um Schlafphasen zu erkennen. Mit deiner Erlaubnis können kurze Audioclips von Schlafgeräuschen optional in iCloud gespeichert werden.</string>
     <key>NSHealthUpdateUsageDescription</key>
     <string>SleepBuddy schreibt deine Schlafdaten in Apple Health.</string>
     <key>NSHealthShareUsageDescription</key>

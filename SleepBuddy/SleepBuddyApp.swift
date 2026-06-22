@@ -10,7 +10,7 @@ struct SleepBuddyApp: App {
         WindowGroup {
             ContentView()
         }
-        .modelContainer(for: [SleepSession.self, SleepPhase.self, TrainingSample.self])
+        .modelContainer(for: [SleepSession.self, SleepPhase.self, TrainingSample.self, SleepSoundEvent.self])
         .onChange(of: scenePhase) { _, phase in
             if phase == .background {
                 // Deactivate audio session when not tracking.

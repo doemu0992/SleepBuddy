@@ -46,8 +46,10 @@ extension SleepPhaseType {
 }
 ```
 
-### Keine Audio-Speicherung
-**Invariante**: Rohdaten des Mikrofons verlassen niemals den RAM. Nur aggregierte Feature-Vektoren (Amplitude, Spektralbänder) fließen in den Klassifikator.
+### Audio-Speicherung (opt-in)
+**Standard**: Rohdaten des Mikrofons verlassen niemals den RAM für die Klassifikation. Nur aggregierte Feature-Vektoren (Amplitude, Spektralbänder) fließen in den Klassifikator.
+
+**Opt-in iCloud-Clips**: Der Nutzer kann in Einstellungen > Schlafgeräusche kurze Audioclips (~30s) aktivieren. Bei erkannten Ereignissen (Schnarchen, Sprechen, Geräusche) speichert `SoundEventService` einen Clip als `.m4a` in iCloud Documents (`iCloud.com.doemu0992.SleepBuddy/SleepSounds/`). Ohne Aktivierung bleibt die ursprüngliche Invariante erhalten.
 
 ---
 

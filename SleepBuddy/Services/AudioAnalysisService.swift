@@ -3,11 +3,16 @@ import Observation
 import Accelerate
 
 /// Captures audio and extracts breathing + snoring features.
-/// Raw audio buffers are never stored — only derived feature vectors.
+/// Raw audio buffers are never stored for analysis. Opt-in audio clip saving
+/// is handled separately by SoundEventService.
 @Observable
 final class AudioAnalysisService {
     private(set) var isRunning = false
     var onFeaturesUpdated: ((AudioFeatures) -> Void)?
+
+    /// Called on the analysis queue with raw samples, sample rate, and snoring score
+    /// so SoundEventService can maintain its own circular buffer.
+    var onRawChunk: (([Float], Double, Float) -> Void)?
 
     private let engine = AVAudioEngine()
     private let analysisQueue = DispatchQueue(label: "com.sleepbuddy.audio", qos: .utility)
@@ -69,6 +74,11 @@ final class AudioAnalysisService {
         guard let channelData = buffer.floatChannelData?[0] else { return }
         let count = Int(buffer.frameLength)
 
+        // Copy samples for raw chunk callback (SoundEventService ring buffer)
+        let chunkCopy = Array(UnsafeBufferPointer(start: channelData, count: count))
+        let currentSnoringScore = snoringIntensity(rawSamples: rawSampleBuffer, sampleRate: audioSampleRate)
+        onRawChunk?(chunkCopy, audioSampleRate, currentSnoringScore)
+
         // Accumulate raw samples for FFT (ring-buffer capped at rawBufferMaxSize)
         for i in 0..<count { rawSampleBuffer.append(channelData[i]) }
         if rawSampleBuffer.count > rawBufferMaxSize {
@@ -119,6 +129,7 @@ final class AudioAnalysisService {
         let breathingRate = estimateBreathingRate(envelope: demeaned, sampleRate: envelopeSampleRate)
         let regularity = computeRegularity(envelope: demeaned)
         let snoring = snoringIntensity(rawSamples: rawSampleBuffer, sampleRate: audioSampleRate)
+        let speech = speechLikelihood(rawSamples: rawSampleBuffer, sampleRate: audioSampleRate)
 
         return AudioFeatures(
             averageAmplitude: mean,
@@ -126,6 +137,7 @@ final class AudioAnalysisService {
             breathingRateBPM: breathingRate,
             breathingRegularity: regularity,
             snoringIntensity: snoring,
+            speechLikelihood: speech,
             timestamp: Date()
         )
     }
@@ -220,6 +232,60 @@ final class AudioAnalysisService {
         // Snoring band ratio typically > 0.4 during real snoring
         return min(max((ratio - 0.3) / 0.4, 0), 1.0)
     }
+
+    // MARK: - Speech detection (300–3500 Hz band with high amplitude variation)
+
+    private func speechLikelihood(rawSamples: [Float], sampleRate: Double) -> Float {
+        guard let setup = fftSetup, rawSamples.count >= fftSize else { return 0 }
+
+        let recent = Array(rawSamples.suffix(fftSize))
+        var windowed = [Float](repeating: 0, count: fftSize)
+        var window = [Float](repeating: 0, count: fftSize)
+        vDSP_hann_window(&window, vDSP_Length(fftSize), Int32(vDSP_HANN_NORM))
+        vDSP_vmul(recent, 1, window, 1, &windowed, 1, vDSP_Length(fftSize))
+
+        var realPart = [Float](repeating: 0, count: fftSize / 2)
+        var imagPart = [Float](repeating: 0, count: fftSize / 2)
+        realPart.withUnsafeMutableBufferPointer { realPtr in
+            imagPart.withUnsafeMutableBufferPointer { imagPtr in
+                var splitComplex = DSPSplitComplex(realp: realPtr.baseAddress!, imagp: imagPtr.baseAddress!)
+                windowed.withUnsafeBufferPointer { ptr in
+                    ptr.baseAddress!.withMemoryRebound(to: DSPComplex.self, capacity: fftSize / 2) { cPtr in
+                        vDSP_ctoz(cPtr, 2, &splitComplex, 1, vDSP_Length(fftSize / 2))
+                    }
+                }
+                vDSP_fft_zrip(setup, &splitComplex, 1, vDSP_Length(log2(Float(fftSize))), FFTDirection(FFT_FORWARD))
+            }
+        }
+
+        var magnitudes = [Float](repeating: 0, count: fftSize / 2)
+        for i in 0..<fftSize/2 { magnitudes[i] = realPart[i]*realPart[i] + imagPart[i]*imagPart[i] }
+
+        let hzPerBin = sampleRate / Double(fftSize)
+        let speechLow  = max(1, Int(300.0  / hzPerBin))
+        let speechHigh = min(fftSize / 2 - 1, Int(3500.0 / hzPerBin))
+        let snoringLow = max(1, Int(80.0   / hzPerBin))
+        let snoringHigh = min(fftSize / 2 - 1, Int(500.0  / hzPerBin))
+
+        var speechEnergy: Float = 0
+        var snoringEnergy: Float = 0
+        var totalEnergy: Float = 0
+        vDSP_sve(Array(magnitudes[speechLow...speechHigh]), 1, &speechEnergy, vDSP_Length(speechHigh - speechLow + 1))
+        vDSP_sve(Array(magnitudes[snoringLow...snoringHigh]), 1, &snoringEnergy, vDSP_Length(snoringHigh - snoringLow + 1))
+        vDSP_sve(magnitudes, 1, &totalEnergy, vDSP_Length(fftSize / 2))
+
+        guard totalEnergy > 1e-10 else { return 0 }
+
+        // Speech: high energy in 300–3500 Hz that is NOT dominated by low snoring band
+        let speechRatio = speechEnergy / totalEnergy
+        let snoringRatio = snoringEnergy / totalEnergy
+        let rms = sqrt(totalEnergy / Float(fftSize / 2))
+        guard rms > 0.008 else { return 0 }
+
+        // Speech has high speech-band ratio but snoring does not dominate
+        let likelihood = speechRatio * (1.0 - min(snoringRatio, 1.0))
+        return min(max((likelihood - 0.25) / 0.4, 0), 1.0)
+    }
 }
 
 struct AudioFeatures {
@@ -227,6 +293,7 @@ struct AudioFeatures {
     let amplitudeVariance: Float
     let breathingRateBPM: Float        // 0 if not detectable
     let breathingRegularity: Float     // 0–1, 1 = perfectly regular
-    let snoringIntensity: Float        // 0–1, 0 = keine Schnarchen
+    let snoringIntensity: Float        // 0–1, 0 = kein Schnarchen
+    let speechLikelihood: Float        // 0–1, heuristic for voice-like sounds
     let timestamp: Date
 }
