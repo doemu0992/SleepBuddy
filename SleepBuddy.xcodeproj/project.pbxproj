@@ -26,6 +26,16 @@
 		AA000017 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = AA100017 /* Assets.xcassets */; };
 		AA000018 /* HealthKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = AA100018 /* HealthKit.framework */; };
 		AA000019 /* AVFoundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = AA100019 /* AVFoundation.framework */; };
+		AA000020 /* TrainingSample.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100022 /* TrainingSample.swift */; };
+		AA000021 /* MotionAnalysisService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100023 /* MotionAnalysisService.swift */; };
+		AA000022 /* SmartAlarmService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100024 /* SmartAlarmService.swift */; };
+		AA000023 /* SleepOnsetDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100025 /* SleepOnsetDetector.swift */; };
+		AA000024 /* OnlineSleepClassifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100026 /* OnlineSleepClassifier.swift */; };
+		AA000025 /* MLSleepClassifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100027 /* MLSleepClassifier.swift */; };
+		AA000026 /* SleepInsightService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100028 /* SleepInsightService.swift */; };
+		AA000027 /* CoreMotion.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = AA100029 /* CoreMotion.framework */; };
+		AA000028 /* CoreML.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = AA100030 /* CoreML.framework */; };
+		AA000029 /* UserNotifications.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = AA100031 /* UserNotifications.framework */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -50,6 +60,16 @@
 		AA100019 /* AVFoundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AVFoundation.framework; path = System/Library/Frameworks/AVFoundation.framework; sourceTree = SDKROOT; };
 		AA100020 /* SleepBuddy.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = SleepBuddy.entitlements; sourceTree = "<group>"; };
 		AA100021 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		AA100022 /* TrainingSample.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrainingSample.swift; sourceTree = "<group>"; };
+		AA100023 /* MotionAnalysisService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MotionAnalysisService.swift; sourceTree = "<group>"; };
+		AA100024 /* SmartAlarmService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SmartAlarmService.swift; sourceTree = "<group>"; };
+		AA100025 /* SleepOnsetDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepOnsetDetector.swift; sourceTree = "<group>"; };
+		AA100026 /* OnlineSleepClassifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnlineSleepClassifier.swift; sourceTree = "<group>"; };
+		AA100027 /* MLSleepClassifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MLSleepClassifier.swift; sourceTree = "<group>"; };
+		AA100028 /* SleepInsightService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepInsightService.swift; sourceTree = "<group>"; };
+		AA100029 /* CoreMotion.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreMotion.framework; path = System/Library/Frameworks/CoreMotion.framework; sourceTree = SDKROOT; };
+		AA100030 /* CoreML.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreML.framework; path = System/Library/Frameworks/CoreML.framework; sourceTree = SDKROOT; };
+		AA100031 /* UserNotifications.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UserNotifications.framework; path = System/Library/Frameworks/UserNotifications.framework; sourceTree = SDKROOT; };
 		AA200001 /* SleepBuddy.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SleepBuddy.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -60,6 +80,9 @@
 			files = (
 				AA000018 /* HealthKit.framework in Frameworks */,
 				AA000019 /* AVFoundation.framework in Frameworks */,
+				AA000027 /* CoreMotion.framework in Frameworks */,
+				AA000028 /* CoreML.framework in Frameworks */,
+				AA000029 /* UserNotifications.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -89,6 +112,7 @@
 				AA100003 /* SleepSession.swift */,
 				AA100004 /* SleepPhase.swift */,
 				AA100005 /* SleepPhaseType.swift */,
+				AA100022 /* TrainingSample.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -120,6 +144,12 @@
 				AA100006 /* AudioAnalysisService.swift */,
 				AA100007 /* SleepPhaseClassifier.swift */,
 				AA100008 /* HealthKitService.swift */,
+				AA100023 /* MotionAnalysisService.swift */,
+				AA100024 /* SmartAlarmService.swift */,
+				AA100025 /* SleepOnsetDetector.swift */,
+				AA100026 /* OnlineSleepClassifier.swift */,
+				AA100027 /* MLSleepClassifier.swift */,
+				AA100028 /* SleepInsightService.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -137,6 +167,9 @@
 			children = (
 				AA100018 /* HealthKit.framework */,
 				AA100019 /* AVFoundation.framework */,
+				AA100029 /* CoreMotion.framework */,
+				AA100030 /* CoreML.framework */,
+				AA100031 /* UserNotifications.framework */,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";
@@ -244,6 +277,13 @@
 				AA000014 /* SleepDetailView.swift in Sources */,
 				AA000015 /* SleepPhaseBarView.swift in Sources */,
 				AA000016 /* TimeInterval+Formatted.swift in Sources */,
+				AA000020 /* TrainingSample.swift in Sources */,
+				AA000021 /* MotionAnalysisService.swift in Sources */,
+				AA000022 /* SmartAlarmService.swift in Sources */,
+				AA000023 /* SleepOnsetDetector.swift in Sources */,
+				AA000024 /* OnlineSleepClassifier.swift in Sources */,
+				AA000025 /* MLSleepClassifier.swift in Sources */,
+				AA000026 /* SleepInsightService.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
