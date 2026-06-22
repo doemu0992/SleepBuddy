@@ -2,11 +2,13 @@ import SwiftUI
 
 struct SleepDetailView: View {
     let session: SleepSession
+    @State private var insightService = SleepInsightService()
 
     var body: some View {
         ScrollView {
             VStack(spacing: 20) {
                 headerCard
+                aiInsightCard
                 phaseBreakdownCard
                 phaseTimelineCard
             }
@@ -15,6 +17,60 @@ struct SleepDetailView: View {
         .background(Color(.systemGroupedBackground))
         .navigationTitle(session.startDate.formatted(date: .abbreviated, time: .omitted))
         .navigationBarTitleDisplayMode(.inline)
+        .task {
+            if insightService.summary == nil && !insightService.isGenerating {
+                await insightService.generateInsights(for: session)
+            }
+        }
+    }
+
+    private var aiInsightCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Label("Apple Intelligence", systemImage: "sparkles")
+                    .font(.headline)
+                    .foregroundStyle(.indigo)
+                Spacer()
+                if insightService.isGenerating {
+                    ProgressView().scaleEffect(0.8)
+                }
+            }
+
+            if insightService.isGenerating {
+                Text("Analyse wird erstellt…")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            } else if let summary = insightService.summary {
+                Text(summary)
+                    .font(.subheadline)
+
+                if !insightService.recommendations.isEmpty {
+                    Divider()
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Empfehlungen")
+                            .font(.caption.bold())
+                            .foregroundStyle(.secondary)
+                        ForEach(insightService.recommendations, id: \.self) { rec in
+                            HStack(alignment: .top, spacing: 8) {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .foregroundStyle(.indigo)
+                                    .font(.caption)
+                                    .padding(.top, 2)
+                                Text(rec)
+                                    .font(.subheadline)
+                            }
+                        }
+                    }
+                }
+            } else if let error = insightService.error {
+                Text(error)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding()
+        .background(Color(.secondarySystemGroupedBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 16))
     }
 
     private var headerCard: some View {

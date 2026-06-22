@@ -10,13 +10,16 @@ final class SleepTrackingViewModel {
     private(set) var currentConfidence: Double = 0
     private(set) var isTracking = false
     private(set) var errorMessage: String?
+    let insights = SleepInsightService()
 
     private let audioService = AudioAnalysisService()
-    private let classifier = SleepPhaseClassifier()
+    private let classifier = MLSleepClassifier()
     private let healthKit = HealthKitService()
 
     private var modelContext: ModelContext?
     private var currentPhaseStartDate = Date()
+
+    var isUsingMLModel: Bool { classifier.isMLAvailable }
 
     func configure(modelContext: ModelContext) {
         self.modelContext = modelContext
@@ -30,9 +33,10 @@ final class SleepTrackingViewModel {
         currentSession = session
         currentPhaseStartDate = .now
         currentPhase = .awake
+        insights.summary = nil
+        insights.recommendations = []
 
         audioService.onFeaturesUpdated = { [weak self] features in
-            // AudioAnalysisService already dispatches this to main queue
             self?.handleFeatures(features)
         }
 
@@ -51,7 +55,6 @@ final class SleepTrackingViewModel {
         classifier.reset()
 
         finalizeCurrentPhase(endDate: .now, session: session)
-
         session.endDate = .now
         session.sleepQualityScore = session.computedQualityScore
 
@@ -62,6 +65,9 @@ final class SleepTrackingViewModel {
         }
 
         isTracking = false
+
+        // Generate AI insights after tracking ends
+        await insights.generateInsights(for: session)
     }
 
     func clearError() { errorMessage = nil }
