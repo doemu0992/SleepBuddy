@@ -2,18 +2,28 @@ import AVFoundation
 import UserNotifications
 import Observation
 
-/// Wakes the user during a light sleep phase within a set time window.
-/// Strategy:
-///   1. Schedule a failsafe local notification at latestWakeTime
-///   2. During background audio, monitor phase + time
-///   3. If phase is light/awake inside the window → trigger alarm immediately
-///   4. Cancel failsafe notification once alarm fires
 @Observable
 final class SmartAlarmService {
 
-    var isEnabled = false
-    var earliestWakeTime: Date = defaultEarliestTime()
-    var latestWakeTime: Date = defaultLatestTime()
+    private enum Keys {
+        static let isEnabled      = "smartAlarm.isEnabled"
+        static let earliestHour   = "smartAlarm.earliestHour"
+        static let earliestMinute = "smartAlarm.earliestMinute"
+        static let latestHour     = "smartAlarm.latestHour"
+        static let latestMinute   = "smartAlarm.latestMinute"
+    }
+
+    var isEnabled: Bool = UserDefaults.standard.bool(forKey: Keys.isEnabled) {
+        didSet { UserDefaults.standard.set(isEnabled, forKey: Keys.isEnabled) }
+    }
+
+    var earliestWakeTime: Date = SmartAlarmService.loadTime(hourKey: Keys.earliestHour, minuteKey: Keys.earliestMinute, defaultHour: 6, defaultMinute: 30) {
+        didSet { SmartAlarmService.saveTime(earliestWakeTime, hourKey: Keys.earliestHour, minuteKey: Keys.earliestMinute) }
+    }
+
+    var latestWakeTime: Date = SmartAlarmService.loadTime(hourKey: Keys.latestHour, minuteKey: Keys.latestMinute, defaultHour: 7, defaultMinute: 0) {
+        didSet { SmartAlarmService.saveTime(latestWakeTime, hourKey: Keys.latestHour, minuteKey: Keys.latestMinute) }
+    }
 
     private(set) var alarmFired = false
     private(set) var alarmFiredDate: Date?
@@ -110,11 +120,14 @@ final class SmartAlarmService {
         return date >= earliest && date <= latest
     }
 
-    private static func defaultEarliestTime() -> Date {
-        Calendar.current.date(bySettingHour: 6, minute: 30, second: 0, of: Date()) ?? Date()
+    private static func loadTime(hourKey: String, minuteKey: String, defaultHour: Int, defaultMinute: Int) -> Date {
+        let hour   = UserDefaults.standard.object(forKey: hourKey)   != nil ? UserDefaults.standard.integer(forKey: hourKey)   : defaultHour
+        let minute = UserDefaults.standard.object(forKey: minuteKey) != nil ? UserDefaults.standard.integer(forKey: minuteKey) : defaultMinute
+        return Calendar.current.date(bySettingHour: hour, minute: minute, second: 0, of: Date()) ?? Date()
     }
 
-    private static func defaultLatestTime() -> Date {
-        Calendar.current.date(bySettingHour: 7, minute: 0, second: 0, of: Date()) ?? Date()
+    private static func saveTime(_ date: Date, hourKey: String, minuteKey: String) {
+        UserDefaults.standard.set(Calendar.current.component(.hour,   from: date), forKey: hourKey)
+        UserDefaults.standard.set(Calendar.current.component(.minute, from: date), forKey: minuteKey)
     }
 }
