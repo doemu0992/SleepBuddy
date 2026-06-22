@@ -52,6 +52,7 @@ final class AudioAnalysisService {
     }
 
     func stop() {
+        guard isRunning else { return }
         engine.inputNode.removeTap(onBus: 0)
         engine.stop()
         if let setup = fftSetup { vDSP_destroy_fftsetup(setup); fftSetup = nil }

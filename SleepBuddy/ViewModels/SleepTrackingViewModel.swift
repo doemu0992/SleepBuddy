@@ -72,6 +72,7 @@ final class SleepTrackingViewModel {
             motionService.start()
             smartAlarm.arm()
             isTracking = true
+            SleepBuddyApp.isTrackingActive = true
         } catch {
             errorMessage = "Mikrofon konnte nicht gestartet werden: \(error.localizedDescription)"
         }
@@ -103,6 +104,7 @@ final class SleepTrackingViewModel {
         }
 
         isTracking = false
+        SleepBuddyApp.isTrackingActive = false
         await insights.generateInsights(for: session)
     }
 

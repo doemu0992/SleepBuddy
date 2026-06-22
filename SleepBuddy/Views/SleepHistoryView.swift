@@ -3,27 +3,44 @@ import SwiftData
 
 struct SleepHistoryView: View {
     @Query(sort: \SleepSession.startDate, order: .reverse) private var sessions: [SleepSession]
+    @Environment(\.modelContext) private var modelContext
 
     var body: some View {
         NavigationStack {
             Group {
-                if sessions.isEmpty {
+                if sessions.filter({ !$0.isActive }).isEmpty {
                     ContentUnavailableView(
                         "Keine Schlafdaten",
                         systemImage: "moon.zzz",
                         description: Text("Starte deine erste Schlafaufzeichnung")
                     )
                 } else {
-                    List(sessions.filter { !$0.isActive }) { session in
-                        NavigationLink(destination: SleepDetailView(session: session)) {
-                            SleepSessionRow(session: session)
+                    List {
+                        ForEach(sessions.filter { !$0.isActive }) { session in
+                            NavigationLink(destination: SleepDetailView(session: session)) {
+                                SleepSessionRow(session: session)
+                            }
                         }
+                        .onDelete(perform: delete)
                     }
                     .listStyle(.insetGrouped)
+                    .toolbar {
+                        EditButton()
+                    }
                 }
             }
             .navigationTitle("Verlauf")
         }
+    }
+
+    private func delete(at offsets: IndexSet) {
+        let visible = sessions.filter { !$0.isActive }
+        for index in offsets {
+            let session = visible[index]
+            for phase in session.phases { modelContext.delete(phase) }
+            modelContext.delete(session)
+        }
+        try? modelContext.save()
     }
 }
 
@@ -42,6 +59,10 @@ private struct SleepSessionRow: View {
             HStack(spacing: 16) {
                 Label(session.totalDuration.formattedDuration, systemImage: "clock")
                 Label(session.deepSleepDuration.formattedDuration, systemImage: "moon.fill")
+                if session.snoringEventCount > 0 {
+                    Label("\(session.snoringEventCount)×", systemImage: "waveform")
+                        .foregroundStyle(.orange)
+                }
             }
             .font(.subheadline)
             .foregroundStyle(.secondary)
