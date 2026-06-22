@@ -123,6 +123,8 @@ final class SleepTrackingViewModel {
             try? await healthKit.saveSleepSession(session)
         }
 
+        PainDiaryVerknuepfungView.exportiereSession(session)
+
         isTracking = false
         SleepBuddyApp.isTrackingActive = false
         await insights.generateInsights(for: session)
