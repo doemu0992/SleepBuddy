@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>SleepBuddy analysiert deine Atemgeräusche, um Schlafphasen zu erkennen. Audio wird nicht gespeichert.</string>
+    <key>NSHealthUpdateUsageDescription</key>
+    <string>SleepBuddy schreibt deine Schlafdaten in Apple Health.</string>
+    <key>NSHealthShareUsageDescription</key>
+    <string>SleepBuddy liest Schlafdaten aus Apple Health.</string>
+    <key>UIBackgroundModes</key>
+    <array>
+        <string>audio</string>
+    </array>
+    <key>UILaunchScreen</key>
+    <dict/>
+    <key>UISupportedInterfaceOrientations</key>
+    <array>
+        <string>UIInterfaceOrientationPortrait</string>
+    </array>
+</dict>
+</plist>
