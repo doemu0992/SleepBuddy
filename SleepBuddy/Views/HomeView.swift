@@ -91,25 +91,26 @@ struct HomeView: View {
     // MARK: - Smart Alarm card
 
     private var smartAlarmCard: some View {
-        Button { showAlarmSetup = true } label: {
+        @Bindable var alarm = trackingViewModel.smartAlarm
+        return Button { showAlarmSetup = true } label: {
             HStack(spacing: 16) {
                 ZStack {
                     Circle()
-                        .fill(trackingViewModel.smartAlarm.isEnabled ? Color.indigo.opacity(0.15) : Color.secondary.opacity(0.1))
+                        .fill(alarm.isEnabled ? Color.indigo.opacity(0.15) : Color.secondary.opacity(0.1))
                         .frame(width: 44, height: 44)
-                    Image(systemName: trackingViewModel.smartAlarm.isEnabled ? "alarm.fill" : "alarm")
-                        .foregroundStyle(trackingViewModel.smartAlarm.isEnabled ? .indigo : .secondary)
+                    Image(systemName: alarm.isEnabled ? "alarm.fill" : "alarm")
+                        .foregroundStyle(alarm.isEnabled ? .indigo : .secondary)
                 }
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Smart Alarm")
                         .font(.subheadline.bold())
                         .foregroundStyle(.primary)
-                    Text(trackingViewModel.smartAlarm.isEnabled ? alarmTimeLabel : "Weckt dich in der Leichtschlafphase")
+                    Text(alarm.isEnabled ? alarmTimeLabel : "Weckt dich in der Leichtschlafphase")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
-                Toggle("", isOn: $trackingViewModel.smartAlarm.isEnabled)
+                Toggle("", isOn: $alarm.isEnabled)
                     .labelsHidden()
                     .tint(.indigo)
             }

@@ -54,8 +54,7 @@ final class SleepTrackingViewModel {
         currentPhase = .awake
         isSleepOnsetDetected = false
         isSnoring = false
-        insights.summary = nil
-        insights.recommendations = []
+        insights.reset()
 
         onsetDetector.reset()
         classifier.reset()

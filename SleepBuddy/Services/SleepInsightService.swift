@@ -38,6 +38,13 @@ final class SleepInsightService {
         isGenerating = false
     }
 
+    func reset() {
+        cancel()
+        summary = nil
+        recommendations = []
+        error = nil
+    }
+
     func cancel() {
         session = nil
         isGenerating = false
