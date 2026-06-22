@@ -1,129 +1,118 @@
 import Foundation
 
-/// Rule-based sleep phase classifier using audio features + elapsed time.
+/// Classifies sleep phases from measured audio features.
+/// No time-based assumptions — all decisions come from actual signal data.
 ///
-/// Sleep architecture model:
-///   0–15 min:   Awake / Sleep onset (light)
-///   15–45 min:  Light sleep deepening
-///   45–90 min:  Deep sleep (slow-wave)
-///   90 min+:    Cycling: Deep → REM → Light, ~90 min cycles
+/// Signal → Phase mapping:
 ///
-/// Audio thresholds are secondary signals that can upgrade/downgrade the
-/// time-based phase but cannot override the biological sleep model entirely.
+///   High amplitude / high variance          → Awake (movement, talking)
+///   No detectable breathing pattern         → Awake or uncertain
+///   10–14 bpm, high regularity, quiet       → Deep sleep (N3)
+///   14–18 bpm, moderate regularity          → Light sleep (N1/N2)
+///   Irregular breathing, some variance      → REM (atonia + irregular breathing)
 final class SleepPhaseClassifier {
 
-    // MARK: - Audio thresholds (RMS amplitude 0.0–1.0)
+    // MARK: - Thresholds (tunable)
 
-    private let awakeAmplitudeThreshold: Float = 0.04
-    private let movementThreshold: Float = 0.08
-    private let deepSleepMaxAmplitude: Float = 0.012
+    /// Above this RMS amplitude → almost certainly awake
+    private let awakeAmplitudeThreshold: Float = 0.035
 
-    // Zero-crossing rate proxy for spectral content
-    private let remMinZCR: Float = 0.07
-    private let remMaxZCR: Float = 0.20
+    /// Below this → very quiet environment (sleep-compatible)
+    private let sleepAmplitudeMax: Float = 0.020
 
-    // MARK: - State
+    /// Breathing rate ranges (breaths per minute)
+    private let deepBreathMin: Float = 9
+    private let deepBreathMax: Float = 15
+    private let lightBreathMin: Float = 14
+    private let lightBreathMax: Float = 19
+    private let remBreathMin: Float = 12
+    private let remBreathMax: Float = 22
 
-    private var sessionStartDate: Date?
-    private var recentFeatures: [AudioFeatures] = []
-    private let historyWindow = 4  // ~2 minutes of 30s windows
+    /// Regularity threshold — deep sleep is highly regular
+    private let deepRegularityMin: Float = 0.65
+    private let remMaxRegularity: Float = 0.50
+
+    // MARK: - History smoothing
+
+    private var history: [(phase: SleepPhaseType, confidence: Double)] = []
+    private let historySize = 3   // smooth over ~3 windows = ~90 seconds
 
     // MARK: - Public API
 
-    func start(at date: Date = .now) {
-        sessionStartDate = date
-        recentFeatures.removeAll()
-    }
-
-    func reset() {
-        sessionStartDate = nil
-        recentFeatures.removeAll()
-    }
+    func reset() { history.removeAll() }
 
     func classify(features: AudioFeatures) -> (phase: SleepPhaseType, confidence: Double) {
-        recentFeatures.append(features)
-        if recentFeatures.count > historyWindow {
-            recentFeatures.removeFirst()
-        }
+        let raw = rawClassify(features: features)
+        history.append(raw)
+        if history.count > historySize { history.removeFirst() }
 
-        let avgAmplitude = recentFeatures.map(\.averageAmplitude).reduce(0, +) / Float(recentFeatures.count)
-        let avgZCR = recentFeatures.map(\.spectralCentroid).reduce(0, +) / Float(recentFeatures.count)
-
-        // Movement/noise always means awake
-        if avgAmplitude > movementThreshold {
-            return (.awake, 0.9)
-        }
-
-        let elapsed = elapsedMinutes()
-
-        // Time-based expected phase
-        let expected = expectedPhase(elapsedMinutes: elapsed)
-
-        // Audio can modify the expected phase
-        return refine(expected: expected, amplitude: avgAmplitude, zcr: avgZCR, elapsedMinutes: elapsed)
+        // Majority vote over recent history
+        return smoothed()
     }
 
-    // MARK: - Sleep architecture model
+    // MARK: - Core classification logic
 
-    private func expectedPhase(elapsedMinutes: Double) -> SleepPhaseType {
-        switch elapsedMinutes {
-        case ..<5:
-            return .awake
-        case 5..<20:
-            // Sleep onset — transitioning from awake to light
-            return .light
-        case 20..<45:
-            // Deepening into N2/N3
-            return .light
-        default:
-            // 90-minute cycles after initial deep sleep
-            // Cycle position within 90-min window
-            let cycleMinutes = (elapsedMinutes - 45).truncatingRemainder(dividingBy: 90)
+    private func rawClassify(features: AudioFeatures) -> (phase: SleepPhaseType, confidence: Double) {
+        let amp = features.averageAmplitude
+        let bpm = features.breathingRateBPM
+        let reg = features.breathingRegularity
+        let variance = features.amplitudeVariance
 
-            switch cycleMinutes {
-            case ..<40:
-                return .deep   // N3 slow-wave
-            case 40..<65:
-                return .rem    // REM
-            default:
-                return .light  // N1/N2 between cycles
-            }
+        // 1. Wach: high amplitude or high variance = movement/noise
+        if amp > awakeAmplitudeThreshold {
+            let conf = min(Double((amp - awakeAmplitudeThreshold) / awakeAmplitudeThreshold) + 0.5, 0.95)
+            return (.awake, conf)
         }
+
+        // 2. No detectable breathing pattern → still awake or ambiguous
+        if bpm == 0 {
+            // Could be lying still not yet asleep, or very noisy environment
+            return amp > sleepAmplitudeMax ? (.awake, 0.6) : (.light, 0.4)
+        }
+
+        // 3. Deep sleep: slow + regular breathing + quiet
+        if bpm >= deepBreathMin && bpm <= deepBreathMax
+            && reg >= deepRegularityMin
+            && amp <= sleepAmplitudeMax
+        {
+            let breathScore = 1.0 - Double(abs(bpm - 12) / 3)   // peak at 12 bpm
+            let conf = 0.5 + (Double(reg) * 0.3) + (breathScore * 0.2)
+            return (.deep, min(conf, 0.92))
+        }
+
+        // 4. REM: breathing irregular (low regularity), moderate amplitude variation
+        if bpm >= remBreathMin && bpm <= remBreathMax
+            && reg < remMaxRegularity
+            && variance > 0.00002
+        {
+            let irregularityScore = Double(remMaxRegularity - reg) / Double(remMaxRegularity)
+            return (.rem, 0.5 + irregularityScore * 0.3)
+        }
+
+        // 5. Light sleep: breathing in normal range, moderate regularity
+        if bpm >= lightBreathMin && bpm <= lightBreathMax {
+            let conf = 0.45 + Double(reg) * 0.25
+            return (.light, min(conf, 0.75))
+        }
+
+        // 6. Ambiguous — use amplitude as tiebreaker
+        return amp <= sleepAmplitudeMax ? (.light, 0.45) : (.awake, 0.55)
     }
 
-    /// Audio signal refines the time-based expectation
-    private func refine(
-        expected: SleepPhaseType,
-        amplitude: Float,
-        zcr: Float,
-        elapsedMinutes: Double
-    ) -> (phase: SleepPhaseType, confidence: Double) {
+    // MARK: - History smoothing
 
-        // High amplitude when we expect sleep → probably still awake
-        if amplitude > awakeAmplitudeThreshold && elapsedMinutes > 5 {
-            return (.awake, 0.7)
+    private func smoothed() -> (phase: SleepPhaseType, confidence: Double) {
+        guard !history.isEmpty else { return (.awake, 0.5) }
+        if history.count == 1 { return history[0] }
+
+        var votes: [SleepPhaseType: Double] = [:]
+        for entry in history {
+            votes[entry.phase, default: 0] += entry.confidence
         }
 
-        // Very quiet + low ZCR strongly suggests deep sleep (if timing allows)
-        if amplitude < deepSleepMaxAmplitude && zcr < remMinZCR && elapsedMinutes > 40 {
-            return (.deep, 0.85)
-        }
-
-        // REM: moderate amplitude, higher ZCR (micro-movements, breathing changes)
-        if zcr >= remMinZCR && zcr <= remMaxZCR && elapsedMinutes > 60 {
-            // Only suggest REM if audio hints at it AND timing supports it
-            if expected == .rem || expected == .light {
-                return (.rem, 0.75)
-            }
-        }
-
-        // Otherwise trust the time-based model with moderate confidence
-        let confidence: Double = expected == .awake ? 0.9 : 0.65
-        return (expected, confidence)
-    }
-
-    private func elapsedMinutes() -> Double {
-        guard let start = sessionStartDate else { return 0 }
-        return Date().timeIntervalSince(start) / 60
+        let winner = votes.max(by: { $0.value < $1.value })!
+        let avgConfidence = history.filter { $0.phase == winner.key }.map(\.confidence).reduce(0, +)
+                            / Double(history.count)
+        return (winner.key, avgConfidence)
     }
 }
