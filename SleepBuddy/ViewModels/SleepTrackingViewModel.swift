@@ -63,6 +63,8 @@ final class SleepTrackingViewModel {
         isTracking = false
     }
 
+    func clearError() { errorMessage = nil }
+
     func requestHealthKitAccess() async {
         await healthKit.requestAuthorization()
     }

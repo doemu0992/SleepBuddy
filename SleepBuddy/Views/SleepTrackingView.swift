@@ -1,9 +1,11 @@
 import SwiftUI
+import AVFoundation
 
 struct SleepTrackingView: View {
     @Bindable var viewModel: SleepTrackingViewModel
     @Environment(\.dismiss) private var dismiss
     @State private var showStopConfirmation = false
+    @State private var showMicDeniedAlert = false
     @State private var elapsed: TimeInterval = 0
     private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
@@ -28,6 +30,24 @@ struct SleepTrackingView: View {
             }
             Button("Weiter schlafen", role: .cancel) {}
         }
+        .alert("Mikrofon-Zugriff verweigert", isPresented: $showMicDeniedAlert) {
+            Button("Einstellungen öffnen") {
+                if let url = URL(string: UIApplication.openSettingsURLString) {
+                    UIApplication.shared.open(url)
+                }
+            }
+            Button("Abbrechen", role: .cancel) {}
+        } message: {
+            Text("SleepBuddy benötigt Mikrofon-Zugriff um Schlafphasen zu erkennen. Bitte in den Einstellungen erlauben.")
+        }
+        .alert("Fehler", isPresented: Binding(
+            get: { viewModel.errorMessage != nil },
+            set: { if !$0 { viewModel.clearError() } }
+        )) {
+            Button("OK", role: .cancel) { viewModel.clearError() }
+        } message: {
+            Text(viewModel.errorMessage ?? "")
+        }
         .task {
             await viewModel.requestHealthKitAccess()
         }
@@ -51,7 +71,7 @@ struct SleepTrackingView: View {
             Spacer()
 
             Button {
-                viewModel.startTracking()
+                requestMicAndStart()
             } label: {
                 Text("Jetzt schlafen")
                     .font(.title3.bold())
@@ -73,7 +93,6 @@ struct SleepTrackingView: View {
         VStack(spacing: 32) {
             Spacer()
 
-            // Pulsing phase indicator
             ZStack {
                 Circle()
                     .fill(viewModel.currentPhase.color.opacity(0.2))
@@ -116,6 +135,18 @@ struct SleepTrackingView: View {
             }
             .padding(.horizontal, 32)
             .padding(.bottom, 48)
+        }
+    }
+
+    private func requestMicAndStart() {
+        AVAudioApplication.requestRecordPermission { granted in
+            DispatchQueue.main.async {
+                if granted {
+                    viewModel.startTracking()
+                } else {
+                    showMicDeniedAlert = true
+                }
+            }
         }
     }
 
