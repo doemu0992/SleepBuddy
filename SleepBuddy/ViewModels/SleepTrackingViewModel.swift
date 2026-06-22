@@ -31,6 +31,8 @@ final class SleepTrackingViewModel {
         currentPhaseStartDate = .now
         currentPhase = .awake
 
+        classifier.start(at: .now)
+
         audioService.onFeaturesUpdated = { [weak self] features in
             // AudioAnalysisService already dispatches this to main queue
             self?.handleFeatures(features)
