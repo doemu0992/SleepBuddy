@@ -91,7 +91,7 @@ struct HomeView: View {
     // MARK: - Smart Alarm card
 
     private var smartAlarmCard: some View {
-        @Bindable var alarm = trackingViewModel.smartAlarm
+        let alarm = trackingViewModel.smartAlarm
         return Button { showAlarmSetup = true } label: {
             HStack(spacing: 16) {
                 ZStack {
@@ -110,7 +110,7 @@ struct HomeView: View {
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
-                Toggle("", isOn: $alarm.isEnabled)
+                Toggle("", isOn: Bindable(alarm).isEnabled)
                     .labelsHidden()
                     .tint(.indigo)
             }
