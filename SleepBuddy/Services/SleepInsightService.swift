@@ -2,6 +2,7 @@ import Foundation
 import FoundationModels
 
 /// Generates natural language sleep insights using Apple's on-device Foundation Model.
+/// Requires iOS 26+; silently skips on older OS versions.
 @Observable
 final class SleepInsightService {
     private(set) var isGenerating = false
@@ -9,11 +10,20 @@ final class SleepInsightService {
     private(set) var recommendations: [String] = []
     private(set) var error: String?
 
-    private var session: LanguageModelSession?
+    @available(iOS 26.0, *)
+    private var session: LanguageModelSession? {
+        get { _session as? LanguageModelSession }
+        set { _session = newValue }
+    }
+    private var _session: AnyObject?
 
     // MARK: - Public API
 
     func generateInsights(for sleepSession: SleepSession) async {
+        guard #available(iOS 26.0, *) else {
+            error = "Apple Intelligence erfordert iOS 26."
+            return
+        }
         guard SystemLanguageModel.default.isAvailable else {
             error = "Apple Intelligence ist auf diesem Gerät nicht verfügbar."
             return
@@ -27,7 +37,6 @@ final class SleepInsightService {
         do {
             let newSession = LanguageModelSession()
             self.session = newSession
-
             let prompt = buildPrompt(for: sleepSession)
             let response = try await newSession.respond(to: prompt)
             parse(response: response.content, session: sleepSession)
@@ -46,7 +55,7 @@ final class SleepInsightService {
     }
 
     func cancel() {
-        session = nil
+        if #available(iOS 26.0, *) { session = nil }
         isGenerating = false
     }
 
@@ -61,10 +70,7 @@ final class SleepInsightService {
         let quality = Int(session.computedQualityScore)
         let bedtime = session.startDate.formatted(date: .omitted, time: .shortened)
         let wakeTime = session.endDate?.formatted(date: .omitted, time: .shortened) ?? "unbekannt"
-
-        let phaseCount = Dictionary(grouping: session.phases, by: \.phaseType)
-            .mapValues(\.count)
-        let cycles = (phaseCount[.deep] ?? 0)
+        let cycles = Dictionary(grouping: session.phases, by: \.phaseType)[.deep]?.count ?? 0
 
         return """
         Du bist ein Schlaf-Experte. Analysiere diese Schlafdaten und antworte auf Deutsch in folgendem Format:
@@ -85,8 +91,8 @@ final class SleepInsightService {
         - Wachphasen: \(awake)
         - Schlafzyklen: \(cycles)
 
-        Normwerte zum Vergleich: Tiefschlaf 15-25% der Gesamtdauer, REM 20-25%, Einschlafzeit idealerweise unter 20 Min.
-        Halte die Antwort kurz und präzise. Keine Überschriften außer ZUSAMMENFASSUNG und EMPFEHLUNG_X.
+        Normwerte: Tiefschlaf 15-25%, REM 20-25%, Einschlafzeit idealerweise unter 20 Min.
+        Halte die Antwort kurz. Keine Überschriften außer ZUSAMMENFASSUNG und EMPFEHLUNG_X.
         """
     }
 
@@ -97,22 +103,20 @@ final class SleepInsightService {
         var recs: [String] = []
 
         for line in response.components(separatedBy: "\n") {
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            if trimmed.hasPrefix("ZUSAMMENFASSUNG:") {
-                summaryText = trimmed.replacingOccurrences(of: "ZUSAMMENFASSUNG:", with: "").trimmingCharacters(in: .whitespaces)
-            } else if trimmed.hasPrefix("EMPFEHLUNG_1:") {
-                recs.append(trimmed.replacingOccurrences(of: "EMPFEHLUNG_1:", with: "").trimmingCharacters(in: .whitespaces))
-            } else if trimmed.hasPrefix("EMPFEHLUNG_2:") {
-                recs.append(trimmed.replacingOccurrences(of: "EMPFEHLUNG_2:", with: "").trimmingCharacters(in: .whitespaces))
-            } else if trimmed.hasPrefix("EMPFEHLUNG_3:") {
-                recs.append(trimmed.replacingOccurrences(of: "EMPFEHLUNG_3:", with: "").trimmingCharacters(in: .whitespaces))
-            } else if !summaryText.isEmpty && !trimmed.isEmpty && !trimmed.hasPrefix("EMPFEHLUNG") {
-                // Multi-line summary
-                if recs.isEmpty { summaryText += " " + trimmed }
+            let t = line.trimmingCharacters(in: .whitespaces)
+            if t.hasPrefix("ZUSAMMENFASSUNG:") {
+                summaryText = t.replacingOccurrences(of: "ZUSAMMENFASSUNG:", with: "").trimmingCharacters(in: .whitespaces)
+            } else if t.hasPrefix("EMPFEHLUNG_1:") {
+                recs.append(t.replacingOccurrences(of: "EMPFEHLUNG_1:", with: "").trimmingCharacters(in: .whitespaces))
+            } else if t.hasPrefix("EMPFEHLUNG_2:") {
+                recs.append(t.replacingOccurrences(of: "EMPFEHLUNG_2:", with: "").trimmingCharacters(in: .whitespaces))
+            } else if t.hasPrefix("EMPFEHLUNG_3:") {
+                recs.append(t.replacingOccurrences(of: "EMPFEHLUNG_3:", with: "").trimmingCharacters(in: .whitespaces))
+            } else if !summaryText.isEmpty && !t.isEmpty && !t.hasPrefix("EMPFEHLUNG") && recs.isEmpty {
+                summaryText += " " + t
             }
         }
 
-        // Fallback if model didn't follow format
         if summaryText.isEmpty {
             summaryText = response.components(separatedBy: "\n").first ?? response
         }
