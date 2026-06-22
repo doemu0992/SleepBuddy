@@ -1,118 +1,108 @@
 import Foundation
 
-/// Classifies sleep phases from measured audio features.
-/// No time-based assumptions — all decisions come from actual signal data.
-///
-/// Signal → Phase mapping:
-///
-///   High amplitude / high variance          → Awake (movement, talking)
-///   No detectable breathing pattern         → Awake or uncertain
-///   10–14 bpm, high regularity, quiet       → Deep sleep (N3)
-///   14–18 bpm, moderate regularity          → Light sleep (N1/N2)
-///   Irregular breathing, some variance      → REM (atonia + irregular breathing)
+/// Rule-based sleep phase classifier using audio + motion features.
+/// Used as fallback until k-NN accumulates enough training data (~40 samples).
 final class SleepPhaseClassifier {
 
-    // MARK: - Thresholds (tunable)
+    // MARK: - Thresholds
 
-    /// Above this RMS amplitude → almost certainly awake
     private let awakeAmplitudeThreshold: Float = 0.035
-
-    /// Below this → very quiet environment (sleep-compatible)
     private let sleepAmplitudeMax: Float = 0.020
+    private let awakeMotionThreshold: Float = 0.35
+    private let snoringThreshold: Float = 0.3
 
-    /// Breathing rate ranges (breaths per minute)
     private let deepBreathMin: Float = 9
     private let deepBreathMax: Float = 15
     private let lightBreathMin: Float = 14
     private let lightBreathMax: Float = 19
     private let remBreathMin: Float = 12
     private let remBreathMax: Float = 22
-
-    /// Regularity threshold — deep sleep is highly regular
     private let deepRegularityMin: Float = 0.65
     private let remMaxRegularity: Float = 0.50
 
     // MARK: - History smoothing
 
     private var history: [(phase: SleepPhaseType, confidence: Double)] = []
-    private let historySize = 3   // smooth over ~3 windows = ~90 seconds
-
-    // MARK: - Public API
+    private let historySize = 3
 
     func reset() { history.removeAll() }
 
-    func classify(features: AudioFeatures) -> (phase: SleepPhaseType, confidence: Double) {
-        let raw = rawClassify(features: features)
+    func classify(audio: AudioFeatures, motion: MotionFeatures) -> (phase: SleepPhaseType, confidence: Double) {
+        let raw = rawClassify(audio: audio, motion: motion)
         history.append(raw)
         if history.count > historySize { history.removeFirst() }
-
-        // Majority vote over recent history
         return smoothed()
     }
 
-    // MARK: - Core classification logic
+    // MARK: - Core logic
 
-    private func rawClassify(features: AudioFeatures) -> (phase: SleepPhaseType, confidence: Double) {
-        let amp = features.averageAmplitude
-        let bpm = features.breathingRateBPM
-        let reg = features.breathingRegularity
-        let variance = features.amplitudeVariance
+    private func rawClassify(audio: AudioFeatures, motion: MotionFeatures) -> (phase: SleepPhaseType, confidence: Double) {
+        let amp = audio.averageAmplitude
+        let bpm = audio.breathingRateBPM
+        let reg = audio.breathingRegularity
+        let variance = audio.amplitudeVariance
+        let mov = motion.movementIntensity
+        let snoring = audio.snoringIntensity
 
-        // 1. Wach: high amplitude or high variance = movement/noise
-        if amp > awakeAmplitudeThreshold {
-            let conf = min(Double((amp - awakeAmplitudeThreshold) / awakeAmplitudeThreshold) + 0.5, 0.95)
+        // 1. Movement → awake (motion is most reliable signal)
+        if motion.isSignificant || amp > awakeAmplitudeThreshold {
+            let conf = min(Double(max(mov, (amp - awakeAmplitudeThreshold) / awakeAmplitudeThreshold)) * 0.5 + 0.5, 0.95)
             return (.awake, conf)
         }
 
-        // 2. No detectable breathing pattern → still awake or ambiguous
+        // 2. Snoring → likely light or deep sleep, not awake
+        if snoring > snoringThreshold {
+            // Snoring during deep: slow regular breathing
+            if bpm >= deepBreathMin && bpm <= deepBreathMax && reg >= deepRegularityMin {
+                return (.deep, 0.75)
+            }
+            return (.light, 0.70)
+        }
+
+        // 3. No detectable breathing
         if bpm == 0 {
-            // Could be lying still not yet asleep, or very noisy environment
             return amp > sleepAmplitudeMax ? (.awake, 0.6) : (.light, 0.4)
         }
 
-        // 3. Deep sleep: slow + regular breathing + quiet
+        // 4. Deep sleep: slow + regular + quiet
         if bpm >= deepBreathMin && bpm <= deepBreathMax
             && reg >= deepRegularityMin
             && amp <= sleepAmplitudeMax
         {
-            let breathScore = 1.0 - Double(abs(bpm - 12) / 3)   // peak at 12 bpm
-            let conf = 0.5 + (Double(reg) * 0.3) + (breathScore * 0.2)
-            return (.deep, min(conf, 0.92))
+            let breathScore = 1.0 - Double(abs(bpm - 12) / 3)
+            return (.deep, min(0.5 + Double(reg) * 0.3 + breathScore * 0.2, 0.92))
         }
 
-        // 4. REM: breathing irregular (low regularity), moderate amplitude variation
+        // 5. REM: irregular breathing, some movement variation, but quiet overall
         if bpm >= remBreathMin && bpm <= remBreathMax
             && reg < remMaxRegularity
             && variance > 0.00002
+            && amp <= sleepAmplitudeMax
         {
-            let irregularityScore = Double(remMaxRegularity - reg) / Double(remMaxRegularity)
-            return (.rem, 0.5 + irregularityScore * 0.3)
+            let irregularity = Double(remMaxRegularity - reg) / Double(remMaxRegularity)
+            return (.rem, 0.5 + irregularity * 0.3)
         }
 
-        // 5. Light sleep: breathing in normal range, moderate regularity
+        // 6. Light sleep
         if bpm >= lightBreathMin && bpm <= lightBreathMax {
-            let conf = 0.45 + Double(reg) * 0.25
-            return (.light, min(conf, 0.75))
+            return (.light, min(0.45 + Double(reg) * 0.25, 0.75))
         }
 
-        // 6. Ambiguous — use amplitude as tiebreaker
         return amp <= sleepAmplitudeMax ? (.light, 0.45) : (.awake, 0.55)
     }
 
-    // MARK: - History smoothing
+    // MARK: - Smoothing
 
     private func smoothed() -> (phase: SleepPhaseType, confidence: Double) {
         guard !history.isEmpty else { return (.awake, 0.5) }
         if history.count == 1 { return history[0] }
 
         var votes: [SleepPhaseType: Double] = [:]
-        for entry in history {
-            votes[entry.phase, default: 0] += entry.confidence
-        }
+        for entry in history { votes[entry.phase, default: 0] += entry.confidence }
 
         let winner = votes.max(by: { $0.value < $1.value })!
-        let avgConfidence = history.filter { $0.phase == winner.key }.map(\.confidence).reduce(0, +)
-                            / Double(history.count)
-        return (winner.key, avgConfidence)
+        let avg = history.filter { $0.phase == winner.key }.map(\.confidence).reduce(0, +)
+                  / Double(history.count)
+        return (winner.key, avg)
     }
 }

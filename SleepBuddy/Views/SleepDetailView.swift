@@ -98,10 +98,32 @@ struct SleepDetailView: View {
                 Divider().frame(height: 50)
                 statColumn("Leicht", value: session.lightSleepDuration.formattedDuration, icon: "moon", color: .blue)
             }
+
+            Divider()
+
+            HStack(spacing: 20) {
+                if let latency = session.sleepOnsetLatency {
+                    Label(formatMinutes(latency), systemImage: "zzz")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                if session.snoringEventCount > 0 {
+                    Label("\(session.snoringEventCount)× Schnarchen", systemImage: "waveform")
+                        .font(.caption).foregroundStyle(.orange)
+                }
+                if let alarmDate = session.alarmFiredDate {
+                    Label(alarmDate.formatted(date: .omitted, time: .shortened), systemImage: "alarm.fill")
+                        .font(.caption).foregroundStyle(.indigo)
+                }
+            }
         }
         .padding()
         .background(Color(.secondarySystemGroupedBackground))
         .clipShape(RoundedRectangle(cornerRadius: 16))
+    }
+
+    private func formatMinutes(_ interval: TimeInterval) -> String {
+        let m = Int(interval / 60)
+        return "Einschlafen nach \(m < 60 ? "\(m) min" : "\(m/60)h \(m%60)min")"
     }
 
     private func statColumn(_ label: String, value: String, icon: String, color: Color) -> some View {
