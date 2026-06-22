@@ -19,7 +19,7 @@ final class AudioAnalysisService {
 
     func start() throws {
         let session = AVAudioSession.sharedInstance()
-        try session.setCategory(.playAndRecord, mode: .measurement, options: [.mixWithOthers, .allowBluetooth])
+        try session.setCategory(.playAndRecord, mode: .measurement, options: [.mixWithOthers, .allowBluetoothHFP])
         try session.setActive(true)
 
         let inputNode = engine.inputNode
