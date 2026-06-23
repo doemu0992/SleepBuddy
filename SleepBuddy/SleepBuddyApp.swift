@@ -8,12 +8,15 @@ struct SleepBuddyApp: App {
 
     static let sharedModelContainer: ModelContainer = {
         let allTypes: [any PersistentModel.Type] = [SleepSession.self, SleepPhase.self, SleepSoundEvent.self, TrainingSample.self]
+        // Shared iCloud container — same as PainDiary so the entitlement is already provisioned.
+        // Using .private() ensures SwiftData targets exactly this container, not an implicit one.
+        let containerID = "iCloud.DG-Software-Solution.PainDiary"
 
-        // 1. CloudKit + separate local store for ML data
+        // 1. CloudKit + separate local store for ML data (normal case)
         let cloudConfig = ModelConfiguration(
             "SleepData",
             schema: Schema([SleepSession.self, SleepPhase.self, SleepSoundEvent.self]),
-            cloudKitDatabase: .automatic
+            cloudKitDatabase: .private(containerID)
         )
         let localConfig = ModelConfiguration(
             "MLData",
@@ -25,7 +28,7 @@ struct SleepBuddyApp: App {
             configurations: cloudConfig, localConfig
         ) { return container }
 
-        // 2. Single local store without CloudKit (e.g. simulator / no iCloud account)
+        // 2. Single local store without CloudKit (simulator / no iCloud account)
         let localOnlyConfig = ModelConfiguration(
             "SleepDataLocal",
             schema: Schema(allTypes),
@@ -36,12 +39,12 @@ struct SleepBuddyApp: App {
             configurations: localOnlyConfig
         ) { return container }
 
-        // 3. Default container — SwiftData picks path automatically
+        // 3. SwiftData default path
         if let container = try? ModelContainer(
             for: SleepSession.self, SleepPhase.self, SleepSoundEvent.self, TrainingSample.self
         ) { return container }
 
-        // 4. In-memory last resort so the app never crashes on launch
+        // 4. In-memory last resort — app never crashes on launch
         let memConfig = ModelConfiguration(schema: Schema(allTypes), isStoredInMemoryOnly: true)
         return try! ModelContainer(
             for: SleepSession.self, SleepPhase.self, SleepSoundEvent.self, TrainingSample.self,
