@@ -405,7 +405,7 @@ struct PainDiaryVerknuepfungView: View {
     static func exportiereSession(_ session: SleepSession) {
         guard UserDefaults.standard.bool(forKey: "profil_paindiary_verknuepft") else { return }
         let total = session.totalDuration
-        guard total > 0 else { return }
+        guard total >= 1800 else { return }  // Mindestens 30 Minuten
         let summary = SleepNightSummary(
             datum: session.startDate.timeIntervalSince1970,
             qualitaet: session.computedQualityScore,
