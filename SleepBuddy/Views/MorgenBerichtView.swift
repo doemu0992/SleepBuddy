@@ -1,4 +1,7 @@
 import SwiftUI
+#if canImport(FoundationModels)
+import FoundationModels
+#endif
 
 struct MorgenBerichtCard: View {
     let session: SleepSession
