@@ -129,7 +129,7 @@ final class SleepTrackingViewModel {
         session.endDate = .now
         session.sleepOnsetDate = onsetDetector.sleepOnset
         session.alarmFiredDate = smartAlarm.alarmFiredDate
-        session.sleepQualityScore = session.computedQualityScore
+        session.sleepQualityScore = Double(SchlafindexView.score(for: session))
 
         if let context = modelContext {
             classifier.flushSessionBuffer(to: context)

@@ -408,7 +408,7 @@ struct PainDiaryVerknuepfungView: View {
         guard total >= 1800 else { return }  // Mindestens 30 Minuten
         let summary = SleepNightSummary(
             datum: session.startDate.timeIntervalSince1970,
-            qualitaet: session.computedQualityScore,
+            qualitaet: Double(SchlafindexView.score(for: session)),
             dauerSek: total,
             tiefPct: session.deepSleepDuration / total,
             remPct: session.remSleepDuration / total,
