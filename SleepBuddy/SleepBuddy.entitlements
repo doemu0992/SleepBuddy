@@ -12,7 +12,7 @@
     <true/>
     <key>com.apple.developer.icloud-container-identifiers</key>
     <array>
-        <string>iCloud.com.doemu0992.SleepBuddy</string>
+        <string>iCloud.DG-Software-Solution.PainDiary</string>
     </array>
     <key>com.apple.developer.icloud-services</key>
     <array>
@@ -20,7 +20,7 @@
     </array>
     <key>com.apple.developer.ubiquity-container-identifiers</key>
     <array>
-        <string>iCloud.com.doemu0992.SleepBuddy</string>
+        <string>iCloud.DG-Software-Solution.PainDiary</string>
     </array>
 </dict>
 </plist>

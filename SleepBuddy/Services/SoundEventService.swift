@@ -9,7 +9,7 @@ final class SoundEventService {
 
     // MARK: - iCloud container
 
-    private static let iCloudContainerID = "iCloud.com.doemu0992.SleepBuddy"
+    private static let iCloudContainerID = "iCloud.DG-Software-Solution.PainDiary"
     private static let soundsFolder = "SleepSounds"
 
     // MARK: - Settings
