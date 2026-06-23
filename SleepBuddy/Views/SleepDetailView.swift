@@ -2,14 +2,33 @@ import SwiftUI
 import SwiftData
 import AVFoundation
 
+private let iCloudContainerID = "iCloud.DG-Software-Solution.PainDiary"
+private let soundsFolder = "SleepSounds"
+
 struct SleepDetailView: View {
     let session: SleepSession
     @State private var insightService = SleepInsightService()
     @State private var correctingPhase: SleepPhase?
     @State private var audioPlayer: AVAudioPlayer?
     @State private var playingEventID: Date?
+    @State private var downloadingEventID: Date?
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
+
+    private func resolveAudioURL(for fileName: String) -> URL? {
+        if fileName.hasPrefix("local://") {
+            let name = String(fileName.dropFirst("local://".count))
+            return FileManager.default
+                .urls(for: .documentDirectory, in: .userDomainMask).first?
+                .appendingPathComponent(soundsFolder)
+                .appendingPathComponent(name)
+        }
+        return FileManager.default
+            .url(forUbiquityContainerIdentifier: iCloudContainerID)?
+            .appendingPathComponent("Documents")
+            .appendingPathComponent(soundsFolder)
+            .appendingPathComponent(fileName)
+    }
 
     var body: some View {
         ScrollView {
@@ -256,11 +275,20 @@ struct SleepDetailView: View {
                         Button {
                             togglePlayback(event: event, fileName: fileName)
                         } label: {
-                            Image(systemName: playingEventID == event.timestamp ? "stop.circle.fill" : "play.circle.fill")
-                                .font(.title3)
-                                .foregroundStyle(playingEventID == event.timestamp ? .orange : .indigo)
+                            if downloadingEventID == event.timestamp {
+                                ProgressView().tint(.indigo).frame(width: 28, height: 28)
+                            } else {
+                                Image(systemName: playingEventID == event.timestamp ? "stop.circle.fill" : "play.circle.fill")
+                                    .font(.title3)
+                                    .foregroundStyle(playingEventID == event.timestamp ? .orange : .indigo)
+                            }
                         }
                         .buttonStyle(.plain)
+                        .disabled(downloadingEventID == event.timestamp)
+                    } else {
+                        Image(systemName: "waveform.slash")
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
                     }
                 }
             }
@@ -283,8 +311,36 @@ struct SleepDetailView: View {
             return
         }
 
-        let soundService = SoundEventService()
-        guard let url = soundService.localAudioURL(for: fileName) else { return }
+        guard let url = resolveAudioURL(for: fileName) else { return }
+
+        // Check if file needs to be downloaded from iCloud first
+        let values = try? url.resourceValues(forKeys: [.ubiquitousItemDownloadingStatusKey])
+        let status = values?.ubiquitousItemDownloadingStatus
+        if status == .notDownloaded || status == .downloading {
+            downloadingEventID = event.timestamp
+            try? FileManager.default.startDownloadingUbiquitousItem(at: url)
+            Task {
+                for _ in 0..<30 {
+                    try? await Task.sleep(for: .seconds(1))
+                    let v = try? url.resourceValues(forKeys: [.ubiquitousItemDownloadingStatusKey])
+                    if v?.ubiquitousItemDownloadingStatus == .current {
+                        await MainActor.run { downloadingEventID = nil }
+                        playFile(at: url, event: event)
+                        return
+                    }
+                }
+                await MainActor.run { downloadingEventID = nil }
+            }
+            return
+        }
+
+        playFile(at: url, event: event)
+    }
+
+    private func playFile(at url: URL, event: SleepSoundEvent) {
+        let session = AVAudioSession.sharedInstance()
+        try? session.setCategory(.playback)
+        try? session.setActive(true)
 
         do {
             let player = try AVAudioPlayer(contentsOf: url)
@@ -298,12 +354,12 @@ struct SleepDetailView: View {
                     if self.playingEventID == event.timestamp {
                         self.playingEventID = nil
                         self.audioPlayer = nil
+                        try? AVAudioSession.sharedInstance().setCategory(.playAndRecord, options: [.defaultToSpeaker])
                     }
                 }
             }
         } catch {
-            // File not yet downloaded from iCloud — trigger download
-            try? FileManager.default.startDownloadingUbiquitousItem(at: url)
+            playingEventID = nil
         }
     }
 
