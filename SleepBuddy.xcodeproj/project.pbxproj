@@ -39,6 +39,7 @@
 		AA000030 /* ProfilView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100032 /* ProfilView.swift */; };
 		AA000031 /* EinstellungenView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100033 /* EinstellungenView.swift */; };
 		AA000032 /* NotificationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100034 /* NotificationManager.swift */; };
+		AA000033 /* SharedProfil.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100035 /* SharedProfil.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -76,6 +77,7 @@
 		AA100032 /* ProfilView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfilView.swift; sourceTree = "<group>"; };
 		AA100033 /* EinstellungenView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EinstellungenView.swift; sourceTree = "<group>"; };
 		AA100034 /* NotificationManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationManager.swift; sourceTree = "<group>"; };
+		AA100035 /* SharedProfil.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedProfil.swift; sourceTree = "<group>"; };
 		AA200001 /* SleepBuddy.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SleepBuddy.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -153,6 +155,7 @@
 			children = (
 				AA100006 /* AudioAnalysisService.swift */,
 				AA100034 /* NotificationManager.swift */,
+				AA100035 /* SharedProfil.swift */,
 				AA100007 /* SleepPhaseClassifier.swift */,
 				AA100008 /* HealthKitService.swift */,
 				AA100023 /* MotionAnalysisService.swift */,
@@ -291,6 +294,7 @@
 				AA000030 /* ProfilView.swift in Sources */,
 				AA000031 /* EinstellungenView.swift in Sources */,
 				AA000032 /* NotificationManager.swift in Sources */,
+				AA000033 /* SharedProfil.swift in Sources */,
 				AA000016 /* TimeInterval+Formatted.swift in Sources */,
 				AA000020 /* TrainingSample.swift in Sources */,
 				AA000021 /* MotionAnalysisService.swift in Sources */,

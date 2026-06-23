@@ -2,7 +2,7 @@ import SwiftUI
 import HealthKit
 
 struct ProfilView: View {
-    @AppStorage("profil_vorname") private var vorname: String = ""
+    @State private var profil = SharedProfil.shared
     @AppStorage("profil_paindiary_verknuepft") private var painDiaryVerknuepft: Bool = false
 
     var body: some View {
@@ -34,12 +34,20 @@ struct ProfilView: View {
                             .foregroundStyle(.indigo)
                     }
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(vorname.isEmpty ? "Dein Name" : vorname)
+                        let name = profil.anzeigeName
+                        Text(name.isEmpty ? "Dein Name" : name)
                             .font(.title3.bold())
-                            .foregroundStyle(vorname.isEmpty ? .secondary : .primary)
-                        Text("SleepBuddy-Profil")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(name.isEmpty ? .secondary : .primary)
+                        if let geb = profil.geburtsdatum {
+                            let alter = Calendar.current.dateComponents([.year], from: geb, to: Date()).year ?? 0
+                            Text("\(alter) Jahre · SleepBuddy-Profil")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        } else {
+                            Text("SleepBuddy-Profil")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
                     }
                     Spacer()
                 }
@@ -105,20 +113,106 @@ struct ProfilView: View {
 // MARK: - Profil bearbeiten
 
 struct ProfilBearbeitenView: View {
-    @AppStorage("profil_vorname") private var vorname: String = ""
+    @State private var profil = SharedProfil.shared
     @Environment(\.dismiss) private var dismiss
 
+    @State private var vorname: String = ""
+    @State private var nachname: String = ""
+    @State private var geburtsdatum: Date = Date()
+    @State private var hatGeburtsdatum: Bool = false
+    @State private var geschlecht: String = ""
+
     var body: some View {
-        List {
-            Section("Persönliche Daten") {
-                LabeledContent("Name") {
-                    TextField("Dein Name", text: $vorname)
-                        .multilineTextAlignment(.trailing)
+        ScrollView {
+            VStack(spacing: 20) {
+                VStack(spacing: 0) {
+                    HStack {
+                        Text("Vorname")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        TextField("Vorname", text: $vorname)
+                            .multilineTextAlignment(.trailing)
+                            .font(.subheadline)
+                    }
+                    .padding(16)
+                    Divider().padding(.leading, 16)
+                    HStack {
+                        Text("Nachname")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        TextField("Nachname", text: $nachname)
+                            .multilineTextAlignment(.trailing)
+                            .font(.subheadline)
+                    }
+                    .padding(16)
+                    Divider().padding(.leading, 16)
+                    Toggle("Geburtsdatum angeben", isOn: $hatGeburtsdatum)
+                        .tint(.indigo)
+                        .font(.subheadline)
+                        .padding(16)
+                    if hatGeburtsdatum {
+                        Divider().padding(.leading, 16)
+                        DatePicker("Geburtsdatum", selection: $geburtsdatum, displayedComponents: .date)
+                            .font(.subheadline)
+                            .padding(16)
+                    }
+                    Divider().padding(.leading, 16)
+                    HStack {
+                        Text("Geschlecht")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Picker("", selection: $geschlecht) {
+                            Text("Keine Angabe").tag("")
+                            Text("Weiblich").tag("Weiblich")
+                            Text("Männlich").tag("Männlich")
+                            Text("Divers").tag("Divers")
+                        }
+                        .labelsHidden()
+                    }
+                    .padding(16)
                 }
+                .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16))
+
+                Text("Diese Daten werden mit PainDiary geteilt, wenn die Verknüpfung aktiv ist.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 4)
             }
+            .padding(.horizontal)
+            .padding(.vertical, 24)
         }
+        .background(Color(.systemGroupedBackground))
+        .scrollDismissesKeyboard(.interactively)
         .navigationTitle("Profil bearbeiten")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .confirmationAction) {
+                Button("Fertig") { speichern() }
+            }
+        }
+        .onAppear { laden() }
+    }
+
+    private func laden() {
+        vorname = profil.vorname
+        nachname = profil.nachname
+        geschlecht = profil.geschlecht
+        if let geb = profil.geburtsdatum {
+            geburtsdatum = geb
+            hatGeburtsdatum = true
+        }
+    }
+
+    private func speichern() {
+        profil.vorname = vorname
+        profil.nachname = nachname
+        profil.geschlecht = geschlecht
+        profil.geburtsdatum = hatGeburtsdatum ? geburtsdatum : nil
+        dismiss()
     }
 }
 
