@@ -29,6 +29,11 @@ final class SleepTrackingViewModel {
     private var currentPhaseStartDate = Date()
     private var latestMotionFeatures = MotionFeatures.neutral
 
+    // Phase smoothing: only commit a phase change after it's been stable for 2 minutes
+    private var pendingPhase: SleepPhaseType = .awake
+    private var pendingPhaseStartDate = Date()
+    private static let minPhaseDuration: TimeInterval = 120
+
     // Smart alarm state (surfaced to UI)
     var alarmFired: Bool { smartAlarm.alarmFired }
 
@@ -56,6 +61,8 @@ final class SleepTrackingViewModel {
         isSleepOnsetDetected = false
         isSnoring = false
         insights.reset()
+        pendingPhase = .awake
+        pendingPhaseStartDate = .now
 
         onsetDetector.reset()
         classifier.reset()
@@ -167,9 +174,14 @@ final class SleepTrackingViewModel {
         // Smart alarm check
         smartAlarm.checkPhase(result.phase)
 
-        if result.phase != currentPhase {
+        // Phase smoothing: track candidate phase, only commit after 2 min stability
+        let now = Date()
+        if result.phase != pendingPhase {
+            pendingPhase = result.phase
+            pendingPhaseStartDate = now
+        } else if result.phase != currentPhase,
+                  now.timeIntervalSince(pendingPhaseStartDate) >= Self.minPhaseDuration {
             guard let session = currentSession else { return }
-            let now = Date()
             finalizeCurrentPhase(endDate: now, session: session)
             currentPhaseStartDate = now
             currentPhase = result.phase

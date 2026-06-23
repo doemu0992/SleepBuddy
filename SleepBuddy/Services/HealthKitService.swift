@@ -4,18 +4,17 @@ import Foundation
 @Observable
 final class HealthKitService {
     private let store = HKHealthStore()
-    private(set) var isAuthorized = false
 
     private let sleepType = HKObjectType.categoryType(forIdentifier: .sleepAnalysis)!
 
+    var isAuthorized: Bool {
+        guard HKHealthStore.isHealthDataAvailable() else { return false }
+        return store.authorizationStatus(for: sleepType) == .sharingAuthorized
+    }
+
     func requestAuthorization() async {
         guard HKHealthStore.isHealthDataAvailable() else { return }
-        do {
-            try await store.requestAuthorization(toShare: [sleepType], read: [])
-            isAuthorized = true
-        } catch {
-            isAuthorized = false
-        }
+        try? await store.requestAuthorization(toShare: [sleepType], read: [])
     }
 
     func saveSleepSession(_ session: SleepSession) async throws {
@@ -23,7 +22,6 @@ final class HealthKitService {
 
         var samples: [HKCategorySample] = []
 
-        // Overall session as inBed
         let inBed = HKCategorySample(
             type: sleepType,
             value: HKCategoryValueSleepAnalysis.inBed.rawValue,
@@ -32,7 +30,6 @@ final class HealthKitService {
         )
         samples.append(inBed)
 
-        // Individual phases as asleepUnspecified / asleepDeep / asleepREM / asleepCore
         for phase in session.phases {
             let value = hkValue(for: phase.phaseType)
             let sample = HKCategorySample(
@@ -45,13 +42,6 @@ final class HealthKitService {
         }
 
         try await store.save(samples)
-
-        // Share quality score via App Group for PainDiary (only if App Group is provisioned)
-        if let defaults = UserDefaults(suiteName: "group.com.doemu0992.sleepbuddy") {
-            defaults.set(session.computedQualityScore, forKey: "lastNightSleepQuality")
-            defaults.set(session.startDate, forKey: "lastNightSleepDate")
-            defaults.synchronize()
-        }
     }
 
     private func hkValue(for phase: SleepPhaseType) -> Int {
