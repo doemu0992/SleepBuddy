@@ -49,7 +49,7 @@ struct ProfilView: View {
                     .foregroundStyle(.indigo)
                 Spacer()
                 Picker("", selection: $einschlafzeitH) {
-                    ForEach(18...3, id: \.self) { h in
+                    ForEach([18, 19, 20, 21, 22, 23, 0, 1, 2, 3], id: \.self) { h in
                         Text(String(format: "%02d", h)).tag(h)
                     }
                 }
