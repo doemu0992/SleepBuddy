@@ -1,5 +1,4 @@
 import SwiftUI
-import SwiftData
 import HealthKit
 
 struct ProfilView: View {
@@ -8,15 +7,15 @@ struct ProfilView: View {
     @AppStorage("profil_einschlafzeit_h") private var einschlafzeitH: Int = 23
     @AppStorage("profil_einschlafzeit_m") private var einschlafzeitM: Int = 0
     @AppStorage("profil_paindiary_verknuepft") private var painDiaryVerknuepft: Bool = false
-    @AppStorage("profil_healthkit_aktiv") private var healthKitAktiv: Bool = false
 
     @State private var healthKitStatus: String = "Unbekannt"
+    @State private var healthKitAktiv: Bool = false
     @State private var painDiaryLetzteSync: Date? = nil
-    @State private var zeigeHealthKitInfo = false
 
     var body: some View {
         NavigationStack {
             List {
+                profilHeader
                 schlafzielSektion
                 painDiarySektion
                 gesundheitSektion
@@ -25,7 +24,38 @@ struct ProfilView: View {
             .navigationTitle("Profil")
             .navigationBarTitleDisplayMode(.large)
             .onAppear { pruefeHealthKit(); ladePainDiarySync() }
-            .sheet(isPresented: $zeigeHealthKitInfo) { healthKitInfoSheet }
+        }
+    }
+
+    // MARK: - Profil Header
+
+    private var profilHeader: some View {
+        Section {
+            HStack {
+                Spacer()
+                VStack(spacing: 10) {
+                    ZStack {
+                        Circle()
+                            .fill(Color.indigo.opacity(0.15))
+                            .frame(width: 88, height: 88)
+                        Image(systemName: "moon.stars.fill")
+                            .font(.system(size: 40))
+                            .foregroundStyle(.indigo)
+                    }
+                    if !vorname.isEmpty {
+                        Text(vorname)
+                            .font(.title3.bold())
+                    }
+                }
+                Spacer()
+            }
+            .padding(.vertical, 8)
+            .listRowBackground(Color.clear)
+
+            LabeledContent("Name") {
+                TextField("Dein Name", text: $vorname)
+                    .multilineTextAlignment(.trailing)
+            }
         }
     }
 
@@ -33,20 +63,15 @@ struct ProfilView: View {
 
     private var schlafzielSektion: some View {
         Section("Schlafziel") {
-            HStack {
-                Label("Ziel-Schlafdauer", systemImage: "moon.stars.fill")
-                    .foregroundStyle(.indigo)
-                Spacer()
+            LabeledContent("Ziel-Schlafdauer") {
                 Text(schlafZielFormatiert)
                     .foregroundStyle(.secondary)
             }
             Slider(value: $schlafZielStunden, in: 5...10, step: 0.5)
                 .tint(.indigo)
-                .padding(.vertical, 2)
 
             HStack {
                 Label("Einschlafzeit", systemImage: "bed.double.fill")
-                    .foregroundStyle(.indigo)
                 Spacer()
                 Picker("", selection: $einschlafzeitH) {
                     ForEach([18, 19, 20, 21, 22, 23, 0, 1, 2, 3], id: \.self) { h in
@@ -56,6 +81,7 @@ struct ProfilView: View {
                 .pickerStyle(.menu)
                 .labelsHidden()
                 Text(":")
+                    .foregroundStyle(.secondary)
                 Picker("", selection: $einschlafzeitM) {
                     ForEach([0, 15, 30, 45], id: \.self) { m in
                         Text(String(format: "%02d", m)).tag(m)
@@ -77,90 +103,65 @@ struct ProfilView: View {
 
     private var painDiarySektion: some View {
         Section {
-            HStack(spacing: 14) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 10)
-                        .fill(painDiaryVerknuepft ? Color.indigo.opacity(0.15) : Color.secondary.opacity(0.1))
-                        .frame(width: 44, height: 44)
-                    Image(systemName: painDiaryVerknuepft ? "link.circle.fill" : "link.circle")
-                        .font(.title3)
-                        .foregroundStyle(painDiaryVerknuepft ? .indigo : .secondary)
-                }
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("PainDiary verbinden")
-                        .font(.subheadline.bold())
-                    if painDiaryVerknuepft {
-                        Text(syncStatusText)
-                            .font(.caption).foregroundStyle(.secondary)
-                    } else {
-                        Text("Schlafqualität in PainDiary nutzen")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
-                }
-                Spacer()
-                Toggle("", isOn: $painDiaryVerknuepft)
-                    .labelsHidden()
-                    .tint(.indigo)
-                    .onChange(of: painDiaryVerknuepft) { _, aktiv in
-                        if aktiv { schreibePainDiaryDaten() }
-                    }
+            Toggle(isOn: $painDiaryVerknuepft) {
+                Label("PainDiary verbinden", systemImage: "link.circle.fill")
+            }
+            .tint(.indigo)
+            .onChange(of: painDiaryVerknuepft) { _, aktiv in
+                if aktiv { schreibePainDiaryDaten() }
             }
 
             if painDiaryVerknuepft {
-                HStack(spacing: 10) {
-                    Image(systemName: "info.circle").foregroundStyle(.indigo).font(.caption)
-                    Text("SleepBuddy schreibt nach jeder Nacht die Schlafqualität (0–100) in eine geteilte App Group. PainDiary liest diesen Wert und zeigt die Schmerz-Schlaf-Korrelation.")
-                        .font(.caption).foregroundStyle(.secondary)
+                LabeledContent("Letzte Sync") {
+                    Text(syncStatusText)
+                        .foregroundStyle(.secondary)
+                        .font(.caption)
                 }
             }
         } header: {
             Text("PainDiary-Verknüpfung")
         } footer: {
-            if !painDiaryVerknuepft {
+            if painDiaryVerknuepft {
+                Text("SleepBuddy schreibt nach jeder Nacht die Schlafqualität (0–100) in eine geteilte App Group. PainDiary liest diesen Wert für die Schmerz-Schlaf-Korrelation.")
+            } else {
                 Text("Voraussetzung: PainDiary muss auf demselben Gerät installiert sein.")
             }
         }
     }
 
     private var syncStatusText: String {
-        guard let datum = painDiaryLetzteSync else { return "Noch keine Daten übertragen" }
-        let formatter = RelativeDateTimeFormatter()
-        formatter.unitsStyle = .full
-        return "Zuletzt synchronisiert: \(formatter.localizedString(for: datum, relativeTo: Date()))"
+        guard let datum = painDiaryLetzteSync else { return "Noch keine Daten" }
+        let fmt = RelativeDateTimeFormatter()
+        fmt.unitsStyle = .abbreviated
+        return fmt.localizedString(for: datum, relativeTo: Date())
     }
 
-    // MARK: - Gesundheit (HealthKit)
+    // MARK: - Apple Health
 
     private var gesundheitSektion: some View {
         Section("Apple Health") {
-            HStack(spacing: 14) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 10)
-                        .fill(healthKitAktiv ? Color.pink.opacity(0.15) : Color.secondary.opacity(0.1))
-                        .frame(width: 44, height: 44)
-                    Image(systemName: "heart.fill")
-                        .font(.title3)
-                        .foregroundStyle(healthKitAktiv ? .pink : .secondary)
-                }
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("Schlafdaten in Health")
-                        .font(.subheadline.bold())
-                    Text(healthKitStatus)
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-                Spacer()
-                Button {
-                    zeigeHealthKitInfo = true
-                } label: {
-                    Image(systemName: "info.circle")
-                        .foregroundStyle(.secondary)
-                }
-                .buttonStyle(.plain)
+            LabeledContent {
+                Text(healthKitStatus)
+                    .foregroundStyle(healthKitAktiv ? .green : .secondary)
+                    .font(.caption)
+            } label: {
+                Label("Schlafdaten in Health", systemImage: "heart.fill")
             }
+
+            if !healthKitAktiv {
+                Button {
+                    anfragenHealthKit()
+                } label: {
+                    Label("Zugriff anfragen", systemImage: "arrow.right.circle")
+                        .foregroundStyle(.indigo)
+                }
+            }
+        } footer: {
+            Text("SleepBuddy schreibt Schlafphasen in Apple Health. Kein Audio wird gespeichert.")
         }
     }
 
-    // MARK: - Info
+    // MARK: - Über SleepBuddy
 
     private var infoSektion: some View {
         Section("Über SleepBuddy") {
@@ -178,72 +179,33 @@ struct ProfilView: View {
         }
     }
 
-    // MARK: - HealthKit Info Sheet
-
-    private var healthKitInfoSheet: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    VStack(spacing: 8) {
-                        Image(systemName: "heart.text.square.fill")
-                            .font(.system(size: 40)).foregroundStyle(.pink)
-                        Text("Apple Health Integration")
-                            .font(.title3.bold())
-                        Text("SleepBuddy schreibt deine Schlafdaten nach jeder aufgezeichneten Nacht in Apple Health.")
-                            .font(.subheadline).foregroundStyle(.secondary)
-                            .multilineTextAlignment(.center)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.bottom, 8)
-
-                    VStack(alignment: .leading, spacing: 12) {
-                        infoZeile(symbol: "moon.fill", text: "Schlafphasen (Tief, REM, Leicht, Wach)", farbe: .indigo)
-                        infoZeile(symbol: "clock.fill", text: "Gesamtschlafdauer pro Nacht", farbe: .blue)
-                        infoZeile(symbol: "mic.slash.fill", text: "Kein Audio wird gespeichert — nur Klassifikationen", farbe: .orange)
-                    }
-                    .padding()
-                    .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
-                }
-                .padding(.horizontal).padding(.vertical, 24)
-            }
-            .background(Color(.systemGroupedBackground))
-            .navigationTitle("Apple Health")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Fertig") { zeigeHealthKitInfo = false }
-                }
-            }
-        }
-    }
-
-    private func infoZeile(symbol: String, text: String, farbe: Color) -> some View {
-        HStack(spacing: 12) {
-            Image(systemName: symbol).foregroundStyle(farbe).frame(width: 20)
-            Text(text).font(.subheadline)
-        }
-    }
-
     // MARK: - Logik
 
     private func pruefeHealthKit() {
-        let store = HKHealthStore()
         guard HKHealthStore.isHealthDataAvailable() else {
-            healthKitStatus = "Nicht verfügbar auf diesem Gerät"
+            healthKitStatus = "Nicht verfügbar"
             return
         }
         let type = HKObjectType.categoryType(forIdentifier: .sleepAnalysis)!
-        let status = store.authorizationStatus(for: type)
+        let status = HKHealthStore().authorizationStatus(for: type)
         switch status {
         case .sharingAuthorized:
             healthKitAktiv = true
             healthKitStatus = "Zugriff erteilt"
         case .sharingDenied:
             healthKitAktiv = false
-            healthKitStatus = "Zugriff verweigert — in Einstellungen ändern"
+            healthKitStatus = "Verweigert — Einstellungen öffnen"
         default:
             healthKitAktiv = false
-            healthKitStatus = "Berechtigung noch nicht angefragt"
+            healthKitStatus = "Noch nicht angefragt"
+        }
+    }
+
+    private func anfragenHealthKit() {
+        let store = HKHealthStore()
+        let type = HKObjectType.categoryType(forIdentifier: .sleepAnalysis)!
+        store.requestAuthorization(toShare: [type], read: []) { success, _ in
+            DispatchQueue.main.async { pruefeHealthKit() }
         }
     }
 
@@ -255,7 +217,6 @@ struct ProfilView: View {
     }
 
     private func schreibePainDiaryDaten() {
-        // Schreibt aktuell keine neuen Daten — passiert nach Schlafende.
-        // Diese Funktion dient als Hook für zukünftige sofortige Sync-Logik.
+        // Hook — Daten werden nach Schlafende geschrieben
     }
 }
