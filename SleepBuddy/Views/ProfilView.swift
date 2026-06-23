@@ -140,12 +140,12 @@ struct ProfilView: View {
 
     private var gesundheitSektion: some View {
         Section("Apple Health") {
-            LabeledContent {
+            HStack {
+                Label("Schlafdaten in Health", systemImage: "heart.fill")
+                Spacer()
                 Text(healthKitStatus)
                     .foregroundStyle(healthKitAktiv ? .green : .secondary)
                     .font(.caption)
-            } label: {
-                Label("Schlafdaten in Health", systemImage: "heart.fill")
             }
 
             if !healthKitAktiv {
