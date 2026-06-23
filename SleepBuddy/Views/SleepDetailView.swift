@@ -34,6 +34,7 @@ struct SleepDetailView: View {
         ScrollView {
             VStack(spacing: 16) {
                 heroHeader
+                schlafindexButton
                 statsGrid
                 let bruxismCount = session.soundEvents.filter { $0.type == .bruxism }.count
                 let coughCount = session.soundEvents.filter { $0.type == .coughing }.count
@@ -70,6 +71,31 @@ struct SleepDetailView: View {
                 applyCorrection(phase: phase, newType: newType)
             }
         }
+    }
+
+    // MARK: - Schlafindex Button
+
+    private var schlafindexButton: some View {
+        NavigationLink(destination: SchlafindexView(session: session)) {
+            HStack {
+                Label("Schlafindex anzeigen", systemImage: "chart.pie.fill")
+                    .font(.subheadline.bold())
+                    .foregroundStyle(.white)
+                Spacer()
+                HStack(spacing: 4) {
+                    Text("\(Int(session.computedQualityScore))")
+                        .font(.subheadline.bold())
+                        .foregroundStyle(.white)
+                    Image(systemName: "chevron.right")
+                        .font(.caption.bold())
+                        .foregroundStyle(.white.opacity(0.7))
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
+            .background(Color.indigo, in: RoundedRectangle(cornerRadius: 14))
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - Hero Header

@@ -10,10 +10,12 @@ struct ContentView: View {
                 .tabItem {
                     Label("Schlafen", systemImage: "moon.fill")
                 }
-            SleepHistoryView()
-                .tabItem {
-                    Label("Verlauf", systemImage: "chart.bar.fill")
-                }
+            NavigationStack {
+                SleepHistoryView()
+            }
+            .tabItem {
+                Label("Verlauf", systemImage: "chart.bar.fill")
+            }
             ProfilView()
                 .tabItem {
                     Label("Profil", systemImage: "person.fill")
