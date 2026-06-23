@@ -1,6 +1,49 @@
 import AVFoundation
+import AudioToolbox
 import UserNotifications
 import Observation
+
+// MARK: - Alarm-Ton
+
+enum AlarmTon: String, CaseIterable, Codable {
+    case sanft     = "Sanft"
+    case natur     = "Natur"
+    case klassisch = "Klassisch"
+    case signal    = "Signal"
+    case digital   = "Digital"
+
+    /// SystemSoundID used for in-app preview and fallback playback
+    var systemSoundID: SystemSoundID {
+        switch self {
+        case .sanft:     return 1013   // Tri-tone
+        case .natur:     return 1020   // Fanfare
+        case .klassisch: return 1016   // Anticipate
+        case .signal:    return 1057   // Radar
+        case .digital:   return 1022   // Minuet
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .sanft:     return "sun.max.fill"
+        case .natur:     return "leaf.fill"
+        case .klassisch: return "music.note"
+        case .signal:    return "antenna.radiowaves.left.and.right"
+        case .digital:   return "waveform"
+        }
+    }
+
+    /// UNNotificationSoundName for background notification fallback
+    var notificationSound: UNNotificationSound {
+        switch self {
+        case .sanft:     return .defaultCritical
+        case .natur:     return .defaultCriticalSound(withAudioVolume: 0.7)
+        case .klassisch: return .defaultCritical
+        case .signal:    return .defaultCritical
+        case .digital:   return .defaultCritical
+        }
+    }
+}
 
 @Observable
 final class SmartAlarmService {
@@ -11,6 +54,8 @@ final class SmartAlarmService {
         static let earliestMinute = "smartAlarm.earliestMinute"
         static let latestHour     = "smartAlarm.latestHour"
         static let latestMinute   = "smartAlarm.latestMinute"
+        static let alarmTon       = "smartAlarm.alarmTon"
+        static let lautstaerke    = "smartAlarm.lautstaerke"
     }
 
     var isEnabled: Bool = UserDefaults.standard.bool(forKey: Keys.isEnabled) {
@@ -25,11 +70,26 @@ final class SmartAlarmService {
         didSet { SmartAlarmService.saveTime(latestWakeTime, hourKey: Keys.latestHour, minuteKey: Keys.latestMinute) }
     }
 
+    var alarmTon: AlarmTon = AlarmTon(rawValue: UserDefaults.standard.string(forKey: Keys.alarmTon) ?? "") ?? .sanft {
+        didSet { UserDefaults.standard.set(alarmTon.rawValue, forKey: Keys.alarmTon) }
+    }
+
+    var lautstaerke: Float = {
+        let stored = UserDefaults.standard.float(forKey: Keys.lautstaerke)
+        return stored > 0 ? stored : 0.8
+    }() {
+        didSet {
+            UserDefaults.standard.set(lautstaerke, forKey: Keys.lautstaerke)
+            audioPlayer?.volume = lautstaerke
+        }
+    }
+
     private(set) var alarmFired = false
     private(set) var alarmFiredDate: Date?
     private(set) var hasNotificationPermission = false
 
     private var audioPlayer: AVAudioPlayer?
+    private var loopTask: Task<Void, Never>?
     private let notificationID = "com.sleepbuddy.smartalarm"
 
     // MARK: - Permission
@@ -80,14 +140,32 @@ final class SmartAlarmService {
     }
 
     private func playAlarmSound() {
-        guard let url = Bundle.main.url(forResource: "alarm", withExtension: "caf")
-                     ?? Bundle.main.url(forResource: "alarm", withExtension: "mp3") else { return }
-        audioPlayer = try? AVAudioPlayer(contentsOf: url)
-        audioPlayer?.numberOfLoops = -1   // loop until user taps "Aufwachen"
-        audioPlayer?.play()
+        // Try bundle audio file first
+        if let url = Bundle.main.url(forResource: "alarm", withExtension: "caf")
+                  ?? Bundle.main.url(forResource: "alarm", withExtension: "mp3"),
+           let player = try? AVAudioPlayer(contentsOf: url) {
+            player.numberOfLoops = -1
+            player.volume = lautstaerke
+            player.play()
+            audioPlayer = player
+        } else {
+            // Fallback: loop system sound via repeating task
+            loopTask = Task { @MainActor in
+                while !Task.isCancelled {
+                    AudioServicesPlaySystemSound(alarmTon.systemSoundID)
+                    try? await Task.sleep(for: .seconds(3))
+                }
+            }
+        }
+    }
+
+    func vorschauSpielen() {
+        AudioServicesPlaySystemSound(alarmTon.systemSoundID)
     }
 
     func stopAlarm() {
+        loopTask?.cancel()
+        loopTask = nil
         audioPlayer?.stop()
         audioPlayer = nil
     }
@@ -98,7 +176,7 @@ final class SmartAlarmService {
         let content = UNMutableNotificationContent()
         content.title = "Zeit aufzuwachen"
         content.body = "Dein Smart Alarm meldet sich."
-        content.sound = .defaultCritical
+        content.sound = alarmTon.notificationSound
 
         let components = Calendar.current.dateComponents([.hour, .minute], from: latestWakeTime)
         let trigger = UNCalendarNotificationTrigger(dateMatching: components, repeats: false)

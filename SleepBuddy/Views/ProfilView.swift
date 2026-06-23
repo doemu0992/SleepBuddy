@@ -287,6 +287,57 @@ struct AlarmEinstellungenView: View {
                     DatePicker("Frühestens", selection: Bindable(alarm).earliestWakeTime, displayedComponents: .hourAndMinute)
                     DatePicker("Spätestens", selection: Bindable(alarm).latestWakeTime, displayedComponents: .hourAndMinute)
                 }
+
+                Section {
+                    ForEach(AlarmTon.allCases, id: \.self) { ton in
+                        Button {
+                            alarm.alarmTon = ton
+                            alarm.vorschauSpielen()
+                        } label: {
+                            HStack(spacing: 12) {
+                                Image(systemName: ton.symbol)
+                                    .foregroundStyle(.indigo)
+                                    .frame(width: 24)
+                                Text(ton.rawValue)
+                                    .foregroundStyle(.primary)
+                                Spacer()
+                                if alarm.alarmTon == ton {
+                                    Image(systemName: "checkmark.circle.fill")
+                                        .foregroundStyle(.indigo)
+                                }
+                            }
+                        }
+                    }
+                } header: {
+                    Text("Weckton")
+                } footer: {
+                    Text("Tippe auf einen Ton, um ihn als Vorschau abzuspielen.")
+                }
+
+                Section {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Text("Lautstärke")
+                            Spacer()
+                            Text("\(Int(alarm.lautstaerke * 100)) %")
+                                .foregroundStyle(.secondary)
+                                .monospacedDigit()
+                        }
+                        HStack(spacing: 10) {
+                            Image(systemName: "speaker.fill")
+                                .foregroundStyle(.secondary)
+                                .font(.caption)
+                            Slider(value: Bindable(alarm).lautstaerke, in: 0.1...1.0, step: 0.05)
+                                .tint(.indigo)
+                            Image(systemName: "speaker.wave.3.fill")
+                                .foregroundStyle(.secondary)
+                                .font(.caption)
+                        }
+                    }
+                    .padding(.vertical, 4)
+                } footer: {
+                    Text("Gilt für den Weckton bei aktiver Schlafaufzeichnung.")
+                }
             }
         }
         .navigationTitle("Smart Alarm")
