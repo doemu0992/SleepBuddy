@@ -16,6 +16,9 @@ struct HomeView: View {
             ScrollView {
                 VStack(spacing: 20) {
                     sleepButton
+                    if let session = lastSession, isMorgenBerichtRelevant(session) {
+                        MorgenBerichtCard(session: session)
+                    }
                     smartAlarmCard
                     if let session = lastSession {
                         lastNightCard(session)
@@ -209,6 +212,11 @@ struct HomeView: View {
     private func formatMinutes(_ interval: TimeInterval) -> String {
         let m = Int(interval / 60)
         return m < 60 ? "\(m) min" : "\(m / 60)h \(m % 60)min"
+    }
+
+    private func isMorgenBerichtRelevant(_ session: SleepSession) -> Bool {
+        Calendar.current.isDateInToday(session.endDate ?? .distantPast) ||
+        Calendar.current.isDateInYesterday(session.endDate ?? .distantPast)
     }
 }
 

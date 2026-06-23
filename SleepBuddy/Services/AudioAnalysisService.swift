@@ -8,11 +8,15 @@ import Accelerate
 @Observable
 final class AudioAnalysisService {
     private(set) var isRunning = false
+    private(set) var currentFormat: AVAudioFormat?
     var onFeaturesUpdated: ((AudioFeatures) -> Void)?
 
     /// Called on the analysis queue with raw samples, sample rate, and snoring score
     /// so SoundEventService can maintain its own circular buffer.
     var onRawChunk: (([Float], Double, Float) -> Void)?
+
+    /// Called with each raw buffer for ML classification.
+    var onBufferReady: ((AVAudioPCMBuffer, AVAudioTime) -> Void)?
 
     private let engine = AVAudioEngine()
     private let analysisQueue = DispatchQueue(label: "com.sleepbuddy.audio", qos: .utility)
@@ -44,11 +48,13 @@ final class AudioAnalysisService {
         let inputNode = engine.inputNode
         let format = inputNode.outputFormat(forBus: 0)
         audioSampleRate = format.sampleRate
+        currentFormat = format
 
         let log2n = vDSP_Length(log2(Float(fftSize)))
         fftSetup = vDSP_create_fftsetup(log2n, FFTRadix(FFT_RADIX2))
 
-        inputNode.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
+        inputNode.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, time in
+            self?.onBufferReady?(buffer, time)
             self?.analysisQueue.async { self?.processBuffer(buffer) }
         }
 
@@ -65,6 +71,7 @@ final class AudioAnalysisService {
         envelopeBuffer.removeAll()
         chunkSamples.removeAll()
         rawSampleBuffer.removeAll()
+        currentFormat = nil
         isRunning = false
     }
 

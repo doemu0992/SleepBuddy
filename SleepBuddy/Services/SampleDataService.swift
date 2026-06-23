@@ -51,17 +51,21 @@ enum SampleDataService {
             .appendingPathComponent("SleepSounds")
         try? FileManager.default.createDirectory(at: soundsDir, withIntermediateDirectories: true)
 
-        // Sound events
-        let events: [(SoundEventType, Double, Double?, String?)] = [
-            // (type, hoursAfterStart, durationSec, audioFile or nil)
-            (.snoring, 2.75,  22, "sample_snore_1.wav"),
-            (.talking, 4.17,  14, "sample_talk_1.wav"),
-            (.snoring, 5.33,  31, nil),               // no audio → waveform.slash icon
-            (.other,   5.83,   8, nil),
-            (.snoring, 6.67,  18, "sample_snore_2.wav"),
+        // Sound events: (type, hoursAfterStart, durationSec, audioFile or nil, decibelLevel, confidenceScore)
+        let events: [(SoundEventType, Double, Double?, String?, Double, Double)] = [
+            (.snoring, 2.75,  22, "sample_snore_1.wav", 62.0, 0.0),
+            (.talking, 4.17,  14, "sample_talk_1.wav",  48.0, 0.0),
+            (.snoring, 5.33,  31, nil,                   58.0, 0.0),
+            (.other,   5.83,   8, nil,                    0.0, 0.0),
+            (.snoring, 6.67,  18, "sample_snore_2.wav",  70.0, 0.0),
+            (.bruxism, 3.25,   7, nil,                   50.0, 0.8),
+            (.bruxism, 5.00,   5, nil,                   47.0, 0.8),
+            (.bruxism, 6.10,   9, nil,                   53.0, 0.8),
+            (.coughing, 2.10,  4, nil,                   59.0, 0.8),
+            (.coughing, 4.80,  6, nil,                   63.0, 0.8),
         ]
 
-        for (type, hoursOffset, duration, filename) in events {
+        for (type, hoursOffset, duration, filename, decibelLevel, confidenceScore) in events {
             let ts = start.addingTimeInterval(hoursOffset * 3600)
             var iCloudName: String? = nil
             if let fn = filename {
@@ -74,7 +78,9 @@ enum SampleDataService {
                 timestamp: ts,
                 type: type,
                 durationSeconds: duration ?? 10,
-                iCloudFileName: iCloudName
+                iCloudFileName: iCloudName,
+                decibelLevel: decibelLevel,
+                confidenceScore: confidenceScore
             )
             context.insert(event)
             session.soundEvents.append(event)

@@ -24,6 +24,7 @@ final class SleepTrackingViewModel {
     private let onsetDetector = SleepOnsetDetector()
     private let healthKit = HealthKitService()
     let soundEventService = SoundEventService()
+    let soundClassifier = SoundClassificationService()
 
     private var modelContext: ModelContext?
     private var currentPhaseStartDate = Date()
@@ -85,15 +86,25 @@ final class SleepTrackingViewModel {
             self?.soundEventService.appendSamples(samples, actualSampleRate: sampleRate)
         }
 
-        soundEventService.onEventCaptured = { [weak self] timestamp, type, duration, fileName in
+        audioService.onBufferReady = { [weak self] buffer, time in
+            self?.soundClassifier.analyze(buffer: buffer, time: time)
+        }
+        soundClassifier.onSoundDetected = { [weak self] type, confidence in
+            self?.soundEventService.hintMLDetection(type: type, confidence: confidence)
+        }
+
+        soundEventService.onEventCaptured = { [weak self] timestamp, type, duration, fileName, decibelLevel, confidenceScore in
             guard let self, let session = self.currentSession, let ctx = self.modelContext else { return }
-            let event = SleepSoundEvent(timestamp: timestamp, type: type, durationSeconds: duration, iCloudFileName: fileName)
+            let event = SleepSoundEvent(timestamp: timestamp, type: type, durationSeconds: duration, iCloudFileName: fileName, decibelLevel: decibelLevel, confidenceScore: confidenceScore)
             ctx.insert(event)
             session.soundEvents.append(event)
         }
 
         do {
             try audioService.start()
+            if let format = audioService.currentFormat {
+                soundClassifier.start(format: format)
+            }
             soundEventService.configure(sampleRate: 44100)
             motionService.start()
             smartAlarm.arm()
@@ -111,6 +122,7 @@ final class SleepTrackingViewModel {
         motionService.stop()
         smartAlarm.disarm()
         smartAlarm.stopAlarm()
+        soundClassifier.stop()
         soundEventService.reset()
 
         finalizeCurrentPhase(endDate: .now, session: session)

@@ -40,10 +40,22 @@ final class SoundEventService {
     private let loudTicksToStart = 4          // 0.5 s of noise starts an event
     private var lastEventEndDate: Date?
 
+    // MARK: - ML hint (from SoundClassificationService)
+
+    private var mlHintType: SoundEventType?
+    private var mlHintConfidence: Double = 0
+    private var mlHintDate: Date?
+
+    func hintMLDetection(type: SoundEventType, confidence: Double) {
+        mlHintType = type
+        mlHintConfidence = confidence
+        mlHintDate = Date()
+    }
+
     // MARK: - Callback (fires on main actor)
 
-    /// Provides (timestamp, type, duration, optional iCloud file name) to the caller.
-    var onEventCaptured: ((Date, SoundEventType, TimeInterval, String?) -> Void)?
+    /// Provides (timestamp, type, duration, optional iCloud file name, decibelLevel, confidenceScore) to the caller.
+    var onEventCaptured: ((Date, SoundEventType, TimeInterval, String?, Double, Double) -> Void)?
 
     // MARK: - Public API
 
@@ -104,6 +116,9 @@ final class SoundEventService {
         consecutiveQuietTicks = 0
         lastEventEndDate = nil
         circularBuffer.removeAll()
+        mlHintType = nil
+        mlHintConfidence = 0
+        mlHintDate = nil
     }
 
     // MARK: - Audio file URL for playback
@@ -117,9 +132,21 @@ final class SoundEventService {
     // MARK: - Private helpers
 
     private func classifyEvent(snoringScore: Float, speechLikelihood: Float) -> SoundEventType {
+        // Prefer ML hint if it arrived within the last 2 seconds
+        if let hintDate = mlHintDate, Date().timeIntervalSince(hintDate) < 2.0, let hint = mlHintType {
+            return hint
+        }
         if snoringScore > 0.45 { return .snoring }
         if speechLikelihood > 0.4 { return .talking }
         return .other
+    }
+
+    private func computeDecibelLevel(_ samples: [Float]) -> Double {
+        guard !samples.isEmpty else { return 0.0 }
+        let sumSquares = samples.reduce(0.0) { $0 + Double($1 * $1) }
+        let rms = sqrt(sumSquares / Double(samples.count))
+        let db = 20.0 * log10(max(rms, 1e-6))
+        return max(0.0, min(120.0, db + 90.0))  // shift so 0 dBFS ~= 90 dB SPL estimate
     }
 
     private func finaliseEvent() {
@@ -135,12 +162,19 @@ final class SoundEventService {
         let samples = Array(circularBuffer)          // copy before async
         let sr = sampleRate
         let timestamp = start
+        let capturedConfidence = mlHintConfidence
+        let decibelLevel = computeDecibelLevel(samples)
+
+        // Clear ML hint after use
+        mlHintType = nil
+        mlHintConfidence = 0
+        mlHintDate = nil
 
         Task.detached(priority: .background) { [weak self] in
             guard let self else { return }
             let fileName = self.saveToICloud(samples: samples, sampleRate: sr, timestamp: timestamp)
             await MainActor.run {
-                self.onEventCaptured?(timestamp, type, duration, fileName)
+                self.onEventCaptured?(timestamp, type, duration, fileName, decibelLevel, capturedConfidence)
             }
         }
     }

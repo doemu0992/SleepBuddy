@@ -35,7 +35,9 @@ struct SleepDetailView: View {
             VStack(spacing: 16) {
                 heroHeader
                 statsGrid
-                if session.sleepOnsetLatency != nil || session.snoringEventCount > 0 || session.alarmFiredDate != nil {
+                let bruxismCount = session.soundEvents.filter { $0.type == .bruxism }.count
+                let coughCount = session.soundEvents.filter { $0.type == .coughing }.count
+                if session.sleepOnsetLatency != nil || session.snoringEventCount > 0 || session.alarmFiredDate != nil || bruxismCount > 0 || coughCount > 0 {
                     extraStatsRow
                 }
                 phaseBarCard
@@ -43,6 +45,7 @@ struct SleepDetailView: View {
                 if !session.soundEvents.isEmpty {
                     soundEventsCard
                 }
+                snoringIntensityCard
                 phaseTimelineCard
             }
             .padding()
@@ -135,13 +138,23 @@ struct SleepDetailView: View {
     // MARK: - Extra Stats
 
     private var extraStatsRow: some View {
-        HStack(spacing: 0) {
+        let bruxismCount = session.soundEvents.filter { $0.type == .bruxism }.count
+        let coughCount = session.soundEvents.filter { $0.type == .coughing }.count
+        return HStack(spacing: 0) {
             if let latency = session.sleepOnsetLatency {
                 extraStat(formatMinutes(latency), icon: "zzz", color: .indigo, label: "Einschlafen")
             }
             if session.snoringEventCount > 0 {
                 Divider().frame(height: 40)
                 extraStat("\(session.snoringEventCount)×", icon: "waveform", color: .orange, label: "Schnarchen")
+            }
+            if bruxismCount > 0 {
+                Divider().frame(height: 40)
+                extraStat("\(bruxismCount)×", icon: "mouth.fill", color: .pink, label: "Zähneknirschen")
+            }
+            if coughCount > 0 {
+                Divider().frame(height: 40)
+                extraStat("\(coughCount)×", icon: "lungs.fill", color: .teal, label: "Husten")
             }
             if let alarmDate = session.alarmFiredDate {
                 Divider().frame(height: 40)
@@ -272,8 +285,14 @@ struct SleepDetailView: View {
 
                     Spacer()
 
-                    Text(formatEventDuration(event.durationSeconds))
-                        .font(.caption).foregroundStyle(.secondary)
+                    VStack(alignment: .trailing, spacing: 2) {
+                        Text(formatEventDuration(event.durationSeconds))
+                            .font(.caption).foregroundStyle(.secondary)
+                        if event.decibelLevel > 0 {
+                            Text("\(Int(event.decibelLevel)) dB")
+                                .font(.caption2).foregroundStyle(.secondary)
+                        }
+                    }
 
                     if let fileName = event.iCloudFileName {
                         Button {
@@ -301,6 +320,48 @@ struct SleepDetailView: View {
         .background(Color(.secondarySystemGroupedBackground))
         .clipShape(RoundedRectangle(cornerRadius: 16))
         .shadow(color: Color.primary.opacity(0.06), radius: 10, x: 0, y: 2)
+    }
+
+    // MARK: - Snoring Intensity Card
+
+    @ViewBuilder
+    private var snoringIntensityCard: some View {
+        let snoringEvents = session.soundEvents
+            .filter { $0.type == .snoring && $0.decibelLevel > 0 }
+            .sorted { $0.timestamp < $1.timestamp }
+        if !snoringEvents.isEmpty {
+            VStack(alignment: .leading, spacing: 12) {
+                Label("Schnarch-Intensität", systemImage: "waveform")
+                    .font(.headline).foregroundStyle(.indigo)
+
+                ForEach(snoringEvents, id: \.timestamp) { event in
+                    let db = event.decibelLevel
+                    let dbColor: Color = db < 50 ? .green : (db < 65 ? .yellow : .red)
+                    HStack(spacing: 12) {
+                        Text(event.timestamp.formatted(date: .omitted, time: .shortened))
+                            .font(.caption).foregroundStyle(.secondary)
+                            .frame(width: 60, alignment: .leading)
+                        GeometryReader { geo in
+                            Capsule()
+                                .fill(dbColor.opacity(0.2))
+                                .overlay(alignment: .leading) {
+                                    Capsule()
+                                        .fill(dbColor)
+                                        .frame(width: geo.size.width * min(db / 100.0, 1.0))
+                                }
+                        }
+                        .frame(height: 8)
+                        Text("\(Int(db)) dB")
+                            .font(.caption.bold()).foregroundStyle(dbColor)
+                            .frame(width: 44, alignment: .trailing)
+                    }
+                }
+            }
+            .padding()
+            .background(Color(.secondarySystemGroupedBackground))
+            .clipShape(RoundedRectangle(cornerRadius: 16))
+            .shadow(color: Color.primary.opacity(0.06), radius: 10, x: 0, y: 2)
+        }
     }
 
     private func formatEventDuration(_ seconds: TimeInterval) -> String {

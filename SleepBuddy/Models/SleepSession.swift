@@ -44,6 +44,9 @@ final class SleepSession {
 
     var isActive: Bool { endDate == nil }
 
+    var bruxismEventCount: Int { soundEvents.filter { $0.type == .bruxism }.count }
+    var coughingEventCount: Int { soundEvents.filter { $0.type == .coughing }.count }
+
     var deepSleepDuration: TimeInterval {
         phases.filter { $0.phaseType == .deep }.reduce(0) { $0 + $1.duration }
     }
@@ -72,6 +75,9 @@ final class SleepSession {
 
         // Snoring penalty (each event = -0.5 pts, max -15)
         score -= min(Double(snoringEventCount) * 0.5, 15)
+
+        // Bruxism penalty (each event = -0.3 pts, max -5)
+        score -= min(Double(bruxismEventCount) * 0.3, 5)
 
         return max(score, 0)
     }
