@@ -229,7 +229,7 @@ final class SmartAlarmService {
         toneEngine = nil
         // Restore recording session
         let session = AVAudioSession.sharedInstance()
-        try? session.setCategory(.playAndRecord, options: [.defaultToSpeaker, .allowBluetooth])
+        try? session.setCategory(.playAndRecord, options: [.defaultToSpeaker, .allowBluetoothHFP])
     }
 
     // MARK: - Failsafe notification
