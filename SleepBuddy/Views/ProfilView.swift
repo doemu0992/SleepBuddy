@@ -139,7 +139,7 @@ struct ProfilView: View {
     // MARK: - Apple Health
 
     private var gesundheitSektion: some View {
-        Section("Apple Health") {
+        Section {
             HStack {
                 Label("Schlafdaten in Health", systemImage: "heart.fill")
                 Spacer()
@@ -156,6 +156,8 @@ struct ProfilView: View {
                         .foregroundStyle(.indigo)
                 }
             }
+        } header: {
+            Text("Apple Health")
         } footer: {
             Text("SleepBuddy schreibt Schlafphasen in Apple Health. Kein Audio wird gespeichert.")
         }
