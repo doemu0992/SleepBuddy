@@ -40,6 +40,7 @@
 		AA000031 /* EinstellungenView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100033 /* EinstellungenView.swift */; };
 		AA000032 /* NotificationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100034 /* NotificationManager.swift */; };
 		AA000033 /* SharedProfil.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100035 /* SharedProfil.swift */; };
+		AA000034 /* SleepNightSummary.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100036 /* SleepNightSummary.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -78,6 +79,7 @@
 		AA100033 /* EinstellungenView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EinstellungenView.swift; sourceTree = "<group>"; };
 		AA100034 /* NotificationManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationManager.swift; sourceTree = "<group>"; };
 		AA100035 /* SharedProfil.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedProfil.swift; sourceTree = "<group>"; };
+		AA100036 /* SleepNightSummary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepNightSummary.swift; sourceTree = "<group>"; };
 		AA200001 /* SleepBuddy.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SleepBuddy.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 

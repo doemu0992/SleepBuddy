@@ -344,7 +344,35 @@ struct PainDiaryVerknuepfungView: View {
         }
     }
 
-    private func schreibePainDiaryDaten() { }
+    private func schreibePainDiaryDaten() {
+        // Called manually from toggle — also called automatically from SleepTrackingViewModel
+        letzteSync = Date()
+        UserDefaults(suiteName: "group.com.doemu0992.sleepbuddy")?
+            .set(letzteSync!.timeIntervalSince1970, forKey: "lastNightSleepQualityTimestamp")
+    }
+
+    static func exportiereSession(_ session: SleepSession) {
+        guard UserDefaults.standard.bool(forKey: "profil_paindiary_verknuepft") else { return }
+        let total = session.totalDuration
+        guard total > 0 else { return }
+        let summary = SleepNightSummary(
+            datum: session.startDate.timeIntervalSince1970,
+            qualitaet: session.computedQualityScore,
+            dauerSek: total,
+            tiefPct: session.deepSleepDuration / total,
+            remPct: session.remSleepDuration / total,
+            leichtPct: session.lightSleepDuration / total,
+            wachPct: session.awakeDuration / total
+        )
+        var alle = SleepNightSummary.laden()
+        // Replace if same night already exists (same day)
+        let cal = Calendar.current
+        alle.removeAll { cal.isDate(Date(timeIntervalSince1970: $0.datum), inSameDayAs: session.startDate) }
+        alle.append(summary)
+        // Keep last 90 nights
+        let sorted = alle.sorted { $0.datum > $1.datum }
+        SleepNightSummary.speichern(Array(sorted.prefix(90)))
+    }
 }
 
 // MARK: - Apple Health
