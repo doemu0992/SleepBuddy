@@ -13,12 +13,9 @@ struct EinstellungenView: View {
         )
     }
 
-    @State private var soundEventsAktiv = UserDefaults.standard.bool(forKey: "soundEvents_enabled")
-
     var body: some View {
         List {
             erinnerungSektion
-            schlafgeraeuschSektion
             appSektion
             versionSektion
         }
@@ -57,22 +54,6 @@ struct EinstellungenView: View {
             if erinnerungAktiv {
                 Text("Du erhältst täglich eine Erinnerung, SleepBuddy zu starten.")
             }
-        }
-    }
-
-    // MARK: - Schlafgeräusche
-
-    private var schlafgeraeuschSektion: some View {
-        Section {
-            Toggle("Schlafgeräusche aufzeichnen", isOn: $soundEventsAktiv)
-                .tint(.indigo)
-                .onChange(of: soundEventsAktiv) { _, aktiv in
-                    UserDefaults.standard.set(aktiv, forKey: "soundEvents_enabled")
-                }
-        } header: {
-            Text("Schlafgeräusche")
-        } footer: {
-            Text("Wenn aktiviert, werden kurze Audioclips beim Erkennen von Schnarchen, Sprechen oder anderen Geräuschen aufgezeichnet und in iCloud gespeichert. Audio wird nur bei Geräuschereignissen gespeichert.")
         }
     }
 

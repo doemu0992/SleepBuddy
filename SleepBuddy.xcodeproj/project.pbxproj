@@ -37,6 +37,8 @@
 		AA000028 /* CoreML.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = AA100030 /* CoreML.framework */; };
 		AA000029 /* UserNotifications.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = AA100031 /* UserNotifications.framework */; };
 		AA000030 /* ProfilView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100032 /* ProfilView.swift */; };
+		AA000031 /* EinstellungenView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100033 /* EinstellungenView.swift */; };
+		AA000032 /* NotificationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100034 /* NotificationManager.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -72,6 +74,8 @@
 		AA100030 /* CoreML.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreML.framework; path = System/Library/Frameworks/CoreML.framework; sourceTree = SDKROOT; };
 		AA100031 /* UserNotifications.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UserNotifications.framework; path = System/Library/Frameworks/UserNotifications.framework; sourceTree = SDKROOT; };
 		AA100032 /* ProfilView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfilView.swift; sourceTree = "<group>"; };
+		AA100033 /* EinstellungenView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EinstellungenView.swift; sourceTree = "<group>"; };
+		AA100034 /* NotificationManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationManager.swift; sourceTree = "<group>"; };
 		AA200001 /* SleepBuddy.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SleepBuddy.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -130,6 +134,7 @@
 				AA100014 /* SleepDetailView.swift */,
 				AA100015 /* SleepPhaseBarView.swift */,
 				AA100032 /* ProfilView.swift */,
+				AA100033 /* EinstellungenView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -148,7 +153,6 @@
 			children = (
 				AA100006 /* AudioAnalysisService.swift */,
 				AA100034 /* NotificationManager.swift */,
-				AA100035 /* SharedProfil.swift */,
 				AA100007 /* SleepPhaseClassifier.swift */,
 				AA100008 /* HealthKitService.swift */,
 				AA100023 /* MotionAnalysisService.swift */,
@@ -285,6 +289,8 @@
 				AA000014 /* SleepDetailView.swift in Sources */,
 				AA000015 /* SleepPhaseBarView.swift in Sources */,
 				AA000030 /* ProfilView.swift in Sources */,
+				AA000031 /* EinstellungenView.swift in Sources */,
+				AA000032 /* NotificationManager.swift in Sources */,
 				AA000016 /* TimeInterval+Formatted.swift in Sources */,
 				AA000020 /* TrainingSample.swift in Sources */,
 				AA000021 /* MotionAnalysisService.swift in Sources */,
