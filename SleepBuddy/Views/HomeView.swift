@@ -28,6 +28,7 @@ struct HomeView: View {
             }
             .background(Color(.systemGroupedBackground))
             .navigationTitle("SleepBuddy")
+            .navigationBarTitleDisplayMode(.large)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     NavigationLink(destination: SleepHistoryView()) {
@@ -117,6 +118,7 @@ struct HomeView: View {
             .padding()
             .background(Color(.secondarySystemGroupedBackground))
             .clipShape(RoundedRectangle(cornerRadius: 16))
+            .shadow(color: Color.primary.opacity(0.06), radius: 10, x: 0, y: 2)
         }
         .buttonStyle(.plain)
     }
@@ -125,8 +127,8 @@ struct HomeView: View {
 
     private func lastNightCard(_ session: SleepSession) -> some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Letzte Nacht")
-                .font(.headline).foregroundStyle(.secondary)
+            Label("Letzte Nacht", systemImage: "moon.stars.fill")
+                .font(.headline).foregroundStyle(.indigo)
 
             HStack(spacing: 20) {
                 statView(icon: "clock.fill", value: session.totalDuration.formattedDuration, label: "Schlafdauer", color: .indigo)
@@ -158,6 +160,7 @@ struct HomeView: View {
         .padding()
         .background(Color(.secondarySystemGroupedBackground))
         .clipShape(RoundedRectangle(cornerRadius: 16))
+        .shadow(color: Color.primary.opacity(0.06), radius: 10, x: 0, y: 2)
     }
 
     // MARK: - Learning status
@@ -189,6 +192,7 @@ struct HomeView: View {
         .padding()
         .background(Color(.secondarySystemGroupedBackground))
         .clipShape(RoundedRectangle(cornerRadius: 16))
+        .shadow(color: Color.primary.opacity(0.06), radius: 10, x: 0, y: 2)
     }
 
     // MARK: - Helpers
