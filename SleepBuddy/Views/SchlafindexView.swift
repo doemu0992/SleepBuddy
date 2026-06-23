@@ -20,7 +20,8 @@ struct SchlafindexView: View {
 
     private var unterbrechungsScore: Int {
         let awakeMin = session.awakeDuration / 60
-        let penalty = min(awakeMin / 30, 1.0)
+        // Gradual: 0 min → 20, 30 min → 10, 60 min → 0
+        let penalty = min(awakeMin / 60, 1.0)
         return Int((1 - penalty) * 20)
     }
 
