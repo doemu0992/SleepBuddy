@@ -1,10 +1,19 @@
 import SwiftUI
+import SwiftData
+import HealthKit
 
 struct EinstellungenView: View {
     @AppStorage("einst_erinnerung_aktiv") private var erinnerungAktiv = false
     @AppStorage("einst_erinnerung_zeit") private var erinnerungZeitSek = 79200.0 // 22:00
 
+    @Environment(\.modelContext) private var modelContext
+    @Query(sort: \SleepSession.startDate, order: .reverse) private var alleSessions: [SleepSession]
+
     private let notif = NotificationManager.shared
+    private let healthKit = HealthKitService()
+
+    @State private var exportLaeuft = false
+    @State private var exportErgebnis: String?
 
     private var erinnerungZeit: Binding<Date> {
         Binding(
@@ -19,6 +28,7 @@ struct EinstellungenView: View {
         List {
             erinnerungSektion
             schlafgeraeuschSektion
+            syncSektion
             appSektion
             versionSektion
         }
@@ -74,6 +84,36 @@ struct EinstellungenView: View {
     }
 
 
+    // MARK: - Synchronisation
+
+    private var syncSektion: some View {
+        Section {
+            Button {
+                exportiereAlleSessionsNachtraglich()
+            } label: {
+                HStack {
+                    Label("Jetzt synchronisieren", systemImage: "arrow.triangle.2.circlepath")
+                        .foregroundStyle(exportLaeuft ? .secondary : .indigo)
+                    Spacer()
+                    if exportLaeuft {
+                        ProgressView().tint(.indigo)
+                    }
+                }
+            }
+            .disabled(exportLaeuft)
+
+            if let ergebnis = exportErgebnis {
+                Text(ergebnis)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        } header: {
+            Text("Nachträgliche Synchronisation")
+        } footer: {
+            Text("Überträgt alle gespeicherten Schlafdaten erneut nach PainDiary und Apple Health.")
+        }
+    }
+
     // MARK: - App
 
     private var appSektion: some View {
@@ -118,6 +158,43 @@ struct EinstellungenView: View {
     private func planeErinnerung() {
         let dc = Calendar.current.dateComponents([.hour, .minute], from: erinnerungZeit.wrappedValue)
         notif.planeSchlafErinnerung(stunde: dc.hour ?? 22, minute: dc.minute ?? 0)
+    }
+
+    private func exportiereAlleSessionsNachtraglich() {
+        exportLaeuft = true
+        exportErgebnis = nil
+        Task {
+            var painDiaryCount = 0
+            var healthCount = 0
+
+            // PainDiary export
+            let verknuepft = UserDefaults.standard.bool(forKey: "profil_paindiary_verknuepft")
+            if verknuepft {
+                for session in alleSessions where session.endDate != nil {
+                    PainDiaryVerknuepfungView.exportiereSession(session)
+                    painDiaryCount += 1
+                }
+            }
+
+            // HealthKit export
+            await healthKit.requestAuthorization()
+            if healthKit.isAuthorized {
+                for session in alleSessions where session.endDate != nil {
+                    try? await healthKit.saveSleepSession(session)
+                    healthCount += 1
+                }
+            }
+
+            await MainActor.run {
+                exportLaeuft = false
+                var teile: [String] = []
+                if verknuepft { teile.append("\(painDiaryCount) Nächte → PainDiary") }
+                if healthKit.isAuthorized { teile.append("\(healthCount) Nächte → Apple Health") }
+                exportErgebnis = teile.isEmpty
+                    ? "Keine Verbindung aktiv (PainDiary oder HealthKit prüfen)"
+                    : "✓ " + teile.joined(separator: ", ")
+            }
+        }
     }
 }
 
