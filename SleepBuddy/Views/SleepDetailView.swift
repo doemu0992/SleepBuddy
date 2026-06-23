@@ -316,7 +316,7 @@ struct SleepDetailView: View {
         // Check if file needs to be downloaded from iCloud first
         let values = try? url.resourceValues(forKeys: [.ubiquitousItemDownloadingStatusKey])
         let status = values?.ubiquitousItemDownloadingStatus
-        if status == .notDownloaded || status == .downloading {
+        if status == .notDownloaded {
             downloadingEventID = event.timestamp
             try? FileManager.default.startDownloadingUbiquitousItem(at: url)
             Task {
