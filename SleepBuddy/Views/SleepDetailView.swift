@@ -466,7 +466,8 @@ struct SleepDetailView: View {
             }
             .padding(.bottom, 12)
 
-            ForEach(Array(session.phases.enumerated()), id: \.element.startDate) { i, phase in
+            let sorted = session.phases.sorted { $0.startDate < $1.startDate }
+            ForEach(Array(sorted.enumerated()), id: \.element.startDate) { i, phase in
                 VStack(spacing: 0) {
                     Button { correctingPhase = phase } label: {
                         HStack(spacing: 12) {
@@ -475,7 +476,7 @@ struct SleepDetailView: View {
                                 Circle()
                                     .fill(phase.phaseType.color)
                                     .frame(width: 10, height: 10)
-                                if i < session.phases.count - 1 {
+                                if i < sorted.count - 1 {
                                     Rectangle()
                                         .fill(Color.secondary.opacity(0.2))
                                         .frame(width: 2, height: 32)
@@ -500,7 +501,7 @@ struct SleepDetailView: View {
                                     .font(.caption2)
                                     .foregroundStyle(.tertiary)
                             }
-                            .padding(.bottom, i < session.phases.count - 1 ? 20 : 0)
+                            .padding(.bottom, i < sorted.count - 1 ? 20 : 0)
                         }
                     }
                     .buttonStyle(.plain)
