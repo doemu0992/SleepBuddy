@@ -5,6 +5,19 @@ struct SchlafindexView: View {
     let session: SleepSession
     @State private var zeigeInfo = false
 
+    static func score(for session: SleepSession) -> Int {
+        let dauerScore = Int(min(session.totalDuration / 3600 / 8.0 * 50, 50))
+        let nachtruheScore: Int
+        if let onset = session.sleepOnsetDate, let end = session.endDate {
+            nachtruheScore = Int(min(end.timeIntervalSince(onset) / 3600 / 7.5 * 30, 30))
+        } else {
+            nachtruheScore = 15
+        }
+        let awakeMin = session.awakeDuration / 60
+        let unterbrechungsScore = Int((1 - min(awakeMin / 60, 1.0)) * 20)
+        return dauerScore + nachtruheScore + unterbrechungsScore
+    }
+
     // Sub-scores: Dauer /50 + Schlafenszeit /30 + Unterbrechungen /20 = 100 total (wie Apple Health)
     private var dauerScore: Int {
         let hours = session.totalDuration / 3600

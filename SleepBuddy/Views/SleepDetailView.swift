@@ -83,7 +83,7 @@ struct SleepDetailView: View {
                     .foregroundStyle(.white)
                 Spacer()
                 HStack(spacing: 4) {
-                    Text("\(Int(session.computedQualityScore))")
+                    Text("\(SchlafindexView.score(for: session))")
                         .font(.subheadline.bold())
                         .foregroundStyle(.white)
                     Image(systemName: "chevron.right")
