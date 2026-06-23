@@ -136,7 +136,7 @@ struct HomeView: View {
             HStack(spacing: 20) {
                 statView(icon: "clock.fill", value: session.totalDuration.formattedDuration, label: "Schlafdauer", color: .indigo)
                 Divider()
-                statView(icon: "star.fill", value: "\(Int(session.computedQualityScore))%", label: "Qualität", color: .purple)
+                statView(icon: "star.fill", value: "\(SchlafindexView.score(for: session))%", label: "Qualität", color: .purple)
                 Divider()
                 statView(icon: "moon.fill", value: session.deepSleepDuration.formattedDuration, label: "Tiefschlaf", color: .blue)
             }

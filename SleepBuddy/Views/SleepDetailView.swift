@@ -114,7 +114,7 @@ struct SleepDetailView: View {
                     Text(session.endDate?.formatted(date: .omitted, time: .shortened) ?? "–")
                         .font(.caption).foregroundStyle(.white.opacity(0.7))
                     Spacer()
-                    QualityBadge(score: session.computedQualityScore)
+                    QualityBadge(score: Double(SchlafindexView.score(for: session)))
                 }
                 Text(session.totalDuration.formattedDuration)
                     .font(.system(size: 40, weight: .bold, design: .rounded))

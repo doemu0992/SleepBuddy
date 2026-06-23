@@ -65,7 +65,7 @@ private struct SleepSessionRow: View {
                 Text(session.startDate, style: .date)
                     .font(.headline)
                 Spacer()
-                QualityBadge(score: session.computedQualityScore)
+                QualityBadge(score: Double(SchlafindexView.score(for: session)))
             }
 
             HStack(spacing: 16) {
