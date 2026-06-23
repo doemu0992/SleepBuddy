@@ -8,11 +8,24 @@ struct SleepHistoryView: View {
     var body: some View {
         Group {
             if sessions.filter({ !$0.isActive }).isEmpty {
-                ContentUnavailableView(
-                    "Keine Schlafdaten",
-                    systemImage: "moon.zzz",
-                    description: Text("Starte deine erste Schlafaufzeichnung")
-                )
+                VStack(spacing: 20) {
+                    ContentUnavailableView(
+                        "Keine Schlafdaten",
+                        systemImage: "moon.zzz",
+                        description: Text("Starte deine erste Schlafaufzeichnung")
+                    )
+                    Button {
+                        SampleDataService.insertSampleNight(into: modelContext)
+                    } label: {
+                        Label("Beispielnacht einfügen", systemImage: "wand.and.stars")
+                            .font(.subheadline.bold())
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 24)
+                            .padding(.vertical, 12)
+                            .background(Color.indigo, in: RoundedRectangle(cornerRadius: 12))
+                    }
+                    .buttonStyle(.plain)
+                }
             } else {
                 List {
                     ForEach(sessions.filter { !$0.isActive }) { session in

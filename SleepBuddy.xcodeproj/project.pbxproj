@@ -43,6 +43,7 @@
 		AA000034 /* SleepNightSummary.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100036 /* SleepNightSummary.swift */; };
 		AA000035 /* SleepSoundEvent.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100037 /* SleepSoundEvent.swift */; };
 		AA000036 /* SoundEventService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100038 /* SoundEventService.swift */; };
+		AA000039 /* SampleDataService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100039 /* SampleDataService.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -84,6 +85,7 @@
 		AA100036 /* SleepNightSummary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepNightSummary.swift; sourceTree = "<group>"; };
 		AA100037 /* SleepSoundEvent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepSoundEvent.swift; sourceTree = "<group>"; };
 		AA100038 /* SoundEventService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoundEventService.swift; sourceTree = "<group>"; };
+		AA100039 /* SampleDataService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SampleDataService.swift; sourceTree = "<group>"; };
 		AA200001 /* SleepBuddy.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SleepBuddy.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -171,6 +173,7 @@
 				AA100027 /* MLSleepClassifier.swift */,
 				AA100028 /* SleepInsightService.swift */,
 				AA100038 /* SoundEventService.swift */,
+				AA100039 /* SampleDataService.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -312,6 +315,7 @@
 				AA000034 /* SleepNightSummary.swift in Sources */,
 				AA000035 /* SleepSoundEvent.swift in Sources */,
 				AA000036 /* SoundEventService.swift in Sources */,
+				AA000039 /* SampleDataService.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
