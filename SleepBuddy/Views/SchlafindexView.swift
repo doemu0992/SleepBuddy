@@ -5,7 +5,26 @@ struct SchlafindexView: View {
     let session: SleepSession
     @State private var zeigeInfo = false
 
-    private var score: Int { Int(session.computedQualityScore) }
+    // Sub-scores: Dauer /50 + Schlafenszeit /30 + Unterbrechungen /20 = 100 total (wie Apple Health)
+    private var dauerScore: Int {
+        let hours = session.totalDuration / 3600
+        return Int(min(hours / 8.0 * 50, 50))
+    }
+
+    private var nachtruheScore: Int {
+        guard let onset = session.sleepOnsetDate, let end = session.endDate else { return 15 }
+        let sleep = end.timeIntervalSince(onset)
+        let hours = sleep / 3600
+        return Int(min(hours / 7.5 * 30, 30))
+    }
+
+    private var unterbrechungsScore: Int {
+        let awakeMin = session.awakeDuration / 60
+        let penalty = min(awakeMin / 30, 1.0)
+        return Int((1 - penalty) * 20)
+    }
+
+    private var score: Int { dauerScore + nachtruheScore + unterbrechungsScore }
 
     private var scoreLabel: String {
         switch score {
@@ -25,25 +44,6 @@ struct SchlafindexView: View {
         case 30..<50: return .orange
         default: return .red
         }
-    }
-
-    // Sub-scores (0–100)
-    private var dauerScore: Int {
-        let hours = session.totalDuration / 3600
-        return Int(min(hours / 8.0 * 100, 100))
-    }
-
-    private var nachtruheScore: Int {
-        guard let onset = session.sleepOnsetDate, let end = session.endDate else { return 50 }
-        let sleep = end.timeIntervalSince(onset)
-        let hours = sleep / 3600
-        return Int(min(hours / 7.5 * 100, 100))
-    }
-
-    private var unterbrechungsScore: Int {
-        let awakeMin = session.awakeDuration / 60
-        let penalty = min(awakeMin / 30, 1.0)
-        return Int((1 - penalty) * 100)
     }
 
     var body: some View {
@@ -113,7 +113,7 @@ struct SchlafindexView: View {
                 titel: "Dauer",
                 wert: session.totalDuration.formattedDuration,
                 score: dauerScore,
-                maxScore: 100
+                maxScore: 50
             )
             Divider()
             subScoreRow(
@@ -122,7 +122,7 @@ struct SchlafindexView: View {
                 titel: "Schlafenszeit",
                 wert: session.sleepOnsetDate.map { "Eingeschlafen um \($0.formatted(.dateTime.hour().minute()))" } ?? "–",
                 score: nachtruheScore,
-                maxScore: 100
+                maxScore: 30
             )
             Divider()
             subScoreRow(
@@ -131,7 +131,7 @@ struct SchlafindexView: View {
                 titel: "Unterbrechungen",
                 wert: session.awakeDuration < 60 ? "Nie aufgewacht" : "\(Int(session.awakeDuration / 60)) Min wach",
                 score: unterbrechungsScore,
-                maxScore: 100
+                maxScore: 20
             )
         }
         .padding()
