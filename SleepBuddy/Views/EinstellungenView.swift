@@ -13,7 +13,7 @@ struct EinstellungenView: View {
         )
     }
 
-    @State private var soundEventsAktiv = UserDefaults.standard.bool(forKey: "soundEvents_enabled")
+    @AppStorage("soundEvents_enabled") private var soundEventsAktiv = false
 
     var body: some View {
         List {
@@ -66,9 +66,6 @@ struct EinstellungenView: View {
         Section {
             Toggle("Schlafgeräusche aufzeichnen", isOn: $soundEventsAktiv)
                 .tint(.indigo)
-                .onChange(of: soundEventsAktiv) { _, aktiv in
-                    UserDefaults.standard.set(aktiv, forKey: "soundEvents_enabled")
-                }
         } header: {
             Text("Schlafgeräusche")
         } footer: {
