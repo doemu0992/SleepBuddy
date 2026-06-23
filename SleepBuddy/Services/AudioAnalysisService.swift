@@ -198,13 +198,17 @@ final class AudioAnalysisService {
         var realPart = [Float](repeating: 0, count: fftSize / 2)
         var imagPart = [Float](repeating: 0, count: fftSize / 2)
 
-        windowed.withUnsafeBufferPointer { ptr in
-            var splitComplex = DSPSplitComplex(realp: &realPart, imagp: &imagPart)
-            ptr.baseAddress!.withMemoryRebound(to: DSPComplex.self, capacity: fftSize / 2) { cPtr in
-                vDSP_ctoz(cPtr, 2, &splitComplex, 1, vDSP_Length(fftSize / 2))
+        realPart.withUnsafeMutableBufferPointer { realPtr in
+            imagPart.withUnsafeMutableBufferPointer { imagPtr in
+                var splitComplex = DSPSplitComplex(realp: realPtr.baseAddress!, imagp: imagPtr.baseAddress!)
+                windowed.withUnsafeBufferPointer { ptr in
+                    ptr.baseAddress!.withMemoryRebound(to: DSPComplex.self, capacity: fftSize / 2) { cPtr in
+                        vDSP_ctoz(cPtr, 2, &splitComplex, 1, vDSP_Length(fftSize / 2))
+                    }
+                }
+                let log2n = vDSP_Length(log2(Float(fftSize)))
+                vDSP_fft_zrip(setup, &splitComplex, 1, log2n, FFTDirection(FFT_FORWARD))
             }
-            let log2n = vDSP_Length(log2(Float(fftSize)))
-            vDSP_fft_zrip(setup, &splitComplex, 1, log2n, FFTDirection(FFT_FORWARD))
         }
 
         // Power spectrum
