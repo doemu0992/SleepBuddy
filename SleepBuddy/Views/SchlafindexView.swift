@@ -6,54 +6,45 @@ struct SchlafindexView: View {
     @State private var zeigeInfo = false
 
     static func score(for session: SleepSession) -> Int {
-        // Dauer: echte Schlafzeit (gesamt - wach), Ziel 8h
-        let actualSleep = max(session.totalDuration - session.awakeDuration, 0)
+        let total = session.totalDuration
+        let actualSleep = max(total - session.awakeDuration, 0)
+
+        // Dauer: echte Schlafzeit vs. Ziel 8h
         let dauerScore = Int(min(actualSleep / 3600 / 8.0 * 50, 50))
 
-        // Schlafenszeit: Zeit vom Einschlafen bis Aufwachen
-        let nachtruheScore: Int
-        if let onset = session.sleepOnsetDate, let end = session.endDate {
-            nachtruheScore = Int(min(end.timeIntervalSince(onset) / 3600 / 7.5 * 30, 30))
-        } else {
-            nachtruheScore = 15
-        }
+        // Effizienz: echte Schlafzeit / Zeit im Bett (90%+ = perfekt, 50% = 0)
+        let efficiency = total > 0 ? actualSleep / total : 0
+        let effizienzScore = Int(max(0, min((efficiency - 0.50) / 0.40, 1.0)) * 30)
 
-        // Unterbrechungen: nur Wachphasen NACH dem Einschlafen zählen
+        // Unterbrechungen: nur Wachphasen NACH dem Einschlafen
         let postOnsetAwakeMin: Double
         if let onset = session.sleepOnsetDate {
-            let postOnsetAwake = session.phases
+            postOnsetAwakeMin = session.phases
                 .filter { $0.phaseType == .awake && $0.startDate >= onset }
-                .reduce(0.0) { $0 + $1.duration }
-            postOnsetAwakeMin = postOnsetAwake / 60
+                .reduce(0.0) { $0 + $1.duration } / 60
         } else {
             postOnsetAwakeMin = session.awakeDuration / 60
         }
         let unterbrechungsScore = Int((1 - min(postOnsetAwakeMin / 45, 1.0)) * 20)
 
-        return dauerScore + nachtruheScore + unterbrechungsScore
+        return dauerScore + effizienzScore + unterbrechungsScore
     }
 
-    // Sub-scores: Dauer /50 + Schlafenszeit /30 + Unterbrechungen /20 = 100 total (wie Apple Health)
+    // Sub-scores: Dauer /50 + Effizienz /30 + Unterbrechungen /20 = 100
+    private var actualSleep: TimeInterval { max(session.totalDuration - session.awakeDuration, 0) }
+
+    private var sleepEfficiency: Double {
+        session.totalDuration > 0 ? actualSleep / session.totalDuration : 0
+    }
+
     private var dauerScore: Int {
-        let actualSleep = max(session.totalDuration - session.awakeDuration, 0)
-        return Int(min(actualSleep / 3600 / 8.0 * 50, 50))
+        Int(min(actualSleep / 3600 / 8.0 * 50, 50))
     }
 
-    private var nachtruheScore: Int {
-        guard let onset = session.sleepOnsetDate, let end = session.endDate else { return 15 }
-        return Int(min(end.timeIntervalSince(onset) / 3600 / 7.5 * 30, 30))
-    }
-
-    private var unterbrechungsScore: Int {
-        let awakeMin: Double
-        if let onset = session.sleepOnsetDate {
-            awakeMin = session.phases
-                .filter { $0.phaseType == .awake && $0.startDate >= onset }
-                .reduce(0.0) { $0 + $1.duration } / 60
-        } else {
-            awakeMin = session.awakeDuration / 60
-        }
-        return Int((1 - min(awakeMin / 45, 1.0)) * 20)
+    // "Effizienz" replaces "Schlafenszeit": actual sleep / time in bed
+    // 90%+ → 30, 75% → 18, 65% → 11, 50% → 0
+    private var effizienzScore: Int {
+        Int(max(0, min((sleepEfficiency - 0.50) / 0.40, 1.0)) * 30)
     }
 
     private var postOnsetAwakeMinutes: Double {
@@ -65,7 +56,11 @@ struct SchlafindexView: View {
         return session.awakeDuration / 60
     }
 
-    private var score: Int { dauerScore + nachtruheScore + unterbrechungsScore }
+    private var unterbrechungsScore: Int {
+        Int((1 - min(postOnsetAwakeMinutes / 45, 1.0)) * 20)
+    }
+
+    private var score: Int { dauerScore + effizienzScore + unterbrechungsScore }
 
     private var scoreLabel: String {
         switch score {
@@ -160,9 +155,9 @@ struct SchlafindexView: View {
             subScoreRow(
                 icon: "moon.fill",
                 color: .purple,
-                titel: "Schlafenszeit",
-                wert: session.sleepOnsetDate.map { "Eingeschlafen um \($0.formatted(.dateTime.hour().minute()))" } ?? "–",
-                score: nachtruheScore,
+                titel: "Effizienz",
+                wert: "\(Int(sleepEfficiency * 100))% Schlafeffizienz",
+                score: effizienzScore,
                 maxScore: 30
             )
             Divider()
