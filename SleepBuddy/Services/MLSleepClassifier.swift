@@ -37,6 +37,16 @@ final class MLSleepClassifier {
         set { onlineClassifier.sleepOnsetDate = newValue }
     }
 
+    var currentHRBPM: Double {
+        get { onlineClassifier.currentHRBPM }
+        set { onlineClassifier.currentHRBPM = newValue }
+    }
+
+    var currentHRVms: Double {
+        get { onlineClassifier.currentHRVms }
+        set { onlineClassifier.currentHRVms = newValue }
+    }
+
     func reset() { onlineClassifier.reset() }
 
     func flushSessionBuffer(to context: ModelContext) {

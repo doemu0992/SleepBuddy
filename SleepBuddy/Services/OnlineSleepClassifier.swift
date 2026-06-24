@@ -19,6 +19,16 @@ final class OnlineSleepClassifier {
         set { fallback.sleepOnsetDate = newValue }
     }
 
+    var currentHRBPM: Double {
+        get { fallback.currentHRBPM }
+        set { fallback.currentHRBPM = newValue }
+    }
+
+    var currentHRVms: Double {
+        get { fallback.currentHRVms }
+        set { fallback.currentHRVms = newValue }
+    }
+
     private var sessionBuffer: [(timestamp: Date, audio: AudioFeatures, motion: MotionFeatures, phase: SleepPhaseType)] = []
 
     // MARK: - Lifecycle

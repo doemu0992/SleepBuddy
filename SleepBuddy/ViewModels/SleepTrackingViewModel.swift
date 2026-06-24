@@ -34,10 +34,14 @@ final class SleepTrackingViewModel {
     private var noiseAccumulator: [Float] = []
     private var lastNoiseSampleDate = Date.distantPast
 
-    // Phase smoothing: only commit a phase change after it's been stable for 2 minutes
+    // Phase smoothing: commit after stability window.
+    // With Apple Watch HR available, 60 s is sufficient (HR confirms the phase).
+    // Without Watch, keep 90 s to avoid false transitions from audio noise.
     private var pendingPhase: SleepPhaseType = .awake
     private var pendingPhaseStartDate = Date()
-    private static let minPhaseDuration: TimeInterval = 90
+    private var minPhaseDuration: TimeInterval {
+        healthKit.hasHeartRateAccess ? 60 : 90
+    }
 
     // Smart alarm state (surfaced to UI)
     var alarmFired: Bool { smartAlarm.alarmFired }
@@ -114,6 +118,15 @@ final class SleepTrackingViewModel {
             soundEventService.configure(sampleRate: 44100)
             motionService.start()
             smartAlarm.arm()
+
+            // Start HealthKit HR polling if Watch is available
+            healthKit.startHeartRatePolling { [weak self] bpm, hrv in
+                Task { @MainActor [weak self] in
+                    self?.classifier.currentHRBPM = bpm
+                    self?.classifier.currentHRVms  = hrv ?? 0
+                }
+            }
+
             isTracking = true
             SleepBuddyApp.isTrackingActive = true
         } catch {
@@ -130,6 +143,7 @@ final class SleepTrackingViewModel {
         smartAlarm.stopAlarm()
         soundClassifier.stop()
         soundEventService.reset()
+        healthKit.stopHeartRatePolling()
 
         finalizeCurrentPhase(endDate: .now, session: session)
         session.endDate = .now
@@ -207,7 +221,7 @@ final class SleepTrackingViewModel {
             pendingPhase = result.phase
             pendingPhaseStartDate = now
         } else if result.phase != currentPhase,
-                  now.timeIntervalSince(pendingPhaseStartDate) >= Self.minPhaseDuration {
+                  now.timeIntervalSince(pendingPhaseStartDate) >= minPhaseDuration {
             guard let session = currentSession else { return }
             finalizeCurrentPhase(endDate: now, session: session)
             currentPhaseStartDate = now
