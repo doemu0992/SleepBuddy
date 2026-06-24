@@ -17,6 +17,9 @@ struct HomeView: View {
                 VStack(spacing: 20) {
                     sleepButton
                     if let session = lastSession, isMorgenBerichtRelevant(session) {
+                        if session.subjectiveQuality == 0 {
+                            MorgenBewertungCard(session: session)
+                        }
                         MorgenBerichtCard(session: session)
                     }
                     smartAlarmCard

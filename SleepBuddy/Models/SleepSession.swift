@@ -29,6 +29,9 @@ final class SleepSession {
     // Ambient noise samples: one dB value per minute throughout the night
     var noiseSamples: [Double] = []
 
+    // Subjective morning rating: 0 = not rated yet, 1–5 (1=terrible … 5=great)
+    var subjectiveQuality: Int = 0
+
     init(startDate: Date = .now) {
         self.startDate = startDate
         self.phases = []

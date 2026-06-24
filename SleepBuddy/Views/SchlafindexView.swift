@@ -4,13 +4,15 @@ import SwiftData
 struct SchlafindexView: View {
     let session: SleepSession
     @State private var zeigeInfo = false
+    @AppStorage("schlafZielStunden") private var schlafZielStunden = 8.0
 
     static func score(for session: SleepSession) -> Int {
         let total = session.totalDuration
         let actualSleep = max(total - session.awakeDuration, 0)
+        let ziel = max(UserDefaults.standard.double(forKey: "schlafZielStunden"), 5.0).isZero ? 8.0 : max(UserDefaults.standard.double(forKey: "schlafZielStunden"), 5.0)
 
-        // Dauer: echte Schlafzeit vs. Ziel 8h
-        let dauerScore = Int(min(actualSleep / 3600 / 8.0 * 50, 50))
+        // Dauer: echte Schlafzeit vs. Schlafziel
+        let dauerScore = Int(min(actualSleep / 3600 / ziel * 50, 50))
 
         // Effizienz: echte Schlafzeit / Zeit im Bett (90%+ = perfekt, 50% = 0)
         let efficiency = total > 0 ? actualSleep / total : 0
@@ -38,7 +40,8 @@ struct SchlafindexView: View {
     }
 
     private var dauerScore: Int {
-        Int(min(actualSleep / 3600 / 8.0 * 50, 50))
+        let ziel = schlafZielStunden < 5 ? 8.0 : schlafZielStunden
+        return Int(min(actualSleep / 3600 / ziel * 50, 50))
     }
 
     // "Effizienz" replaces "Schlafenszeit": actual sleep / time in bed

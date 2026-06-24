@@ -25,10 +25,12 @@ struct EinstellungenView: View {
     @AppStorage("soundEvents_enabled") private var soundEventsAktiv = false
     @AppStorage("partnerModus_aktiv") private var partnerModusAktiv = false
     @AppStorage("partnerModus_stufe") private var partnerModusStufe = 0
+    @AppStorage("schlafZielStunden") private var schlafZielStunden = 8.0
 
     var body: some View {
         List {
             erinnerungSektion
+            schlafzielSektion
             schlafgeraeuschSektion
             partnerModusSektion
             syncSektion
@@ -70,6 +72,27 @@ struct EinstellungenView: View {
             if erinnerungAktiv {
                 Text("Du erhältst täglich eine Erinnerung, SleepBuddy zu starten.")
             }
+        }
+    }
+
+    // MARK: - Schlafziel
+
+    private var schlafzielSektion: some View {
+        Section {
+            HStack {
+                Label("Schlafdauer-Ziel", systemImage: "moon.stars.fill")
+                    .font(.subheadline)
+                Spacer()
+                Text(String(format: "%.1f Stunden", schlafZielStunden))
+                    .font(.subheadline.bold())
+                    .foregroundStyle(.indigo)
+            }
+            Slider(value: $schlafZielStunden, in: 5...10, step: 0.5)
+                .tint(.indigo)
+        } header: {
+            Text("Schlafziel")
+        } footer: {
+            Text("Dein Ziel wird im Verlauf und im Schlafindex berücksichtigt.")
         }
     }
 
