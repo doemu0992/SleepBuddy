@@ -14,22 +14,33 @@ final class SleepOnsetDetector {
     private let awakeAmplitude: Float = 0.025
     private let awakeMotion: Float = 0.35
 
+    private let windowDuration: TimeInterval = 30  // each window = 30 seconds
     private var quietWindowCount = 0
     private var awakeWindowCount = 0
     private var firstQuietDate: Date?
+    private var lastWindowDate: Date?
 
     // MARK: - Update
 
     /// Returns true when sleep onset is first confirmed.
     @discardableResult
     func update(audio: AudioFeatures, motion: MotionFeatures) -> Bool {
+        // Only advance window counter every 30 seconds
+        let now = audio.timestamp
+        guard let last = lastWindowDate else {
+            lastWindowDate = now
+            return false
+        }
+        guard now.timeIntervalSince(last) >= windowDuration else { return false }
+        lastWindowDate = now
+
         let isSleepCompatible = audio.averageAmplitude < awakeAmplitude
                              && !motion.isSignificant
 
         if isSleepCompatible {
             awakeWindowCount = 0
             quietWindowCount += 1
-            if quietWindowCount == 1 { firstQuietDate = audio.timestamp }
+            if quietWindowCount == 1 { firstQuietDate = now }
 
             if !isAsleep && quietWindowCount >= onsetWindowsRequired {
                 isAsleep = true
@@ -57,5 +68,6 @@ final class SleepOnsetDetector {
         quietWindowCount = 0
         awakeWindowCount = 0
         firstQuietDate = nil
+        lastWindowDate = nil
     }
 }

@@ -176,9 +176,10 @@ final class SleepTrackingViewModel {
             isSleepOnsetDetected = true
         }
 
-        // Snoring
-        isSnoring = audio.snoringIntensity > 0.4
-        if isSnoring { currentSession?.snoringEventCount += 1 }
+        // Snoring — only count new onset events (false → true transition)
+        let newSnoring = audio.snoringIntensity > 0.4
+        if newSnoring && !isSnoring { currentSession?.snoringEventCount += 1 }
+        isSnoring = newSnoring
 
         // Classification
         let result = classifier.classify(audio: audio, motion: motion)
