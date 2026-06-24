@@ -14,6 +14,11 @@ final class OnlineSleepClassifier {
     private var history: [(phase: SleepPhaseType, confidence: Double)] = []
     private let fallback = SleepPhaseClassifier()
 
+    var sleepOnsetDate: Date? {
+        get { fallback.sleepOnsetDate }
+        set { fallback.sleepOnsetDate = newValue }
+    }
+
     private var sessionBuffer: [(timestamp: Date, audio: AudioFeatures, motion: MotionFeatures, phase: SleepPhaseType)] = []
 
     // MARK: - Lifecycle

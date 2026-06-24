@@ -32,6 +32,11 @@ final class MLSleepClassifier {
         return onlineClassifier.classify(audio: audio, motion: motion)
     }
 
+    var sleepOnsetDate: Date? {
+        get { onlineClassifier.sleepOnsetDate }
+        set { onlineClassifier.sleepOnsetDate = newValue }
+    }
+
     func reset() { onlineClassifier.reset() }
 
     func flushSessionBuffer(to context: ModelContext) {
