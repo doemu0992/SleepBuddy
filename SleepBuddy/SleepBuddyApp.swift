@@ -25,14 +25,16 @@ struct SleepBuddyApp: App {
             configurations: cloudConfig, localConfig
         ) { return container }
 
-        // Fallback: local only
-        let localOnlyConfig = ModelConfiguration("SleepDataLocal", schema: Schema(allTypes), cloudKitDatabase: .none)
-        if let container = try? ModelContainer(for: SleepSession.self, SleepPhase.self, SleepSoundEvent.self, TrainingSample.self, configurations: localOnlyConfig) {
-            return container
-        }
-
-        let memConfig = ModelConfiguration(schema: Schema(allTypes), isStoredInMemoryOnly: true)
-        return try! ModelContainer(for: SleepSession.self, SleepPhase.self, SleepSoundEvent.self, TrainingSample.self, configurations: memConfig)
+        // Fallback: same store name "SleepData" without CloudKit — keeps existing local data accessible
+        let sleepFallback = ModelConfiguration(
+            "SleepData",
+            schema: Schema([SleepSession.self, SleepPhase.self, SleepSoundEvent.self]),
+            cloudKitDatabase: .none
+        )
+        return try! ModelContainer(
+            for: SleepSession.self, SleepPhase.self, SleepSoundEvent.self, TrainingSample.self,
+            configurations: sleepFallback, localConfig
+        )
     }()
 
     var body: some Scene {
