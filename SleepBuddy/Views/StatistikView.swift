@@ -237,12 +237,7 @@ struct StatistikView: View {
     }
 
     private func barColor(_ phase: SleepPhaseType) -> Color {
-        switch phase {
-        case .awake: return .orange
-        case .light: return .blue.opacity(0.7)
-        case .rem:   return .cyan
-        case .deep:  return .indigo
-        }
+        phase.color
     }
 
     // MARK: - Stats Row
@@ -251,14 +246,14 @@ struct StatistikView: View {
         HStack(spacing: 12) {
             statCard(
                 icon: "moon.fill",
-                color: .indigo,
+                color: SleepPhaseType.deep.color,
                 value: session.deepSleepDuration.formattedDuration,
                 label: "Tiefschlaf",
                 sub: deepSleepLabel(session)
             )
             statCard(
                 icon: "sparkles",
-                color: .cyan,
+                color: SleepPhaseType.rem.color,
                 value: session.remSleepDuration.formattedDuration,
                 label: "REM",
                 sub: "\(Int(session.remSleepDuration / session.totalDuration * 100))%"

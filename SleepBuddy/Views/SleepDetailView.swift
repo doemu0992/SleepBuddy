@@ -145,11 +145,11 @@ struct SleepDetailView: View {
 
     private var statsGrid: some View {
         LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
-            statCard("Tiefschlaf", value: session.deepSleepDuration.formattedDuration, icon: "moon.fill", color: .indigo,
+            statCard("Tiefschlaf", value: session.deepSleepDuration.formattedDuration, icon: "moon.fill", color: SleepPhaseType.deep.color,
                      percent: pct(session.deepSleepDuration))
-            statCard("REM", value: session.remSleepDuration.formattedDuration, icon: "sparkles", color: .purple,
+            statCard("REM", value: session.remSleepDuration.formattedDuration, icon: "sparkles", color: SleepPhaseType.rem.color,
                      percent: pct(session.remSleepDuration))
-            statCard("Leichtschlaf", value: session.lightSleepDuration.formattedDuration, icon: "moon", color: .blue,
+            statCard("Leichtschlaf", value: session.lightSleepDuration.formattedDuration, icon: "moon", color: SleepPhaseType.light.color,
                      percent: pct(session.lightSleepDuration))
         }
     }
@@ -288,7 +288,7 @@ struct SleepDetailView: View {
                     )
                     .foregroundStyle(
                         LinearGradient(
-                            colors: [.indigo.opacity(0.7), .purple.opacity(0.7)],
+                            colors: [SleepPhaseType.deep.color.opacity(0.7), SleepPhaseType.rem.color.opacity(0.7)],
                             startPoint: .top, endPoint: .bottom
                         )
                     )
@@ -302,7 +302,7 @@ struct SleepDetailView: View {
                     )
                     .foregroundStyle(
                         LinearGradient(
-                            colors: [.indigo.opacity(0.25), .indigo.opacity(0.05)],
+                            colors: [SleepPhaseType.deep.color.opacity(0.25), SleepPhaseType.deep.color.opacity(0.05)],
                             startPoint: .top, endPoint: .bottom
                         )
                     )

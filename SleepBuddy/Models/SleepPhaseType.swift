@@ -9,9 +9,9 @@ enum SleepPhaseType: String, Codable, CaseIterable {
     var color: Color {
         switch self {
         case .awake: return .orange
-        case .light: return .blue
-        case .deep:  return .indigo
-        case .rem:   return .purple
+        case .light: return Color(red: 0.40, green: 0.65, blue: 1.0)   // Hellblau
+        case .deep:  return Color(red: 0.50, green: 0.30, blue: 0.90)  // Violett
+        case .rem:   return Color(red: 0.95, green: 0.35, blue: 0.65)  // Pink
         }
     }
 
