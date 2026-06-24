@@ -15,8 +15,18 @@ final class SleepPhaseClassifier {
         }
     }
     private let sleepAmplitudeMax: Float = 0.020
-    private let awakeMotionThreshold: Float = 0.35
     private let snoringThreshold: Float = 0.3
+
+    // Motion threshold: raised in partner mode because partner movements
+    // add variance to the 30 s window and would falsely trigger "awake".
+    private var awakeMotionThreshold: Float {
+        guard UserDefaults.standard.bool(forKey: "partnerModus_aktiv") else { return 0.35 }
+        switch UserDefaults.standard.integer(forKey: "partnerModus_stufe") {
+        case 1: return 0.50   // phone between partners
+        case 2: return 0.65   // partner closer to phone
+        default: return 0.35
+        }
+    }
 
     private let deepBreathMin: Float = 9
     private let deepBreathMax: Float = 15
@@ -24,8 +34,17 @@ final class SleepPhaseClassifier {
     private let lightBreathMax: Float = 19
     private let remBreathMin: Float = 12
     private let remBreathMax: Float = 22
-    private let deepRegularityMin: Float = 0.65
     private let remMaxRegularity: Float = 0.50
+
+    // Two overlapping breathing rhythms reduce regularity — lower the bar in partner mode.
+    private var deepRegularityMin: Float {
+        guard UserDefaults.standard.bool(forKey: "partnerModus_aktiv") else { return 0.65 }
+        switch UserDefaults.standard.integer(forKey: "partnerModus_stufe") {
+        case 1: return 0.52
+        case 2: return 0.45
+        default: return 0.65
+        }
+    }
 
     // MARK: - Sleep cycle timing (for REM window inference)
 
@@ -78,7 +97,7 @@ final class SleepPhaseClassifier {
             ? motion.breathingRegularity : audio.breathingRegularity
 
         // 1. Movement → awake (motion is most reliable signal)
-        if motion.isSignificant || amp > awakeAmplitudeThreshold {
+        if motion.movementIntensity > awakeMotionThreshold || amp > awakeAmplitudeThreshold {
             let conf = min(Double(max(mov, (amp - awakeAmplitudeThreshold) / awakeAmplitudeThreshold)) * 0.5 + 0.5, 0.95)
             return (.awake, conf)
         }

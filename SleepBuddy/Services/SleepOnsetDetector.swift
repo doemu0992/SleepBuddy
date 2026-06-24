@@ -26,6 +26,16 @@ final class SleepOnsetDetector {
         }
     }
 
+    // Raised in partner mode so partner turning over doesn't reset the onset window.
+    private var awakeMotionThreshold: Float {
+        guard UserDefaults.standard.bool(forKey: "partnerModus_aktiv") else { return 0.35 }
+        switch UserDefaults.standard.integer(forKey: "partnerModus_stufe") {
+        case 1: return 0.50
+        case 2: return 0.65
+        default: return 0.35
+        }
+    }
+
     private let windowDuration: TimeInterval = 30
     private var quietWindowCount = 0
     private var awakeWindowCount = 0
@@ -51,10 +61,11 @@ final class SleepOnsetDetector {
         // On mattress: breathing rhythm detected → only need no large movement.
         // On nightstand: need quiet audio AND no movement (can't detect breathing directly).
         let isSleepCompatible: Bool
+        let isStill = motion.movementIntensity <= awakeMotionThreshold
         if onMattress {
-            isSleepCompatible = !motion.isSignificant
+            isSleepCompatible = isStill
         } else {
-            isSleepCompatible = audio.averageAmplitude < awakeAmplitude && !motion.isSignificant
+            isSleepCompatible = audio.averageAmplitude < awakeAmplitude && isStill
         }
 
         if isSleepCompatible {
