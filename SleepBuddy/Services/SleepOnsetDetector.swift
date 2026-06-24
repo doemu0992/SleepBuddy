@@ -1,16 +1,22 @@
 import Foundation
 
 /// Detects the moment the user falls asleep and when they wake up.
-/// Sleep onset = sustained quiet audio + minimal motion for ~5 minutes.
-/// No manual "I'm asleep" needed — fully automatic.
+///
+/// Two modes:
+/// - **Phone on mattress** (`motion.isOnMattress == true`): accelerometer breathing rhythm is
+///   a direct sleep confirmation. Only 5 quiet windows (2.5 min) needed.
+/// - **Phone on nightstand**: falls back to sustained audio-quiet + minimal motion for ~5 min.
 final class SleepOnsetDetector {
 
     private(set) var sleepOnset: Date?
     private(set) var isAsleep = false
 
-    // Thresholds
-    private let onsetWindowsRequired = 10   // 10 × 30s = 5 min of sleep-compatible signal
-    private let wakeWindowsRequired = 3     // 3 × 30s = 1.5 min of awake signal to confirm wake
+    // Nightstand mode: 10 × 30s = 5 min of quiet audio + stillness
+    private let onsetWindowsRequired = 10
+    // Mattress mode: accelerometer breathing present → 5 × 30s = 2.5 min is enough
+    private let mattressOnsetWindows = 5
+    private let wakeWindowsRequired = 3
+
     private var awakeAmplitude: Float {
         guard UserDefaults.standard.bool(forKey: "partnerModus_aktiv") else { return 0.025 }
         switch UserDefaults.standard.integer(forKey: "partnerModus_stufe") {
@@ -19,9 +25,8 @@ final class SleepOnsetDetector {
         default: return 0.025
         }
     }
-    private let awakeMotion: Float = 0.35
 
-    private let windowDuration: TimeInterval = 30  // each window = 30 seconds
+    private let windowDuration: TimeInterval = 30
     private var quietWindowCount = 0
     private var awakeWindowCount = 0
     private var firstQuietDate: Date?
@@ -32,7 +37,6 @@ final class SleepOnsetDetector {
     /// Returns true when sleep onset is first confirmed.
     @discardableResult
     func update(audio: AudioFeatures, motion: MotionFeatures) -> Bool {
-        // Only advance window counter every 30 seconds
         let now = audio.timestamp
         guard let last = lastWindowDate else {
             lastWindowDate = now
@@ -41,17 +45,26 @@ final class SleepOnsetDetector {
         guard now.timeIntervalSince(last) >= windowDuration else { return false }
         lastWindowDate = now
 
-        let isSleepCompatible = audio.averageAmplitude < awakeAmplitude
-                             && !motion.isSignificant
+        let onMattress = motion.isOnMattress && motion.breathingRateBPM > 0
+        let requiredWindows = onMattress ? mattressOnsetWindows : onsetWindowsRequired
+
+        // On mattress: breathing rhythm detected → only need no large movement.
+        // On nightstand: need quiet audio AND no movement (can't detect breathing directly).
+        let isSleepCompatible: Bool
+        if onMattress {
+            isSleepCompatible = !motion.isSignificant
+        } else {
+            isSleepCompatible = audio.averageAmplitude < awakeAmplitude && !motion.isSignificant
+        }
 
         if isSleepCompatible {
             awakeWindowCount = 0
             quietWindowCount += 1
             if quietWindowCount == 1 { firstQuietDate = now }
 
-            if !isAsleep && quietWindowCount >= onsetWindowsRequired {
+            if !isAsleep && quietWindowCount >= requiredWindows {
                 isAsleep = true
-                sleepOnset = firstQuietDate   // retroactively mark onset start
+                sleepOnset = firstQuietDate
                 return true
             }
         } else {

@@ -65,12 +65,17 @@ final class SleepPhaseClassifier {
 
     private func rawClassify(audio: AudioFeatures, motion: MotionFeatures) -> (phase: SleepPhaseType, confidence: Double) {
         let amp = audio.averageAmplitude
-        let bpm = audio.breathingRateBPM
-        let reg = audio.breathingRegularity
         let variance = audio.amplitudeVariance
         let mov = motion.movementIntensity
         let snoring = audio.snoringIntensity
         let remWindow = inREMWindow()
+
+        // Prefer accelerometer breathing when phone is on the mattress — it's more direct
+        // and less affected by room noise than audio-derived breathing.
+        let bpm: Float = motion.isOnMattress && motion.breathingRateBPM > 0
+            ? motion.breathingRateBPM : audio.breathingRateBPM
+        let reg: Float = motion.isOnMattress && motion.breathingRateBPM > 0
+            ? motion.breathingRegularity : audio.breathingRegularity
 
         // 1. Movement → awake (motion is most reliable signal)
         if motion.isSignificant || amp > awakeAmplitudeThreshold {
