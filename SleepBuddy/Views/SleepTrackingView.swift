@@ -110,9 +110,11 @@ struct SleepTrackingView: View {
                 .animation(.easeInOut(duration: 2), value: viewModel.currentPhase)
 
             VStack(spacing: 0) {
-                // Top badges
+                // Top badges — only shown when there's something to display
                 HStack(spacing: 10) {
-                    sleepOnsetBadge
+                    if viewModel.isSleepOnsetDetected {
+                        sleepOnsetBadge
+                    }
                     Spacer()
                     heartRateBadge
                     if viewModel.isSnoring {
@@ -128,6 +130,7 @@ struct SleepTrackingView: View {
                 .padding(.horizontal, 24)
                 .padding(.top, 60)
                 .animation(.spring(response: 0.4, dampingFraction: 0.7), value: viewModel.isSnoring)
+                .animation(.spring(response: 0.4, dampingFraction: 0.7), value: viewModel.isSleepOnsetDetected)
 
                 Spacer()
 
@@ -139,10 +142,14 @@ struct SleepTrackingView: View {
 
                 // Alarm subtitle
                 if viewModel.smartAlarm.isEnabled {
-                    Label("Alarm \(alarmLabel)", systemImage: "alarm.fill")
-                        .font(.subheadline)
-                        .foregroundStyle(.white.opacity(0.45))
-                        .padding(.top, 6)
+                    HStack(spacing: 6) {
+                        Image(systemName: "alarm.fill")
+                            .font(.caption)
+                        Text("Weckt um \(alarmLabel)")
+                            .font(.subheadline)
+                    }
+                    .foregroundStyle(.white.opacity(0.4))
+                    .padding(.top, 6)
                 }
 
                 Spacer()
@@ -170,18 +177,28 @@ struct SleepTrackingView: View {
 
                 // Beenden button
                 Button { showStopConfirmation = true } label: {
-                    Text("Beenden")
-                        .font(.title3.bold())
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 18)
-                        .background(.white.opacity(0.1), in: RoundedRectangle(cornerRadius: 16))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 16)
-                                .strokeBorder(.white.opacity(0.15), lineWidth: 1)
-                        )
+                    HStack(spacing: 8) {
+                        Image(systemName: "sun.horizon.fill")
+                            .font(.body.bold())
+                        Text("Aufwachen")
+                            .font(.title3.bold())
+                    }
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 18)
+                    .background(
+                        LinearGradient(
+                            colors: [.indigo.opacity(0.6), .purple.opacity(0.5)],
+                            startPoint: .leading, endPoint: .trailing
+                        ),
+                        in: RoundedRectangle(cornerRadius: 20)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 20)
+                            .strokeBorder(.white.opacity(0.2), lineWidth: 1)
+                    )
                 }
-                .padding(.horizontal, 32)
+                .padding(.horizontal, 28)
                 .padding(.bottom, 52)
             }
         }
@@ -295,9 +312,8 @@ struct SleepTrackingView: View {
     }
 
     private var alarmLabel: String {
-        let alarm = viewModel.smartAlarm
         let fmt = DateFormatter(); fmt.timeStyle = .short
-        return "Smart Alarm \(fmt.string(from: alarm.earliestWakeTime))–\(fmt.string(from: alarm.latestWakeTime))"
+        return fmt.string(from: viewModel.smartAlarm.latestWakeTime)
     }
 
     private func requestMicAndStart() {

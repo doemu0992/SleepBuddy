@@ -105,7 +105,8 @@ struct ContentView: View {
                     .font(.caption2)
                     .foregroundStyle(selectedTab == tab ? .indigo : .secondary)
             }
-            .frame(maxWidth: .infinity)
+            .frame(maxWidth: .infinity, minHeight: 44)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
     }
