@@ -62,6 +62,7 @@ struct SleepDetailView: View {
                 phaseTimelineCard
             }
             .padding()
+            .padding(.bottom, 24)
         }
         .background(Color(.systemGroupedBackground))
         .navigationTitle(session.startDate.formatted(date: .long, time: .omitted))

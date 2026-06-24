@@ -83,8 +83,8 @@ struct ContentView: View {
             tabButton(icon: "person.fill", label: "Profil", tab: .profil)
         }
         .padding(.horizontal, 16)
-        .padding(.top, 10)
-        .padding(.bottom, 28)
+        .padding(.top, 6)
+        .padding(.bottom, 16)
         .background(
             Rectangle()
                 .fill(.ultraThinMaterial)
