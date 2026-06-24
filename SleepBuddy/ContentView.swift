@@ -5,56 +5,27 @@ struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \SleepSession.startDate, order: .reverse) private var sessions: [SleepSession]
 
-    @State private var selectedTab: Tab = .statistik
+    @State private var selectedTab = 0
     @State private var trackingViewModel = SleepTrackingViewModel()
     @State private var showTracking = false
 
-    enum Tab { case statistik, profil }
-
     var body: some View {
-        Group {
-            switch selectedTab {
-            case .statistik:
-                StatistikView()
-            case .profil:
-                ProfilView()
-            }
+        TabView(selection: $selectedTab) {
+            NavigationStack { StatistikView() }
+                .tabItem { Label("Statistik", systemImage: "chart.bar.fill") }
+                .tag(0)
+
+            Color.clear
+                .tabItem { Label(" ", systemImage: "moon.stars.fill") }
+                .tag(1)
+
+            NavigationStack { ProfilView() }
+                .tabItem { Label("Profil", systemImage: "person.fill") }
+                .tag(2)
         }
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            customTabBar
-        }
-        .ignoresSafeArea(.keyboard)
         .tint(.indigo)
-        .fullScreenCover(isPresented: $showTracking) {
-            SleepTrackingView(viewModel: trackingViewModel)
-        }
-        .onAppear {
-            trackingViewModel.configure(modelContext: modelContext)
-        }
-        .task {
-            await trackingViewModel.requestAlarmPermission()
-            await trackingViewModel.requestHealthKitAccess()
-        }
-        .onChange(of: sessions.count) { _, count in
-            guard count > 0 else { return }
-            autoSyncPainDiaryIfNeeded()
-        }
-        .task {
-            try? await Task.sleep(for: .seconds(3))
-            autoSyncPainDiaryIfNeeded()
-        }
-    }
-
-    // MARK: - Custom Tab Bar
-
-    private var customTabBar: some View {
-        HStack(spacing: 0) {
-            tabButton(icon: "chart.bar.fill", label: "Statistik", tab: .statistik)
-
-            // Center: Tracker starten
-            Button {
-                showTracking = true
-            } label: {
+        .overlay(alignment: .bottom) {
+            Button { showTracking = true } label: {
                 HStack(spacing: 8) {
                     Image(systemName: trackingViewModel.isTracking ? "waveform" : "moon.stars.fill")
                         .font(.system(size: 16, weight: .semibold))
@@ -75,37 +46,32 @@ struct ContentView: View {
                         .shadow(color: .indigo.opacity(0.4), radius: 10, x: 0, y: 4)
                 )
             }
-            .offset(y: -8)
-            .frame(maxWidth: .infinity)
-
-            tabButton(icon: "person.fill", label: "Profil", tab: .profil)
+            .padding(.bottom, 52)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 8)
-        .background {
-            Rectangle()
-                .fill(.ultraThinMaterial)
-                .ignoresSafeArea(edges: .bottom)
-                .overlay(alignment: .top) { Divider() }
+        .fullScreenCover(isPresented: $showTracking) {
+            SleepTrackingView(viewModel: trackingViewModel)
         }
-    }
-
-    private func tabButton(icon: String, label: String, tab: Tab) -> some View {
-        Button {
-            selectedTab = tab
-        } label: {
-            VStack(spacing: 4) {
-                Image(systemName: icon)
-                    .font(.system(size: 20))
-                    .foregroundStyle(selectedTab == tab ? .indigo : .secondary)
-                Text(label)
-                    .font(.caption2)
-                    .foregroundStyle(selectedTab == tab ? .indigo : .secondary)
+        .onAppear {
+            trackingViewModel.configure(modelContext: modelContext)
+        }
+        .task {
+            await trackingViewModel.requestAlarmPermission()
+            await trackingViewModel.requestHealthKitAccess()
+        }
+        .onChange(of: selectedTab) { _, tab in
+            if tab == 1 {
+                showTracking = true
+                selectedTab = 0
             }
-            .frame(maxWidth: .infinity, minHeight: 44)
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .onChange(of: sessions.count) { _, count in
+            guard count > 0 else { return }
+            autoSyncPainDiaryIfNeeded()
+        }
+        .task {
+            try? await Task.sleep(for: .seconds(3))
+            autoSyncPainDiaryIfNeeded()
+        }
     }
 
     // MARK: - PainDiary sync
