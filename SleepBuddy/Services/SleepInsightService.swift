@@ -70,7 +70,7 @@ final class SleepInsightService {
         let quality = Int(session.computedQualityScore)
         let bedtime = session.startDate.formatted(date: .omitted, time: .shortened)
         let wakeTime = session.endDate?.formatted(date: .omitted, time: .shortened) ?? "unbekannt"
-        let cycles = Dictionary(grouping: session.phases, by: \.phaseType)[.deep]?.count ?? 0
+        let cycles = Dictionary(grouping: session.phasesArray, by: \.phaseType)[.deep]?.count ?? 0
 
         return """
         Du bist ein Schlaf-Experte. Analysiere diese Schlafdaten und antworte auf Deutsch in folgendem Format:

@@ -30,7 +30,7 @@ final class HealthKitService {
         )
         samples.append(inBed)
 
-        for phase in session.phases {
+        for phase in session.phasesArray {
             let value = hkValue(for: phase.phaseType)
             let sample = HKCategorySample(
                 type: sleepType,

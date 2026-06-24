@@ -49,7 +49,7 @@ struct SleepHistoryView: View {
         let visible = sessions.filter { !$0.isActive }
         for index in offsets {
             let session = visible[index]
-            for phase in session.phases { modelContext.delete(phase) }
+            for phase in session.phasesArray { modelContext.delete(phase) }
             modelContext.delete(session)
         }
         try? modelContext.save()
@@ -79,8 +79,8 @@ private struct SleepSessionRow: View {
             .font(.subheadline)
             .foregroundStyle(.secondary)
 
-            if !session.phases.isEmpty {
-                SleepPhaseBarView(phases: session.phases, totalDuration: session.totalDuration)
+            if !session.phasesArray.isEmpty {
+                SleepPhaseBarView(phases: session.phasesArray, totalDuration: session.totalDuration)
                     .frame(height: 8)
                     .clipShape(Capsule())
             }

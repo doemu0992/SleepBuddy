@@ -97,7 +97,7 @@ final class SleepTrackingViewModel {
             guard let self, let session = self.currentSession, let ctx = self.modelContext else { return }
             let event = SleepSoundEvent(timestamp: timestamp, type: type, durationSeconds: duration, iCloudFileName: fileName, decibelLevel: decibelLevel, confidenceScore: confidenceScore)
             ctx.insert(event)
-            session.soundEvents.append(event)
+            session.soundEvents?.append(event)
         }
 
         do {
@@ -212,7 +212,7 @@ final class SleepTrackingViewModel {
             phaseType: currentPhase,
             confidence: currentConfidence
         )
-        session.phases.append(phase)
+        session.phases?.append(phase)
         modelContext?.insert(phase)
     }
 }

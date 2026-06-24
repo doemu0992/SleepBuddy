@@ -8,33 +8,29 @@ struct SleepBuddyApp: App {
 
     static let sharedModelContainer: ModelContainer = {
         let allTypes: [any PersistentModel.Type] = [SleepSession.self, SleepPhase.self, SleepSoundEvent.self, TrainingSample.self]
+        let containerID = "iCloud.DG-Software-Solution.PainDiary"
 
-        // Store lives in the App Group so PainDiary can read shared UserDefaults
-        // alongside it. CloudKit sync is disabled — the schema doesn't satisfy
-        // CloudKit's "all attributes optional" requirement without a migration.
-        let groupURL = FileManager.default
-            .containerURL(forSecurityApplicationGroupIdentifier: "group.com.doemu0992.sleepbuddy")?
-            .appendingPathComponent("SleepData.store")
+        let cloudConfig = ModelConfiguration(
+            "SleepData",
+            schema: Schema([SleepSession.self, SleepPhase.self, SleepSoundEvent.self]),
+            cloudKitDatabase: .private(containerID)
+        )
+        let localConfig = ModelConfiguration(
+            "MLData",
+            schema: Schema([TrainingSample.self]),
+            cloudKitDatabase: .none
+        )
+        if let container = try? ModelContainer(
+            for: SleepSession.self, SleepPhase.self, SleepSoundEvent.self, TrainingSample.self,
+            configurations: cloudConfig, localConfig
+        ) { return container }
 
-        if let url = groupURL {
-            let config = ModelConfiguration(
-                "SleepData",
-                schema: Schema(allTypes),
-                url: url,
-                cloudKitDatabase: .none
-            )
-            if let container = try? ModelContainer(for: SleepSession.self, SleepPhase.self, SleepSoundEvent.self, TrainingSample.self, configurations: config) {
-                return container
-            }
-        }
-
-        // Fallback: default local path, no CloudKit
-        let localConfig = ModelConfiguration("SleepDataLocal", schema: Schema(allTypes), cloudKitDatabase: .none)
-        if let container = try? ModelContainer(for: SleepSession.self, SleepPhase.self, SleepSoundEvent.self, TrainingSample.self, configurations: localConfig) {
+        // Fallback: local only
+        let localOnlyConfig = ModelConfiguration("SleepDataLocal", schema: Schema(allTypes), cloudKitDatabase: .none)
+        if let container = try? ModelContainer(for: SleepSession.self, SleepPhase.self, SleepSoundEvent.self, TrainingSample.self, configurations: localOnlyConfig) {
             return container
         }
 
-        // Last resort: in-memory (app never crashes on launch)
         let memConfig = ModelConfiguration(schema: Schema(allTypes), isStoredInMemoryOnly: true)
         return try! ModelContainer(for: SleepSession.self, SleepPhase.self, SleepSoundEvent.self, TrainingSample.self, configurations: memConfig)
     }()

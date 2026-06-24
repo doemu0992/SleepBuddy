@@ -19,7 +19,7 @@ struct SchlafindexView: View {
         // Unterbrechungen: nur Wachphasen NACH dem Einschlafen
         let postOnsetAwakeMin: Double
         if let onset = session.sleepOnsetDate {
-            postOnsetAwakeMin = session.phases
+            postOnsetAwakeMin = session.phasesArray
                 .filter { $0.phaseType == .awake && $0.startDate >= onset }
                 .reduce(0.0) { $0 + $1.duration } / 60
         } else {
@@ -49,7 +49,7 @@ struct SchlafindexView: View {
 
     private var postOnsetAwakeMinutes: Double {
         if let onset = session.sleepOnsetDate {
-            return session.phases
+            return session.phasesArray
                 .filter { $0.phaseType == .awake && $0.startDate >= onset }
                 .reduce(0.0) { $0 + $1.duration } / 60
         }

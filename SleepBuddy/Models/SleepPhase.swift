@@ -3,12 +3,12 @@ import SwiftData
 
 @Model
 final class SleepPhase {
-    var startDate: Date
-    var endDate: Date
-    var phaseTypeRaw: String
-    var confidence: Double
+    // CloudKit: all non-optional attributes need defaults
+    var startDate: Date = Date()
+    var endDate: Date = Date()
+    var phaseTypeRaw: String = SleepPhaseType.awake.rawValue
+    var confidence: Double = 1.0
 
-    @Relationship(inverse: \SleepSession.phases)
     var session: SleepSession?
 
     init(startDate: Date, endDate: Date, phaseType: SleepPhaseType, confidence: Double = 1.0) {

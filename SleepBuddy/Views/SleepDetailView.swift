@@ -36,14 +36,14 @@ struct SleepDetailView: View {
                 heroHeader
                 schlafindexButton
                 statsGrid
-                let bruxismCount = session.soundEvents.filter { $0.type == .bruxism }.count
-                let coughCount = session.soundEvents.filter { $0.type == .coughing }.count
+                let bruxismCount = session.soundEventsArray.filter { $0.type == .bruxism }.count
+                let coughCount = session.soundEventsArray.filter { $0.type == .coughing }.count
                 if session.sleepOnsetLatency != nil || session.snoringEventCount > 0 || session.alarmFiredDate != nil || bruxismCount > 0 || coughCount > 0 {
                     extraStatsRow
                 }
                 phaseBarCard
                 aiInsightCard
-                if !session.soundEvents.isEmpty {
+                if !session.soundEventsArray.isEmpty {
                     soundEventsCard
                 }
                 snoringIntensityCard
@@ -159,8 +159,8 @@ struct SleepDetailView: View {
     // MARK: - Extra Stats
 
     private var extraStatsRow: some View {
-        let bruxismCount = session.soundEvents.filter { $0.type == .bruxism }.count
-        let coughCount = session.soundEvents.filter { $0.type == .coughing }.count
+        let bruxismCount = session.soundEventsArray.filter { $0.type == .bruxism }.count
+        let coughCount = session.soundEventsArray.filter { $0.type == .coughing }.count
         return HStack(spacing: 0) {
             if let latency = session.sleepOnsetLatency {
                 extraStat(formatMinutes(latency), icon: "zzz", color: .indigo, label: "Einschlafen")
@@ -204,14 +204,14 @@ struct SleepDetailView: View {
             Text("Schlafphasen")
                 .font(.headline)
 
-            if !session.phases.isEmpty {
-                SleepPhaseBarView(phases: session.phases, totalDuration: session.totalDuration)
+            if !session.phasesArray.isEmpty {
+                SleepPhaseBarView(phases: session.phasesArray, totalDuration: session.totalDuration)
                     .frame(height: 20)
                     .clipShape(RoundedRectangle(cornerRadius: 6))
 
                 HStack(spacing: 16) {
                     ForEach(SleepPhaseType.allCases, id: \.self) { type in
-                        let dur = session.phases.filter { $0.phaseType == type }.reduce(0) { $0 + $1.duration }
+                        let dur = session.phasesArray.filter { $0.phaseType == type }.reduce(0) { $0 + $1.duration }
                         if dur > 0 {
                             HStack(spacing: 4) {
                                 Circle().fill(type.color).frame(width: 8, height: 8)
@@ -297,11 +297,11 @@ struct SleepDetailView: View {
                 Image(systemName: "waveform.badge.mic").foregroundStyle(.indigo)
                 Text("Schlafgeräusche").font(.headline)
                 Spacer()
-                Text("\(session.soundEvents.count) Ereignisse")
+                Text("\(session.soundEventsArray.count) Ereignisse")
                     .font(.caption).foregroundStyle(.secondary)
             }
 
-            ForEach(session.soundEvents.sorted { $0.timestamp < $1.timestamp }, id: \.timestamp) { event in
+            ForEach(session.soundEventsArray.sorted { $0.timestamp < $1.timestamp }, id: \.timestamp) { event in
                 HStack(spacing: 12) {
                     ZStack {
                         Circle().fill(event.type.color.opacity(0.15)).frame(width: 36, height: 36)
@@ -357,7 +357,7 @@ struct SleepDetailView: View {
 
     @ViewBuilder
     private var snoringIntensityCard: some View {
-        let snoringEvents = session.soundEvents
+        let snoringEvents = session.soundEventsArray
             .filter { $0.type == .snoring && $0.decibelLevel > 0 }
             .sorted { $0.timestamp < $1.timestamp }
         if !snoringEvents.isEmpty {
@@ -471,7 +471,7 @@ struct SleepDetailView: View {
             }
             .padding(.bottom, 12)
 
-            let sorted = session.phases.sorted { $0.startDate < $1.startDate }
+            let sorted = session.phasesArray.sorted { $0.startDate < $1.startDate }
             ForEach(Array(sorted.enumerated()), id: \.element.startDate) { i, phase in
                 VStack(spacing: 0) {
                     Button { correctingPhase = phase } label: {
@@ -530,7 +530,7 @@ struct SleepDetailView: View {
     }
 
     private func deleteSession() {
-        for phase in session.phases { modelContext.delete(phase) }
+        for phase in session.phasesArray { modelContext.delete(phase) }
         modelContext.delete(session)
         try? modelContext.save()
         dismiss()

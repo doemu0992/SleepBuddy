@@ -154,8 +154,8 @@ struct HomeView: View {
                 }
             }
 
-            if !session.phases.isEmpty {
-                SleepPhaseBarView(phases: session.phases, totalDuration: session.totalDuration)
+            if !session.phasesArray.isEmpty {
+                SleepPhaseBarView(phases: session.phasesArray, totalDuration: session.totalDuration)
                     .frame(height: 32)
                     .clipShape(RoundedRectangle(cornerRadius: 8))
             }

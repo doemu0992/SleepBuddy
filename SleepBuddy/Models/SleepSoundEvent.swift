@@ -32,12 +32,16 @@ enum SoundEventType: String, Codable, CaseIterable {
 
 @Model
 final class SleepSoundEvent {
-    var timestamp: Date
-    var typeRaw: String
-    var durationSeconds: Double
+    // CloudKit: all attributes need defaults
+    var timestamp: Date = Date()
+    var typeRaw: String = SoundEventType.other.rawValue
+    var durationSeconds: Double = 0.0
     var iCloudFileName: String?
     var decibelLevel: Double = 0.0
     var confidenceScore: Double = 0.0
+
+    // Inverse relationship required by CloudKit
+    var session: SleepSession?
 
     init(timestamp: Date, type: SoundEventType, durationSeconds: Double, iCloudFileName: String? = nil, decibelLevel: Double = 0.0, confidenceScore: Double = 0.0) {
         self.timestamp = timestamp

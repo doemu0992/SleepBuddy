@@ -414,9 +414,9 @@ struct PainDiaryVerknuepfungView: View {
             remPct: session.remSleepDuration / total,
             leichtPct: session.lightSleepDuration / total,
             wachPct: session.awakeDuration / total,
-            schnarchenAnzahl: session.soundEvents.filter { $0.type == .snoring }.count,
-            sprechenAnzahl: session.soundEvents.filter { $0.type == .talking }.count,
-            geraeuschAnzahl: session.soundEvents.filter { $0.type == .other }.count
+            schnarchenAnzahl: session.soundEventsArray.filter { $0.type == .snoring }.count,
+            sprechenAnzahl: session.soundEventsArray.filter { $0.type == .talking }.count,
+            geraeuschAnzahl: session.soundEventsArray.filter { $0.type == .other }.count
         )
         var alle = SleepNightSummary.laden()
         // Replace if same night already exists (same day)

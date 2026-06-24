@@ -3,9 +3,11 @@ import SwiftData
 
 @Model
 final class SleepSession {
-    var startDate: Date
+    // CloudKit: all attributes must be optional or have defaults
+    var startDate: Date = Date()
     var endDate: Date?
-    var phases: [SleepPhase]
+    @Relationship(deleteRule: .cascade, inverse: \SleepPhase.session)
+    var phases: [SleepPhase]? = []
     var sleepQualityScore: Double?
     var healthKitSampleID: String?
 
@@ -20,8 +22,9 @@ final class SleepSession {
     var alarmLatestTime: Date?
     var alarmFiredDate: Date?
 
-    // Sound events (opt-in iCloud audio clips)
-    var soundEvents: [SleepSoundEvent] = []
+    // Sound events — inverse required for CloudKit
+    @Relationship(deleteRule: .cascade, inverse: \SleepSoundEvent.session)
+    var soundEvents: [SleepSoundEvent]? = []
 
     init(startDate: Date = .now) {
         self.startDate = startDate
@@ -44,20 +47,24 @@ final class SleepSession {
 
     var isActive: Bool { endDate == nil }
 
-    var bruxismEventCount: Int { soundEvents.filter { $0.type == .bruxism }.count }
-    var coughingEventCount: Int { soundEvents.filter { $0.type == .coughing }.count }
+    // Non-optional convenience accessors (CloudKit stores these as optional arrays)
+    var phasesArray: [SleepPhase] { phases ?? [] }
+    var soundEventsArray: [SleepSoundEvent] { soundEvents ?? [] }
+
+    var bruxismEventCount: Int { soundEventsArray.filter { $0.type == .bruxism }.count }
+    var coughingEventCount: Int { soundEventsArray.filter { $0.type == .coughing }.count }
 
     var deepSleepDuration: TimeInterval {
-        phases.filter { $0.phaseType == .deep }.reduce(0) { $0 + $1.duration }
+        phasesArray.filter { $0.phaseType == .deep }.reduce(0) { $0 + $1.duration }
     }
     var remSleepDuration: TimeInterval {
-        phases.filter { $0.phaseType == .rem }.reduce(0) { $0 + $1.duration }
+        phasesArray.filter { $0.phaseType == .rem }.reduce(0) { $0 + $1.duration }
     }
     var lightSleepDuration: TimeInterval {
-        phases.filter { $0.phaseType == .light }.reduce(0) { $0 + $1.duration }
+        phasesArray.filter { $0.phaseType == .light }.reduce(0) { $0 + $1.duration }
     }
     var awakeDuration: TimeInterval {
-        phases.filter { $0.phaseType == .awake }.reduce(0) { $0 + $1.duration }
+        phasesArray.filter { $0.phaseType == .awake }.reduce(0) { $0 + $1.duration }
     }
 
     /// Quality 0–100: restorative sleep ratio + onset latency penalty + snoring penalty
