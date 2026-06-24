@@ -349,8 +349,9 @@ final class SmartAlarmService {
         previewEngine = nil
         previewNode = nil
 
+        // .playback does not accept .defaultToSpeaker — omit it for preview
         let session = AVAudioSession.sharedInstance()
-        try? session.setCategory(.playback, mode: .default, options: [.defaultToSpeaker])
+        try? session.setCategory(.playback, mode: .default, options: [])
         try? session.setActive(true)
 
         let engine = AVAudioEngine()
@@ -367,10 +368,14 @@ final class SmartAlarmService {
         previewNode = player
 
         let (toneBuf, _) = makePulseBuffers(for: alarmTon, sampleRate: sampleRate)
+        // Completion callback fires on an internal audio thread — dispatch cleanup to main
         player.scheduleBuffer(toneBuf, completionCallbackType: .dataPlayedBack) { [weak self] _ in
-            self?.previewEngine?.stop()
-            self?.previewEngine = nil
-            self?.previewNode = nil
+            DispatchQueue.main.async {
+                self?.previewEngine?.stop()
+                self?.previewEngine = nil
+                self?.previewNode = nil
+                try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+            }
         }
         player.play()
     }
