@@ -255,10 +255,23 @@ Darstellung: Gradient-Balken (grün→rot) + dreieckiger Positionsmarker (`Trian
 NavigationStack
 └── List
     ├── WochenSummaryCard  → Wochendurchschnitt + Balken-Chart (Schlafziel als gestrichelte Linie)
-    └── ForEach(sessions)  → Zeilen mit Datum, Dauer, Score-Badge
+    └── ForEach(sessions)  → SleepSessionRow pro Nacht
 ```
 
 `WochenSummaryCard` nutzt `@AppStorage("schlafZielStunden")` für die Ziellinie im Chart.
+
+**`SleepSessionRow`** (struct in `SleepHistoryView.swift`, nicht `private`):
+- Datum (Wochentag + Datum), `SleepPhaseBarView` als Mini-Balken, Dauer, `QualityBadge`
+- Subjektives Bewertungs-Emoji (😴/🙁/😐/🙂/😄) wenn `subjectiveQuality > 0`
+
+**`QualityBadge`** (struct in `SleepHistoryView.swift`):
+```swift
+// Farbe nach Score:
+75+  → .green
+50–74 → .yellow
+<50  → .orange
+// Format: "X%" in Capsule mit opacity(0.2) Hintergrund
+```
 
 ---
 
@@ -894,6 +907,46 @@ HKUnit.percent()                                 // SpO2
 
 ---
 
+## NotificationManager
+
+**Datei:** `Services/NotificationManager.swift`
+
+Singleton — verwaltet ausschließlich die tägliche Schlaf-Erinnerung.
+
+```swift
+NotificationManager.shared.planeSchlafErinnerung(stunde: 22, minute: 0)
+NotificationManager.shared.loescheSchlafErinnerung()
+```
+
+| Funktion | Beschreibung |
+|----------|-------------|
+| `berechtigungAnfordern()` | Fragt UNUserNotificationCenter-Berechtigung an (nur wenn nicht bereits `.authorized`) |
+| `planeSchlafErinnerung(stunde:minute:)` | Löscht vorherige Erinnerung, plant neue `UNCalendarNotificationTrigger` täglich wiederkehrend |
+| `loescheSchlafErinnerung()` | Entfernt alle ausstehenden Requests mit `schlafErinnerungID` |
+
+**Notification-ID:** `"sleepbuddy.schlaf.erinnerung"` (Konstante im Service)
+
+**Aufgerufen aus:** `ProfilView.planeErinnerung()` — bei Toggle-Änderung oder DatePicker-Änderung.
+
+> `SmartAlarmService` hat eine **eigene** Notification-ID (`"com.sleepbuddy.smartalarm"`) — niemals die IDs verwechseln.
+
+---
+
+## Extensions
+
+### `TimeInterval.formattedDuration`
+
+**Datei:** `Extensions/TimeInterval+Formatted.swift`
+
+```swift
+// Verwendet überall für Schlafdauer-Anzeige
+session.totalDuration.formattedDuration  // → "7h 23m" oder "45m"
+```
+
+Format: `Xh Ym` wenn ≥ 1h, sonst `Ym`. Wird in StatistikView, SleepDetailView, SleepHistoryView, SleepTrackingView genutzt — **niemals manuell formatieren**.
+
+---
+
 ## PainDiary-Verknüpfung
 
 App Group `group.com.doemu0992.sleepbuddy` — `SleepNightSummary` wird nach jeder abgeschlossenen Nacht (≥ 30 min) exportiert.
@@ -1109,12 +1162,28 @@ session.subjectiveQuality = stufe
 Horizontaler Phasen-Balken — proportionale Farbblöcke für alle Phasen.
 
 ```swift
-// Verwendung:
 SleepPhaseBarView(phases: session.phasesArray, totalDuration: session.totalDuration)
 // Jede Phase: Rectangle().fill(phase.phaseType.color), Breite ∝ duration/total
 ```
 
-Wird in `SleepHistoryView`-Zeilen und `lastNightCard` der HomeView verwendet.
+Wird in `SleepSessionRow` (SleepHistoryView) und `lastNightCard` (HomeView) verwendet.
+
+### PhaseCorrectionSheet
+
+**Datei:** `Views/SleepDetailView.swift` (struct am Ende der Datei)
+
+Öffnet sich beim Antippen einer Phase in `phaseListSection`. Zeigt alle `SleepPhaseType`-Cases als auswählbare Liste — aktuelle Phase mit Checkmark.
+
+**ML-Feedback-Loop:**
+```swift
+// SleepDetailView — nach Auswahl der Korrektur:
+classifier.correctSamples(from: phase.startDate, to: phase.endDate,
+                           correctPhase: newType, context: modelContext)
+// → setzt isUserCorrected = true für alle TrainingSamples im Zeitraum
+// → k-NN gewichtet diese 3× höher bei künftigen Nächten
+```
+
+> Footer im Sheet: "Korrekturen werden gespeichert und verbessern die KI dauerhaft." — dieser Text muss immer sichtbar bleiben (erklärt dem Nutzer den Zweck).
 
 ---
 
