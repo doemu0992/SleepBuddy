@@ -219,7 +219,7 @@ struct ProfilBearbeitenView: View {
 // MARK: - Schlafziel
 
 struct SchlafzielView: View {
-    @AppStorage("profil_schlafziel") private var schlafZielStunden: Double = 8.0
+    @AppStorage("schlafZielStunden") private var schlafZielStunden: Double = 8.0
     @AppStorage("profil_einschlafzeit_h") private var einschlafzeitH: Int = 23
     @AppStorage("profil_einschlafzeit_m") private var einschlafzeitM: Int = 0
 

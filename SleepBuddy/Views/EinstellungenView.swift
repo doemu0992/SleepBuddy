@@ -79,16 +79,16 @@ struct EinstellungenView: View {
 
     private var schlafzielSektion: some View {
         Section {
-            HStack {
-                Label("Schlafdauer-Ziel", systemImage: "moon.stars.fill")
-                    .font(.subheadline)
-                Spacer()
-                Text(String(format: "%.1f Stunden", schlafZielStunden))
-                    .font(.subheadline.bold())
-                    .foregroundStyle(.indigo)
+            NavigationLink(destination: SchlafzielView()) {
+                HStack {
+                    Label("Schlafdauer-Ziel", systemImage: "moon.stars.fill")
+                        .font(.subheadline)
+                    Spacer()
+                    Text(String(format: "%.1f Std.", schlafZielStunden))
+                        .font(.subheadline.bold())
+                        .foregroundStyle(.indigo)
+                }
             }
-            Slider(value: $schlafZielStunden, in: 5...10, step: 0.5)
-                .tint(.indigo)
         } header: {
             Text("Schlafziel")
         } footer: {

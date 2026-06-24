@@ -404,6 +404,9 @@ final class SmartAlarmService {
     }
 
     func stopAlarm() {
+        snoozeTask?.cancel()
+        snoozeTask = nil
+        alarmFired = false
         toneLoopTask?.cancel()
         toneLoopTask = nil
         toneNode?.stop()
