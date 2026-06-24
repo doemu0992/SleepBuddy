@@ -40,6 +40,7 @@ struct SleepBuddyApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .onAppear { ICloudSettingsSync.shared.start() }
         }
         .modelContainer(SleepBuddyApp.sharedModelContainer)
         .onChange(of: scenePhase) { _, phase in

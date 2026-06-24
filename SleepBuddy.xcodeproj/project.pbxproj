@@ -47,6 +47,7 @@
 		AA000040 /* SoundClassificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100040 /* SoundClassificationService.swift */; };
 		AA000041 /* MorgenBerichtView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100041 /* MorgenBerichtView.swift */; };
 		AA000042 /* SchlafindexView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100042 /* SchlafindexView.swift */; };
+		AA000044 /* ICloudSettingsSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100044 /* ICloudSettingsSync.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -89,6 +90,7 @@
 		AA100037 /* SleepSoundEvent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepSoundEvent.swift; sourceTree = "<group>"; };
 		AA100038 /* SoundEventService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoundEventService.swift; sourceTree = "<group>"; };
 		AA100039 /* SampleDataService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SampleDataService.swift; sourceTree = "<group>"; };
+		AA100044 /* ICloudSettingsSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ICloudSettingsSync.swift; sourceTree = "<group>"; };
 		AA100040 /* SoundClassificationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoundClassificationService.swift; sourceTree = "<group>"; };
 		AA100041 /* MorgenBerichtView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MorgenBerichtView.swift; sourceTree = "<group>"; };
 		AA100042 /* SchlafindexView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SchlafindexView.swift; sourceTree = "<group>"; };
@@ -182,6 +184,7 @@
 				AA100028 /* SleepInsightService.swift */,
 				AA100038 /* SoundEventService.swift */,
 				AA100039 /* SampleDataService.swift */,
+				AA100044 /* ICloudSettingsSync.swift */,
 				AA100040 /* SoundClassificationService.swift */,
 			);
 			path = Services;
@@ -328,6 +331,7 @@
 				AA000040 /* SoundClassificationService.swift in Sources */,
 				AA000041 /* MorgenBerichtView.swift in Sources */,
 				AA000042 /* SchlafindexView.swift in Sources */,
+				AA000044 /* ICloudSettingsSync.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
