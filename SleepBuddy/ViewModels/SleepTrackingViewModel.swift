@@ -33,7 +33,7 @@ final class SleepTrackingViewModel {
     // Phase smoothing: only commit a phase change after it's been stable for 2 minutes
     private var pendingPhase: SleepPhaseType = .awake
     private var pendingPhaseStartDate = Date()
-    private static let minPhaseDuration: TimeInterval = 120
+    private static let minPhaseDuration: TimeInterval = 90
 
     // Smart alarm state (surfaced to UI)
     var alarmFired: Bool { smartAlarm.alarmFired }
@@ -127,7 +127,9 @@ final class SleepTrackingViewModel {
 
         finalizeCurrentPhase(endDate: .now, session: session)
         session.endDate = .now
+        // Prefer onset from detector; fall back to first non-awake phase if detector never fired
         session.sleepOnsetDate = onsetDetector.sleepOnset
+            ?? session.phasesArray.first(where: { $0.phaseType != .awake })?.startDate
         session.alarmFiredDate = smartAlarm.alarmFiredDate
         session.sleepQualityScore = Double(SchlafindexView.score(for: session))
 
@@ -171,19 +173,24 @@ final class SleepTrackingViewModel {
     // MARK: - Feature handling
 
     private func handleFeatures(audio: AudioFeatures, motion: MotionFeatures) {
-        // Sleep onset detection
+        // Classification first (onset confirmation needs it)
+        let result = classifier.classify(audio: audio, motion: motion)
+
+        // Sleep onset: only confirm when detector AND classifier agree user is asleep
         if !isSleepOnsetDetected && onsetDetector.update(audio: audio, motion: motion) {
-            isSleepOnsetDetected = true
-            classifier.sleepOnsetDate = onsetDetector.sleepOnset
+            if result.phase != .awake {
+                isSleepOnsetDetected = true
+                classifier.sleepOnsetDate = onsetDetector.sleepOnset
+            } else {
+                // Classifier still shows awake — reset onset detector window
+                onsetDetector.reset()
+            }
         }
 
-        // Snoring — only count new onset events (false → true transition)
+        // Snoring — count new onset events regardless of clip-save setting
         let newSnoring = audio.snoringIntensity > 0.4
         if newSnoring && !isSnoring { currentSession?.snoringEventCount += 1 }
         isSnoring = newSnoring
-
-        // Classification
-        let result = classifier.classify(audio: audio, motion: motion)
 
         // Smart alarm check
         smartAlarm.checkPhase(result.phase)

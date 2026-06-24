@@ -88,7 +88,7 @@ final class SoundEventService {
 
     /// Feed amplitude + snoring score per 8 Hz envelope tick (called on background queue).
     func tick(amplitude: Float, snoringScore: Float, speechLikelihood: Float) {
-        guard isEnabled else { return }
+        // Event detection always runs; audio clips are only saved when isEnabled
 
         let isLoud = amplitude > amplitudeThreshold
 
@@ -179,7 +179,8 @@ final class SoundEventService {
 
         Task.detached(priority: .background) { [weak self] in
             guard let self else { return }
-            let fileName = self.saveToICloud(samples: samples, sampleRate: sr, timestamp: timestamp)
+            // Only save audio clip if user opted in; event metadata is always reported
+            let fileName = self.isEnabled ? self.saveToICloud(samples: samples, sampleRate: sr, timestamp: timestamp) : nil
             await MainActor.run {
                 self.onEventCaptured?(timestamp, type, duration, fileName, decibelLevel, capturedConfidence)
             }
