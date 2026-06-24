@@ -6,36 +6,63 @@ struct SchlafindexView: View {
     @State private var zeigeInfo = false
 
     static func score(for session: SleepSession) -> Int {
-        let dauerScore = Int(min(session.totalDuration / 3600 / 8.0 * 50, 50))
+        // Dauer: echte Schlafzeit (gesamt - wach), Ziel 8h
+        let actualSleep = max(session.totalDuration - session.awakeDuration, 0)
+        let dauerScore = Int(min(actualSleep / 3600 / 8.0 * 50, 50))
+
+        // Schlafenszeit: Zeit vom Einschlafen bis Aufwachen
         let nachtruheScore: Int
         if let onset = session.sleepOnsetDate, let end = session.endDate {
             nachtruheScore = Int(min(end.timeIntervalSince(onset) / 3600 / 7.5 * 30, 30))
         } else {
             nachtruheScore = 15
         }
-        let awakeMin = session.awakeDuration / 60
-        let unterbrechungsScore = Int((1 - min(awakeMin / 60, 1.0)) * 20)
+
+        // Unterbrechungen: nur Wachphasen NACH dem Einschlafen zählen
+        let postOnsetAwakeMin: Double
+        if let onset = session.sleepOnsetDate {
+            let postOnsetAwake = session.phases
+                .filter { $0.phaseType == .awake && $0.startDate >= onset }
+                .reduce(0.0) { $0 + $1.duration }
+            postOnsetAwakeMin = postOnsetAwake / 60
+        } else {
+            postOnsetAwakeMin = session.awakeDuration / 60
+        }
+        let unterbrechungsScore = Int((1 - min(postOnsetAwakeMin / 45, 1.0)) * 20)
+
         return dauerScore + nachtruheScore + unterbrechungsScore
     }
 
     // Sub-scores: Dauer /50 + Schlafenszeit /30 + Unterbrechungen /20 = 100 total (wie Apple Health)
     private var dauerScore: Int {
-        let hours = session.totalDuration / 3600
-        return Int(min(hours / 8.0 * 50, 50))
+        let actualSleep = max(session.totalDuration - session.awakeDuration, 0)
+        return Int(min(actualSleep / 3600 / 8.0 * 50, 50))
     }
 
     private var nachtruheScore: Int {
         guard let onset = session.sleepOnsetDate, let end = session.endDate else { return 15 }
-        let sleep = end.timeIntervalSince(onset)
-        let hours = sleep / 3600
-        return Int(min(hours / 7.5 * 30, 30))
+        return Int(min(end.timeIntervalSince(onset) / 3600 / 7.5 * 30, 30))
     }
 
     private var unterbrechungsScore: Int {
-        let awakeMin = session.awakeDuration / 60
-        // Gradual: 0 min → 20, 30 min → 10, 60 min → 0
-        let penalty = min(awakeMin / 60, 1.0)
-        return Int((1 - penalty) * 20)
+        let awakeMin: Double
+        if let onset = session.sleepOnsetDate {
+            awakeMin = session.phases
+                .filter { $0.phaseType == .awake && $0.startDate >= onset }
+                .reduce(0.0) { $0 + $1.duration } / 60
+        } else {
+            awakeMin = session.awakeDuration / 60
+        }
+        return Int((1 - min(awakeMin / 45, 1.0)) * 20)
+    }
+
+    private var postOnsetAwakeMinutes: Double {
+        if let onset = session.sleepOnsetDate {
+            return session.phases
+                .filter { $0.phaseType == .awake && $0.startDate >= onset }
+                .reduce(0.0) { $0 + $1.duration } / 60
+        }
+        return session.awakeDuration / 60
     }
 
     private var score: Int { dauerScore + nachtruheScore + unterbrechungsScore }
@@ -125,7 +152,7 @@ struct SchlafindexView: View {
                 icon: "clock.fill",
                 color: .indigo,
                 titel: "Dauer",
-                wert: session.totalDuration.formattedDuration,
+                wert: max(session.totalDuration - session.awakeDuration, 0).formattedDuration,
                 score: dauerScore,
                 maxScore: 50
             )
@@ -143,7 +170,7 @@ struct SchlafindexView: View {
                 icon: "waveform.path",
                 color: .orange,
                 titel: "Unterbrechungen",
-                wert: session.awakeDuration < 60 ? "Nie aufgewacht" : "\(Int(session.awakeDuration / 60)) Min wach",
+                wert: postOnsetAwakeMinutes < 1 ? "Nie aufgewacht" : "\(Int(postOnsetAwakeMinutes)) Min wach (nach Einschlafen)",
                 score: unterbrechungsScore,
                 maxScore: 20
             )
