@@ -116,6 +116,9 @@ struct StatistikView: View {
             if let latency = session.sleepOnsetLatency, latency > 0 {
                 extraStatsCard(session: session, latency: latency)
             }
+            SchlafapnoeRisikoView(sessions: Array(sessions))
+                .padding(.horizontal)
+
             NavigationLink(destination: SleepDetailView(session: session)) {
                 HStack {
                     Text("Nacht im Detail")

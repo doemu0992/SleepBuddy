@@ -9,9 +9,11 @@ struct SleepTrackingView: View {
     @State private var elapsed: TimeInterval = 0
     private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
+    private let navy = Color(red: 0.04, green: 0.06, blue: 0.16)
+
     var body: some View {
         ZStack {
-            Color.black.ignoresSafeArea()
+            navy.ignoresSafeArea()
 
             if viewModel.alarmFired {
                 alarmRingingContent
@@ -93,77 +95,95 @@ struct SleepTrackingView: View {
         }
     }
 
-    // MARK: - Active tracking screen
+    // MARK: - Active tracking screen (atmospheric, dark navy)
 
     private var trackingContent: some View {
-        VStack(spacing: 0) {
-            // Status bar indicators
-            HStack(spacing: 10) {
-                sleepOnsetBadge
+        let navy = Color(red: 0.04, green: 0.06, blue: 0.16)
+        return ZStack {
+            navy.ignoresSafeArea()
+
+            // Ambient glow behind phase
+            Circle()
+                .fill(viewModel.currentPhase.color.opacity(0.08))
+                .frame(width: 400, height: 400)
+                .blur(radius: 80)
+                .animation(.easeInOut(duration: 2), value: viewModel.currentPhase)
+
+            VStack(spacing: 0) {
+                // Top badges
+                HStack(spacing: 10) {
+                    sleepOnsetBadge
+                    Spacer()
+                    heartRateBadge
+                    if viewModel.isSnoring {
+                        Label("Schnarchen", systemImage: "waveform")
+                            .font(.caption.bold())
+                            .foregroundStyle(.orange)
+                            .padding(.horizontal, 10).padding(.vertical, 4)
+                            .background(.orange.opacity(0.15))
+                            .clipShape(Capsule())
+                            .transition(.scale.combined(with: .opacity))
+                    }
+                }
+                .padding(.horizontal, 24)
+                .padding(.top, 60)
+                .animation(.spring(response: 0.4, dampingFraction: 0.7), value: viewModel.isSnoring)
+
                 Spacer()
-                heartRateBadge
-                if viewModel.isSnoring {
-                    Label("Schnarchen", systemImage: "waveform")
-                        .font(.caption.bold())
-                        .foregroundStyle(.orange)
-                        .padding(.horizontal, 10).padding(.vertical, 4)
-                        .background(.orange.opacity(0.15))
-                        .clipShape(Capsule())
-                        .transition(.scale.combined(with: .opacity))
+
+                // Large time display
+                Text(Date(), style: .time)
+                    .font(.system(size: 72, weight: .thin, design: .monospaced))
+                    .foregroundStyle(.white)
+                    .monospacedDigit()
+
+                // Alarm subtitle
+                if viewModel.smartAlarm.isEnabled {
+                    Label("Alarm \(alarmLabel)", systemImage: "alarm.fill")
+                        .font(.subheadline)
+                        .foregroundStyle(.white.opacity(0.45))
+                        .padding(.top, 6)
                 }
-            }
-            .padding(.horizontal, 24)
-            .padding(.top, 56)
-            .animation(.spring(response: 0.4, dampingFraction: 0.7), value: viewModel.isSnoring)
-            .animation(.spring(response: 0.4, dampingFraction: 0.7), value: viewModel.liveHeartRateBPM)
-            .animation(.spring(response: 0.4, dampingFraction: 0.7), value: viewModel.liveBCGHeartRateBPM)
 
-            Spacer()
+                Spacer()
 
-            // Phase circle
-            ZStack {
-                Circle()
-                    .fill(viewModel.currentPhase.color.opacity(0.15))
-                    .frame(width: 220, height: 220)
-                Circle()
-                    .fill(viewModel.currentPhase.color.opacity(0.30))
-                    .frame(width: 165, height: 165)
-                VStack(spacing: 8) {
+                // Phase capsule
+                HStack(spacing: 8) {
                     Image(systemName: viewModel.currentPhase.icon)
-                        .font(.system(size: 38))
-                        .foregroundStyle(viewModel.currentPhase.color)
+                        .font(.caption.bold())
                     Text(viewModel.currentPhase.rawValue)
-                        .font(.headline).foregroundStyle(.white)
-                    Text(String(format: "%.0f%%", viewModel.currentConfidence * 100))
-                        .font(.caption).foregroundStyle(.white.opacity(0.5))
+                        .font(.caption.bold())
+                    Text("·")
+                        .foregroundStyle(.white.opacity(0.3))
+                    Text(elapsed.formattedDuration)
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(0.6))
                 }
+                .foregroundStyle(viewModel.currentPhase.color)
+                .padding(.horizontal, 18)
+                .padding(.vertical, 8)
+                .background(viewModel.currentPhase.color.opacity(0.12), in: Capsule())
+                .overlay(Capsule().strokeBorder(viewModel.currentPhase.color.opacity(0.25), lineWidth: 1))
+                .animation(.spring(response: 0.6, dampingFraction: 0.7), value: viewModel.currentPhase)
+
+                Spacer()
+
+                // Beenden button
+                Button { showStopConfirmation = true } label: {
+                    Text("Beenden")
+                        .font(.title3.bold())
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 18)
+                        .background(.white.opacity(0.1), in: RoundedRectangle(cornerRadius: 16))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 16)
+                                .strokeBorder(.white.opacity(0.15), lineWidth: 1)
+                        )
+                }
+                .padding(.horizontal, 32)
+                .padding(.bottom, 52)
             }
-            .animation(.spring(response: 0.6, dampingFraction: 0.7), value: viewModel.currentPhase)
-
-            Spacer()
-
-            // Timer
-            Text(elapsed.formattedDuration)
-                .font(.system(size: 52, weight: .thin, design: .monospaced))
-                .foregroundStyle(.white)
-
-            Text(viewModel.isSleepOnsetDetected ? "Schläfst seit \(sleepOnsetLabel)" : "Warte auf Einschlafen…")
-                .font(.caption)
-                .foregroundStyle(.white.opacity(0.4))
-                .padding(.top, 4)
-
-            Spacer()
-
-            // Stop button
-            Button { showStopConfirmation = true } label: {
-                Label("Aufwachen", systemImage: "sun.horizon.fill")
-                    .font(.title3.bold()).foregroundStyle(.white)
-                    .frame(maxWidth: .infinity).padding()
-                    .background(.indigo.opacity(0.6))
-                    .clipShape(RoundedRectangle(cornerRadius: 16))
-            }
-            .padding(.horizontal, 32)
-            .padding(.bottom, 48)
         }
     }
 

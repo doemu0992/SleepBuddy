@@ -37,10 +37,16 @@ struct SleepBuddyApp: App {
         )
     }()
 
+    @AppStorage("onboarding_complete") private var onboardingComplete = false
+
     var body: some Scene {
         WindowGroup {
-            ContentView()
-                .onAppear { ICloudSettingsSync.shared.start() }
+            if onboardingComplete {
+                ContentView()
+                    .onAppear { ICloudSettingsSync.shared.start() }
+            } else {
+                OnboardingView { onboardingComplete = true }
+            }
         }
         .modelContainer(SleepBuddyApp.sharedModelContainer)
         .onChange(of: scenePhase) { _, phase in
