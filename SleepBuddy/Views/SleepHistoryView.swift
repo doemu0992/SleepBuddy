@@ -196,7 +196,7 @@ private struct WochenSummaryCard: View {
             }
             .chartXAxis {
                 AxisMarks(values: .stride(by: .day)) { val in
-                    if let d = val.as(Date.self) {
+                    if val.as(Date.self) != nil {
                         AxisValueLabel(format: .dateTime.weekday(.narrow), centered: true)
                             .font(.caption2)
                     }

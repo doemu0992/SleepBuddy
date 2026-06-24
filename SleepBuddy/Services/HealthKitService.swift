@@ -142,8 +142,6 @@ final class HealthKitService {
         case .rem:   return HKCategoryValueSleepAnalysis.asleepREM.rawValue
         }
     }
-}
-
 
     // MARK: - Heart Rate for a time window
 
