@@ -3,29 +3,54 @@ import SwiftData
 import SwiftUI
 
 enum SoundEventType: String, Codable, CaseIterable {
-    case snoring = "Schnarchen"
-    case talking = "Sprechen"
-    case other = "Geräusch"
-    case bruxism = "Zähneknirschen"
-    case coughing = "Husten"
+    // Personal sleep sounds
+    case snoring   = "Schnarchen"
+    case talking   = "Sprechen"
+    case coughing  = "Husten"
+    case bruxism   = "Zähneknirschen"
+    case other     = "Geräusch"
+    // External / ambient disturbances
+    case dogBarking = "Hundebellen"
+    case music      = "Musik/TV"
+    case alarm      = "Alarm"
+    case traffic    = "Verkehr"
+    case baby       = "Babyweinen"
 
     var icon: String {
         switch self {
-        case .snoring:  return "waveform"
-        case .talking:  return "bubble.left.fill"
-        case .other:    return "speaker.wave.2.fill"
-        case .bruxism:  return "mouth.fill"
-        case .coughing: return "lungs.fill"
+        case .snoring:    return "waveform"
+        case .talking:    return "bubble.left.fill"
+        case .other:      return "speaker.wave.2.fill"
+        case .bruxism:    return "mouth.fill"
+        case .coughing:   return "lungs.fill"
+        case .dogBarking: return "pawprint.fill"
+        case .music:      return "music.note"
+        case .alarm:      return "bell.fill"
+        case .traffic:    return "car.fill"
+        case .baby:       return "figure.and.child.holdinghands"
         }
     }
 
     var color: Color {
         switch self {
-        case .snoring:  return .orange
-        case .talking:  return .blue
-        case .other:    return .secondary
-        case .bruxism:  return .pink
-        case .coughing: return .teal
+        case .snoring:    return .orange
+        case .talking:    return .blue
+        case .other:      return .secondary
+        case .bruxism:    return .pink
+        case .coughing:   return .teal
+        case .dogBarking: return .brown
+        case .music:      return .indigo
+        case .alarm:      return .red
+        case .traffic:    return .gray
+        case .baby:       return .mint
+        }
+    }
+
+    /// External disturbances (from the environment, not the sleeping person).
+    var isExternal: Bool {
+        switch self {
+        case .dogBarking, .music, .alarm, .traffic, .baby: return true
+        default: return false
         }
     }
 }

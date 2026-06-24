@@ -53,17 +53,39 @@ enum SampleDataService {
 
         // Sound events: (type, hoursAfterStart, durationSec, audioFile or nil, decibelLevel, confidenceScore)
         let events: [(SoundEventType, Double, Double?, String?, Double, Double)] = [
-            (.snoring, 2.75,  22, "sample_snore_1.wav", 62.0, 0.0),
-            (.talking, 4.17,  14, "sample_talk_1.wav",  48.0, 0.0),
-            (.snoring, 5.33,  31, nil,                   58.0, 0.0),
-            (.other,   5.83,   8, nil,                    0.0, 0.0),
-            (.snoring, 6.67,  18, "sample_snore_2.wav",  70.0, 0.0),
-            (.bruxism, 3.25,   7, nil,                   50.0, 0.8),
-            (.bruxism, 5.00,   5, nil,                   47.0, 0.8),
-            (.bruxism, 6.10,   9, nil,                   53.0, 0.8),
-            (.coughing, 2.10,  4, nil,                   59.0, 0.8),
-            (.coughing, 4.80,  6, nil,                   63.0, 0.8),
+            (.snoring,    2.75, 22, "sample_snore_1.wav", 62.0, 0.0),
+            (.talking,    4.17, 14, "sample_talk_1.wav",  48.0, 0.0),
+            (.snoring,    5.33, 31, nil,                   58.0, 0.0),
+            (.other,      5.83,  8, nil,                    0.0, 0.0),
+            (.snoring,    6.67, 18, "sample_snore_2.wav",  70.0, 0.0),
+            (.bruxism,    3.25,  7, nil,                   50.0, 0.8),
+            (.bruxism,    5.00,  5, nil,                   47.0, 0.8),
+            (.bruxism,    6.10,  9, nil,                   53.0, 0.8),
+            (.coughing,   2.10,  4, nil,                   59.0, 0.8),
+            (.coughing,   4.80,  6, nil,                   63.0, 0.8),
+            // External disturbances
+            (.dogBarking, 1.50, 18, nil,                   68.0, 0.8),
+            (.dogBarking, 3.90, 25, nil,                   71.0, 0.9),
+            (.music,      0.75, 90, nil,                   55.0, 0.85),
+            (.traffic,    6.20, 12, nil,                   52.0, 0.7),
         ]
+
+        // Ambient noise samples: one dB per minute for the session (~495 min)
+        // Simulate a quiet night with a louder period early on (neighbour music)
+        let totalMinutes = Int((end.timeIntervalSince(start)) / 60)
+        var noiseSamples: [Double] = []
+        for i in 0..<totalMinutes {
+            let base: Double = 28.0
+            // Music noise 45–90 min (neighbour)
+            let musicBoost: Double = (i >= 45 && i <= 90) ? 18.0 : 0.0
+            // Dog barking at ~90 min and ~234 min
+            let dogBoost: Double = ((i >= 90 && i <= 92) || (i >= 234 && i <= 236)) ? 25.0 : 0.0
+            // Morning traffic ramp from minute 420 onwards
+            let trafficRamp: Double = i > 420 ? Double(i - 420) * 0.06 : 0.0
+            let noise = base + musicBoost + dogBoost + trafficRamp + Double.random(in: -2...2)
+            noiseSamples.append(max(20, min(90, noise)))
+        }
+        session.noiseSamples = noiseSamples
 
         for (type, hoursOffset, duration, filename, decibelLevel, confidenceScore) in events {
             let ts = start.addingTimeInterval(hoursOffset * 3600)

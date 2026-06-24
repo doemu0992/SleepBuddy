@@ -46,12 +46,29 @@ extension SoundClassificationService: SNResultsObserving {
         guard let classifications = result as? SNClassificationResult else { return }
 
         let mappings: [(id: String, type: SoundEventType, minConf: Double)] = [
-            ("snoring", .snoring, 0.50),
-            ("speech", .talking, 0.55),
-            ("cough", .coughing, 0.50),    // lowered: coughs vary a lot in volume
-            ("coughing", .coughing, 0.50),
-            ("teeth_chattering", .bruxism, 0.40),  // bruxism is subtle — lower bar
-            ("teeth_grinding", .bruxism, 0.40),
+            // Personal sleep sounds
+            ("snoring",          .snoring,    0.50),
+            ("speech",           .talking,    0.55),
+            ("cough",            .coughing,   0.50),
+            ("coughing",         .coughing,   0.50),
+            ("teeth_chattering", .bruxism,    0.40),
+            ("teeth_grinding",   .bruxism,    0.40),
+            // External disturbances
+            ("dog",              .dogBarking, 0.55),
+            ("dog_barking",      .dogBarking, 0.55),
+            ("barking",          .dogBarking, 0.50),
+            ("music",            .music,      0.60),
+            ("musical_instrument", .music,    0.60),
+            ("alarm_clock",      .alarm,      0.55),
+            ("alarm",            .alarm,      0.55),
+            ("smoke_detector",   .alarm,      0.55),
+            ("siren",            .alarm,      0.55),
+            ("car_horn",         .traffic,    0.55),
+            ("honking",          .traffic,    0.50),
+            ("vehicle",          .traffic,    0.60),
+            ("baby_cry",         .baby,       0.55),
+            ("crying",           .baby,       0.55),
+            ("infant_cry",       .baby,       0.55),
         ]
 
         for (id, type, minConf) in mappings {

@@ -1,5 +1,6 @@
 import SwiftUI
 import SwiftData
+import Charts
 import AVFoundation
 
 private let iCloudContainerID = "iCloud.DG-Software-Solution.PainDiary"
@@ -42,9 +43,17 @@ struct SleepDetailView: View {
                     extraStatsRow
                 }
                 phaseBarCard
+                if !session.noiseSamples.isEmpty {
+                    ambientNoiseCard
+                }
                 aiInsightCard
-                if !session.soundEventsArray.isEmpty {
-                    soundEventsCard
+                let sleepEvents = session.soundEventsArray.filter { !$0.type.isExternal }
+                let externalEvents = session.soundEventsArray.filter { $0.type.isExternal }
+                if !sleepEvents.isEmpty {
+                    soundEventsCard(events: sleepEvents, title: "Schlafgeräusche", icon: "waveform.badge.mic")
+                }
+                if !externalEvents.isEmpty {
+                    soundEventsCard(events: externalEvents, title: "Umgebungsgeräusche", icon: "ear.fill")
                 }
                 snoringIntensityCard
                 phaseTimelineCard
@@ -289,19 +298,95 @@ struct SleepDetailView: View {
         .shadow(color: Color.primary.opacity(0.06), radius: 10, x: 0, y: 2)
     }
 
+    // MARK: - Ambient Noise Chart
+
+    private struct NoiseSample: Identifiable {
+        let id: Int
+        let time: Date
+        let db: Double
+    }
+
+    private var noiseData: [NoiseSample] {
+        session.noiseSamples.enumerated().map { i, db in
+            NoiseSample(id: i, time: session.startDate.addingTimeInterval(Double(i) * 60), db: db)
+        }
+    }
+
+    private func noiseColor(_ db: Double) -> Color {
+        db < 35 ? .green : db < 50 ? .yellow : .red
+    }
+
+    private var ambientNoiseCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label("Umgebungslautstärke", systemImage: "waveform.and.mic").font(.headline)
+
+            Chart(noiseData) { sample in
+                AreaMark(
+                    x: .value("Zeit", sample.time),
+                    yStart: .value("Boden", 20.0),
+                    yEnd: .value("dB", sample.db)
+                )
+                .foregroundStyle(
+                    LinearGradient(
+                        colors: [Color.indigo.opacity(0.5), Color.indigo.opacity(0.1)],
+                        startPoint: .top, endPoint: .bottom
+                    )
+                )
+                LineMark(
+                    x: .value("Zeit", sample.time),
+                    y: .value("dB", sample.db)
+                )
+                .foregroundStyle(Color.indigo)
+                .lineStyle(StrokeStyle(lineWidth: 1.5))
+            }
+            .chartYScale(domain: 20...90)
+            .chartXAxis {
+                AxisMarks(values: .stride(by: .hour)) { _ in
+                    AxisGridLine()
+                    AxisValueLabel(format: .dateTime.hour(.defaultDigits(amPM: .omitted)).minute())
+                }
+            }
+            .chartYAxis {
+                AxisMarks(values: [30, 50, 70]) { val in
+                    AxisGridLine()
+                    AxisValueLabel { Text("\(val.as(Int.self) ?? 0) dB").font(.caption2) }
+                }
+            }
+            .frame(height: 100)
+
+            // Legend
+            HStack(spacing: 16) {
+                legendDot(.green,  "< 35 dB  Sehr ruhig")
+                legendDot(.yellow, "35–50 dB  Normal")
+                legendDot(.red,    "> 50 dB  Laut")
+            }
+        }
+        .padding()
+        .background(Color(.secondarySystemGroupedBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .shadow(color: Color.primary.opacity(0.06), radius: 10, x: 0, y: 2)
+    }
+
+    private func legendDot(_ color: Color, _ label: String) -> some View {
+        HStack(spacing: 4) {
+            Circle().fill(color).frame(width: 8, height: 8)
+            Text(label).font(.caption2).foregroundStyle(.secondary)
+        }
+    }
+
     // MARK: - Sound Events
 
-    private var soundEventsCard: some View {
+    private func soundEventsCard(events: [SleepSoundEvent], title: String, icon: String) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Image(systemName: "waveform.badge.mic").foregroundStyle(.indigo)
-                Text("Schlafgeräusche").font(.headline)
+                Image(systemName: icon).foregroundStyle(.indigo)
+                Text(title).font(.headline)
                 Spacer()
-                Text("\(session.soundEventsArray.count) Ereignisse")
+                Text("\(events.count) Ereignisse")
                     .font(.caption).foregroundStyle(.secondary)
             }
 
-            ForEach(session.soundEventsArray.sorted { $0.timestamp < $1.timestamp }, id: \.timestamp) { event in
+            ForEach(events.sorted { $0.timestamp < $1.timestamp }, id: \.timestamp) { event in
                 HStack(spacing: 12) {
                     ZStack {
                         Circle().fill(event.type.color.opacity(0.15)).frame(width: 36, height: 36)
@@ -326,9 +411,7 @@ struct SleepDetailView: View {
                     }
 
                     if let fileName = event.iCloudFileName {
-                        Button {
-                            togglePlayback(event: event, fileName: fileName)
-                        } label: {
+                        Button { togglePlayback(event: event, fileName: fileName) } label: {
                             if downloadingEventID == event.timestamp {
                                 ProgressView().tint(.indigo).frame(width: 28, height: 28)
                             } else {
@@ -340,9 +423,7 @@ struct SleepDetailView: View {
                         .buttonStyle(.plain)
                         .disabled(downloadingEventID == event.timestamp)
                     } else {
-                        Image(systemName: "waveform.slash")
-                            .font(.caption)
-                            .foregroundStyle(.tertiary)
+                        Image(systemName: "waveform.slash").font(.caption).foregroundStyle(.tertiary)
                     }
                 }
             }

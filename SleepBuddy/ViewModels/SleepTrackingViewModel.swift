@@ -30,6 +30,10 @@ final class SleepTrackingViewModel {
     private var currentPhaseStartDate = Date()
     private var latestMotionFeatures = MotionFeatures.neutral
 
+    // Ambient noise sampling: accumulate amplitudes and write one dB value per minute
+    private var noiseAccumulator: [Float] = []
+    private var lastNoiseSampleDate = Date.distantPast
+
     // Phase smoothing: only commit a phase change after it's been stable for 2 minutes
     private var pendingPhase: SleepPhaseType = .awake
     private var pendingPhaseStartDate = Date()
@@ -68,6 +72,8 @@ final class SleepTrackingViewModel {
         onsetDetector.reset()
         classifier.reset()
         soundEventService.reset()
+        noiseAccumulator.removeAll()
+        lastNoiseSampleDate = .distantPast
 
         motionService.onFeaturesUpdated = { [weak self] motion in
             self?.latestMotionFeatures = motion
@@ -209,6 +215,16 @@ final class SleepTrackingViewModel {
         }
 
         currentConfidence = result.confidence
+
+        // Ambient noise: accumulate amplitude and store one dB sample per minute
+        noiseAccumulator.append(audio.averageAmplitude)
+        if Date().timeIntervalSince(lastNoiseSampleDate) >= 60, let session = currentSession {
+            let avg = noiseAccumulator.reduce(0, +) / max(Float(noiseAccumulator.count), 1)
+            let db = max(0, min(120, 20.0 * log10(max(Double(avg), 1e-6)) + 90.0))
+            session.noiseSamples.append(db)
+            noiseAccumulator.removeAll()
+            lastNoiseSampleDate = Date()
+        }
     }
 
     private func finalizeCurrentPhase(endDate: Date, session: SleepSession) {

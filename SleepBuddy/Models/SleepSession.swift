@@ -26,6 +26,9 @@ final class SleepSession {
     @Relationship(deleteRule: .cascade, inverse: \SleepSoundEvent.session)
     var soundEvents: [SleepSoundEvent]? = []
 
+    // Ambient noise samples: one dB value per minute throughout the night
+    var noiseSamples: [Double] = []
+
     init(startDate: Date = .now) {
         self.startDate = startDate
         self.phases = []
