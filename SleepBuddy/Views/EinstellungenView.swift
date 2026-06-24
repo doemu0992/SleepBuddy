@@ -97,7 +97,7 @@ struct EinstellungenView: View {
             } label: {
                 HStack {
                     Label("Mit PainDiary & Health synchronisieren", systemImage: "arrow.triangle.2.circlepath")
-                        .foregroundStyle(exportLaeuft ? .secondary : .indigo)
+                        .foregroundStyle(exportLaeuft ? Color.secondary : Color.indigo)
                     Spacer()
                     if exportLaeuft {
                         ProgressView().tint(.indigo)
