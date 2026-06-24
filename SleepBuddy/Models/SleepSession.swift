@@ -6,7 +6,7 @@ final class SleepSession {
     // CloudKit: all attributes must be optional or have defaults
     var startDate: Date = Date()
     var endDate: Date?
-    @Relationship(deleteRule: .cascade, inverse: \SleepPhase.session)
+    @Relationship(deleteRule: .cascade)
     var phases: [SleepPhase]? = []
     var sleepQualityScore: Double?
     var healthKitSampleID: String?
@@ -23,7 +23,7 @@ final class SleepSession {
     var alarmFiredDate: Date?
 
     // Sound events — inverse required for CloudKit
-    @Relationship(deleteRule: .cascade, inverse: \SleepSoundEvent.session)
+    @Relationship(deleteRule: .cascade)
     var soundEvents: [SleepSoundEvent]? = []
 
     init(startDate: Date = .now) {
