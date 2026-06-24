@@ -40,7 +40,7 @@ struct StatistikView: View {
                             emptyState
                         }
                     }
-                    .padding(.bottom, 16)
+                    .padding(.bottom, 96)
                 }
             }
             .navigationTitle("Statistik")
