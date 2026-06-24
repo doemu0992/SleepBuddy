@@ -39,7 +39,6 @@ enum SampleDataService {
         for (type, minutes) in arch {
             let phaseEnd = cursor.addingTimeInterval(minutes * 60)
             let phase = SleepPhase(startDate: cursor, endDate: phaseEnd, phaseType: type, confidence: 0.88)
-            phase.session = session
             session.phases?.append(phase)
             context.insert(phase)
             cursor = phaseEnd
