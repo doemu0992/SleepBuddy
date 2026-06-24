@@ -143,10 +143,13 @@ final class SmartAlarmService {
     }
 
     private func playAlarmTone() {
-        // Configure session for playback alongside recording
         let session = AVAudioSession.sharedInstance()
-        try? session.setCategory(.playAndRecord, options: [.defaultToSpeaker, .mixWithOthers])
-        try? session.setActive(true)
+        // duckOthers: alarm gets full priority over all other audio (including recording output).
+        // The microphone INPUT is unaffected — recording continues for phase detection.
+        // overrideOutputAudioPort forces the loud speaker even when earphones are connected.
+        try? session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .duckOthers, .allowBluetoothHFP])
+        try? session.overrideOutputAudioPort(.speaker)
+        try? session.setActive(true, options: .notifyOthersOnDeactivation)
 
         let engine = AVAudioEngine()
         let player = AVAudioPlayerNode()
@@ -155,16 +158,18 @@ final class SmartAlarmService {
         let sampleRate = 44100.0
         let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1)!
         engine.connect(player, to: engine.mainMixerNode, format: format)
+        engine.mainMixerNode.outputVolume = 1.0
         player.volume = lautstaerke
 
         do {
             try engine.start()
         } catch {
-            // Fallback to system sound if engine fails
+            // Fallback: vibration + repeating tone via system sound
             toneLoopTask = Task { @MainActor in
                 while !Task.isCancelled {
+                    AudioServicesPlaySystemSound(kSystemSoundID_Vibrate)
                     AudioServicesPlaySystemSound(alarmTon.systemSoundID)
-                    try? await Task.sleep(for: .seconds(3))
+                    try? await Task.sleep(for: .seconds(2))
                 }
             }
             return
@@ -173,7 +178,6 @@ final class SmartAlarmService {
         toneEngine = engine
         toneNode = player
 
-        // Schedule repeating pulse buffers
         scheduleNextPulse(player: player, engine: engine, sampleRate: sampleRate)
     }
 
@@ -201,9 +205,8 @@ final class SmartAlarmService {
         let data = buffer.floatChannelData![0]
         for i in 0..<Int(frameCount) {
             let t = Double(i) / sampleRate
-            // Sine wave with fade in/out envelope
-            let envelope = min(t / 0.05, 1.0) * min((duration - t) / 0.05, 1.0)
-            data[i] = Float(sin(2.0 * .pi * frequency * t) * envelope * 0.8)
+            let envelope = min(t / 0.02, 1.0) * min((duration - t) / 0.02, 1.0)
+            data[i] = Float(sin(2.0 * .pi * frequency * t) * envelope)
         }
         return buffer
     }
@@ -227,9 +230,11 @@ final class SmartAlarmService {
         toneEngine?.stop()
         toneNode = nil
         toneEngine = nil
-        // Restore recording session
+        // Restore recording session: mixWithOthers + remove forced speaker override
         let session = AVAudioSession.sharedInstance()
-        try? session.setCategory(.playAndRecord, options: [.defaultToSpeaker, .allowBluetoothHFP])
+        try? session.setCategory(.playAndRecord, mode: .measurement, options: [.mixWithOthers, .allowBluetoothHFP])
+        try? session.overrideOutputAudioPort(.none)
+        try? session.setActive(true)
     }
 
     // MARK: - Failsafe notification
