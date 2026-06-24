@@ -206,7 +206,7 @@ struct EinstellungenView: View {
     private var appSektion: some View {
         Section("App") {
             Button("Onboarding erneut anzeigen") {
-                UserDefaults.standard.set(false, forKey: "onboardingAbgeschlossen")
+                UserDefaults.standard.set(false, forKey: "onboarding_complete")
             }
             .foregroundStyle(.orange)
 
