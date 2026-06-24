@@ -28,7 +28,7 @@ final class SoundEventService {
 
     // MARK: - Event detection state
 
-    private let amplitudeThreshold: Float = 0.045
+    private let amplitudeThreshold: Float = 0.018
     private let minEventSeconds: TimeInterval = 2.5
     private let cooldownAfterEventSeconds: TimeInterval = 10.0
 
