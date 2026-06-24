@@ -12,17 +12,15 @@ struct ContentView: View {
     enum Tab { case statistik, profil }
 
     var body: some View {
-        ZStack(alignment: .bottom) {
-            Group {
-                switch selectedTab {
-                case .statistik:
-                    StatistikView()
-                case .profil:
-                    ProfilView()
-                }
+        Group {
+            switch selectedTab {
+            case .statistik:
+                StatistikView()
+            case .profil:
+                ProfilView()
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
             customTabBar
         }
         .ignoresSafeArea(.keyboard)
@@ -83,14 +81,11 @@ struct ContentView: View {
             tabButton(icon: "person.fill", label: "Profil", tab: .profil)
         }
         .padding(.horizontal, 16)
-        .padding(.top, 6)
-        .padding(.bottom, 8)
-        .background(
-            Rectangle()
-                .fill(.ultraThinMaterial)
-                .ignoresSafeArea(edges: .bottom)
-                .shadow(color: Color.primary.opacity(0.08), radius: 20, x: 0, y: -4)
-        )
+        .padding(.vertical, 8)
+        .background(.ultraThinMaterial)
+        .overlay(alignment: .top) {
+            Divider().opacity(0.5)
+        }
     }
 
     private func tabButton(icon: String, label: String, tab: Tab) -> some View {
