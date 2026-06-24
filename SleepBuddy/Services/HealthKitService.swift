@@ -47,44 +47,37 @@ final class HealthKitService {
 
     private func averageHR(from start: Date, to end: Date) async -> Double? {
         let predicate = HKQuery.predicateForSamples(withStart: start, end: end)
-        let descriptor = HKStatisticsQueryDescriptor(
-            quantitySamples: HKSamplePredicate.quantitySample(type: hrType, predicate: predicate),
-            options: .discreteAverage
-        )
+        let samplePred = HKSamplePredicate<HKQuantitySample>.quantitySample(type: hrType, predicate: predicate)
+        let descriptor = HKStatisticsQueryDescriptor(predicate: samplePred, options: .discreteAverage)
         guard let stats = try? await descriptor.result(for: store),
               let qty = stats.averageQuantity() else { return nil }
-        return qty.doubleValue(for: .count().unitDivided(by: .minute()))
+        return qty.doubleValue(for: HKUnit.count().unitDivided(by: HKUnit.minute()))
     }
 
     private func latestHRV(from start: Date, to end: Date) async -> Double? {
         let predicate = HKQuery.predicateForSamples(withStart: start, end: end)
-        let descriptor = HKStatisticsQueryDescriptor(
-            quantitySamples: HKSamplePredicate.quantitySample(type: hrvType, predicate: predicate),
-            options: .discreteAverage
-        )
+        let samplePred = HKSamplePredicate<HKQuantitySample>.quantitySample(type: hrvType, predicate: predicate)
+        let descriptor = HKStatisticsQueryDescriptor(predicate: samplePred, options: .discreteAverage)
         guard let stats = try? await descriptor.result(for: store),
               let qty = stats.averageQuantity() else { return nil }
-        return qty.doubleValue(for: .secondUnit(with: .milli))
+        return qty.doubleValue(for: HKUnit.secondUnit(with: .milli))
     }
 
     // MARK: - SpO₂ for a sleep session
 
-    /// Returns average blood oxygen saturation (0–1) over the session duration.
     func averageSpO2(from start: Date, to end: Date) async -> Double? {
         guard HKHealthStore.isHealthDataAvailable() else { return nil }
         let predicate = HKQuery.predicateForSamples(withStart: start, end: end)
-        let descriptor = HKStatisticsQueryDescriptor(
-            quantitySamples: HKSamplePredicate.quantitySample(type: spo2Type, predicate: predicate),
-            options: .discreteAverage
-        )
+        let samplePred = HKSamplePredicate<HKQuantitySample>.quantitySample(type: spo2Type, predicate: predicate)
+        let descriptor = HKStatisticsQueryDescriptor(predicate: samplePred, options: .discreteAverage)
         guard let stats = try? await descriptor.result(for: store),
               let qty = stats.averageQuantity() else { return nil }
-        return qty.doubleValue(for: .percent())
+        return qty.doubleValue(for: HKUnit.percent())
     }
 
     // MARK: - Real-time heart rate during sleep
 
-    private var hrObserverTask: Task<Void, Never>?
+    @ObservationIgnored private var hrObserverTask: Task<Void, Never>?
 
     func startHeartRatePolling(onUpdate: @escaping (Double, Double?) -> Void) {
         guard HKHealthStore.isHealthDataAvailable() else { return }
