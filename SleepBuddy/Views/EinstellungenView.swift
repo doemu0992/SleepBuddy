@@ -3,31 +3,19 @@ import SwiftData
 import HealthKit
 
 struct EinstellungenView: View {
-    @AppStorage("einst_erinnerung_aktiv") private var erinnerungAktiv = false
-    @AppStorage("einst_erinnerung_zeit") private var erinnerungZeitSek = 79200.0 // 22:00
-
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \SleepSession.startDate, order: .reverse) private var alleSessions: [SleepSession]
 
-    private let notif = NotificationManager.shared
     private let healthKit = HealthKitService()
 
     @State private var exportLaeuft = false
     @State private var exportErgebnis: String?
-
-    private var erinnerungZeit: Binding<Date> {
-        Binding(
-            get: { Date(timeIntervalSinceReferenceDate: erinnerungZeitSek) },
-            set: { erinnerungZeitSek = $0.timeIntervalSinceReferenceDate }
-        )
-    }
 
     @AppStorage("soundEvents_enabled") private var soundEventsAktiv = false
     @AppStorage("partnerModus_aktiv") private var partnerModusAktiv = false
     @AppStorage("partnerModus_stufe") private var partnerModusStufe = 0
     var body: some View {
         List {
-            erinnerungSektion
             schlafgeraeuschSektion
             partnerModusSektion
             syncSektion
@@ -36,40 +24,6 @@ struct EinstellungenView: View {
         }
         .navigationTitle("Einstellungen")
         .navigationBarTitleDisplayMode(.large)
-    }
-
-    // MARK: - Erinnerungen
-
-    private var erinnerungSektion: some View {
-        Section {
-            Toggle("Schlafenszeit-Erinnerung", isOn: $erinnerungAktiv)
-                .tint(.indigo)
-                .onChange(of: erinnerungAktiv) { _, aktiv in
-                    if aktiv {
-                        Task {
-                            let granted = await notif.berechtigungAnfordern()
-                            if granted {
-                                planeErinnerung()
-                            } else {
-                                erinnerungAktiv = false
-                            }
-                        }
-                    } else {
-                        notif.loescheSchlafErinnerung()
-                    }
-                }
-
-            if erinnerungAktiv {
-                DatePicker("Uhrzeit", selection: erinnerungZeit, displayedComponents: .hourAndMinute)
-                    .onChange(of: erinnerungZeit.wrappedValue) { _, _ in planeErinnerung() }
-            }
-        } header: {
-            Text("Erinnerungen")
-        } footer: {
-            if erinnerungAktiv {
-                Text("Du erhältst täglich eine Erinnerung, SleepBuddy zu starten.")
-            }
-        }
     }
 
     // MARK: - Schlafgeräusche
@@ -217,11 +171,6 @@ struct EinstellungenView: View {
     }
 
     // MARK: - Logik
-
-    private func planeErinnerung() {
-        let dc = Calendar.current.dateComponents([.hour, .minute], from: erinnerungZeit.wrappedValue)
-        notif.planeSchlafErinnerung(stunde: dc.hour ?? 22, minute: dc.minute ?? 0)
-    }
 
     private func exportiereAlleSessionsNachtraglich() {
         exportLaeuft = true

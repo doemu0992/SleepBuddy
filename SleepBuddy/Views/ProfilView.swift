@@ -4,6 +4,17 @@ import HealthKit
 struct ProfilView: View {
     @State private var profil = SharedProfil.shared
     @AppStorage("profil_paindiary_verknuepft") private var painDiaryVerknuepft: Bool = false
+    @AppStorage("einst_erinnerung_aktiv") private var erinnerungAktiv = false
+    @AppStorage("einst_erinnerung_zeit") private var erinnerungZeitSek = 79200.0
+
+    private let notif = NotificationManager.shared
+
+    private var erinnerungZeit: Binding<Date> {
+        Binding(
+            get: { Date(timeIntervalSinceReferenceDate: erinnerungZeitSek) },
+            set: { erinnerungZeitSek = $0.timeIntervalSinceReferenceDate }
+        )
+    }
 
     var body: some View {
         NavigationStack {
@@ -66,7 +77,30 @@ struct ProfilView: View {
             NavigationLink(destination: AlarmEinstellungenView()) {
                 Label("Smart Alarm", systemImage: "alarm.fill")
             }
+            Toggle(isOn: $erinnerungAktiv) {
+                Label("Schlafenszeit-Erinnerung", systemImage: "bell.fill")
+            }
+            .tint(.indigo)
+            .onChange(of: erinnerungAktiv) { _, aktiv in
+                if aktiv {
+                    Task {
+                        let granted = await notif.berechtigungAnfordern()
+                        if granted { planeErinnerung() } else { erinnerungAktiv = false }
+                    }
+                } else {
+                    notif.loescheSchlafErinnerung()
+                }
+            }
+            if erinnerungAktiv {
+                DatePicker("Uhrzeit", selection: erinnerungZeit, displayedComponents: .hourAndMinute)
+                    .onChange(of: erinnerungZeit.wrappedValue) { _, _ in planeErinnerung() }
+            }
         }
+    }
+
+    private func planeErinnerung() {
+        let dc = Calendar.current.dateComponents([.hour, .minute], from: erinnerungZeit.wrappedValue)
+        notif.planeSchlafErinnerung(stunde: dc.hour ?? 22, minute: dc.minute ?? 0)
     }
 
     // MARK: - Verknüpfungen
