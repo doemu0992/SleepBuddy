@@ -32,17 +32,6 @@ enum AlarmTon: String, CaseIterable, Codable {
         }
     }
 
-    // Pulse pattern in Hz for the generated tone
-    var frequencyHz: Double {
-        switch self {
-        case .sanft:     return 440.0
-        case .natur:     return 528.0
-        case .klassisch: return 523.0
-        case .signal:    return 880.0
-        case .digital:   return 660.0
-        }
-    }
-
     var notificationSound: UNNotificationSound {
         .defaultCritical
     }
@@ -97,6 +86,10 @@ final class SmartAlarmService {
     private var toneEngine: AVAudioEngine?
     private var toneNode: AVAudioPlayerNode?
     private var toneLoopTask: Task<Void, Never>?
+
+    // Short preview playback (vorschauSpielen)
+    private var previewEngine: AVAudioEngine?
+    private var previewNode: AVAudioPlayerNode?
 
     // MARK: - Permission
 
@@ -183,12 +176,11 @@ final class SmartAlarmService {
 
     private func scheduleNextPulse(player: AVAudioPlayerNode, engine: AVAudioEngine, sampleRate: Double) {
         guard alarmFired else { return }
-        let buffer = makeToneBuffer(frequency: alarmTon.frequencyHz, sampleRate: sampleRate, duration: 0.8)
-        let silence = makeSilenceBuffer(sampleRate: sampleRate, duration: 1.0)
+        let (toneBuf, silenceBuf) = makePulseBuffers(for: alarmTon, sampleRate: sampleRate)
 
-        player.scheduleBuffer(buffer, completionCallbackType: .dataPlayedBack) { [weak self] _ in
+        player.scheduleBuffer(toneBuf, completionCallbackType: .dataPlayedBack) { [weak self] _ in
             guard let self, self.alarmFired else { return }
-            self.toneNode?.scheduleBuffer(silence, completionCallbackType: .dataPlayedBack) { [weak self] _ in
+            self.toneNode?.scheduleBuffer(silenceBuf, completionCallbackType: .dataPlayedBack) { [weak self] _ in
                 guard let self, self.alarmFired else { return }
                 self.scheduleNextPulse(player: player, engine: engine, sampleRate: sampleRate)
             }
@@ -197,30 +189,190 @@ final class SmartAlarmService {
         player.play()
     }
 
-    private func makeToneBuffer(frequency: Double, sampleRate: Double, duration: Double) -> AVAudioPCMBuffer {
+    // Returns (tone, silence) buffers tailored for each alarm type
+    private func makePulseBuffers(for ton: AlarmTon, sampleRate: Double) -> (AVAudioPCMBuffer, AVAudioPCMBuffer) {
+        switch ton {
+        case .sanft:
+            // Gentle rising chord: fundamental + soft 5th, slow crescendo over 1.2 s, long 1.8 s gap
+            return (makeSanftBuffer(sampleRate: sampleRate), makeSilenceBuffer(sampleRate: sampleRate, duration: 1.8))
+        case .natur:
+            // Bird-like FM chirp: three quick ascending whistles, 1.4 s gap
+            return (makeNaturBuffer(sampleRate: sampleRate), makeSilenceBuffer(sampleRate: sampleRate, duration: 1.4))
+        case .klassisch:
+            // Arpeggio of C-major triad (C5→E5→G5), piano-like decay, 1.0 s gap
+            return (makeKlassischBuffer(sampleRate: sampleRate), makeSilenceBuffer(sampleRate: sampleRate, duration: 1.0))
+        case .signal:
+            // Two-tone alert: alternating 880 Hz / 660 Hz pulses, sharp attack, 0.6 s gap
+            return (makeSignalBuffer(sampleRate: sampleRate), makeSilenceBuffer(sampleRate: sampleRate, duration: 0.6))
+        case .digital:
+            // Rising sweep 440→1320 Hz with subtle odd-harmonic texture, 0.8 s gap
+            return (makeDigitalBuffer(sampleRate: sampleRate), makeSilenceBuffer(sampleRate: sampleRate, duration: 0.8))
+        }
+    }
+
+    // MARK: - Tone synthesisers
+
+    // Sanft: smooth rising chord (C4 + G4 + C5), long fade-in
+    private func makeSanftBuffer(sampleRate: Double) -> AVAudioPCMBuffer {
+        let duration = 1.2
+        let buf = allocBuffer(sampleRate: sampleRate, duration: duration)
+        let data = buf.floatChannelData![0]
+        let freqs = [261.63, 392.0, 523.25]          // C4, G4, C5
+        let amps  = [0.55,   0.30,  0.20]
+        for i in 0..<Int(buf.frameLength) {
+            let t = Double(i) / sampleRate
+            // slow crescendo: reaches full volume at 0.8 s, then holds
+            let env = min(t / 0.8, 1.0) * max(1.0 - max(t - 1.0, 0.0) / 0.2, 0.0)
+            var s = 0.0
+            for (f, a) in zip(freqs, amps) { s += a * sin(2.0 * .pi * f * t) }
+            data[i] = Float(s * env * 0.85)
+        }
+        return buf
+    }
+
+    // Natur: three ascending FM whistles (bird chirp)
+    private func makeNaturBuffer(sampleRate: Double) -> AVAudioPCMBuffer {
+        let chirpDur = 0.18
+        let gap      = 0.07
+        let duration = 3.0 * (chirpDur + gap)
+        let buf = allocBuffer(sampleRate: sampleRate, duration: duration)
+        let data = buf.floatChannelData![0]
+        let startFreqs = [1200.0, 1500.0, 1800.0]
+        let endFreqs   = [1600.0, 1900.0, 2200.0]
+        for i in 0..<Int(buf.frameLength) {
+            let t = Double(i) / sampleRate
+            var s = 0.0
+            for k in 0..<3 {
+                let t0 = Double(k) * (chirpDur + gap)
+                let t1 = t0 + chirpDur
+                guard t >= t0 && t < t1 else { continue }
+                let lt = t - t0
+                let phase = lt / chirpDur
+                let freq = startFreqs[k] + (endFreqs[k] - startFreqs[k]) * phase
+                let env = sin(.pi * phase)            // bell-shaped per chirp
+                // FM: modulator at 3× carrier for brightness
+                let carrier = sin(2.0 * .pi * freq * lt + 1.4 * sin(2.0 * .pi * freq * 3.0 * lt))
+                s += carrier * env * 0.75
+            }
+            data[i] = Float(s)
+        }
+        return buf
+    }
+
+    // Klassisch: C-major arpeggio C5 → E5 → G5 → C6, piano-style decay per note
+    private func makeKlassischBuffer(sampleRate: Double) -> AVAudioPCMBuffer {
+        let noteLen  = 0.22
+        let overlap  = 0.04
+        let notes: [Double] = [523.25, 659.25, 783.99, 1046.50]  // C5 E5 G5 C6
+        let duration = Double(notes.count) * (noteLen - overlap) + 0.18
+        let buf = allocBuffer(sampleRate: sampleRate, duration: duration)
+        let data = buf.floatChannelData![0]
+        for i in 0..<Int(buf.frameLength) {
+            let t = Double(i) / sampleRate
+            var s = 0.0
+            for (n, freq) in notes.enumerated() {
+                let t0 = Double(n) * (noteLen - overlap)
+                let lt = t - t0
+                guard lt >= 0 else { continue }
+                // piano-style: quick attack, exponential decay
+                let env = min(lt / 0.008, 1.0) * exp(-lt * 5.5)
+                // fundamental + 2nd + 3rd harmonic for warmth
+                s += (sin(2.0 * .pi * freq * lt)
+                    + 0.35 * sin(4.0 * .pi * freq * lt)
+                    + 0.15 * sin(6.0 * .pi * freq * lt)) * env * 0.6
+            }
+            data[i] = Float(max(-1.0, min(1.0, s)))
+        }
+        return buf
+    }
+
+    // Signal: alternating 880 Hz / 660 Hz, 3 pairs, sharp beep
+    private func makeSignalBuffer(sampleRate: Double) -> AVAudioPCMBuffer {
+        let beepDur  = 0.12
+        let beepGap  = 0.05
+        let pairs    = 3
+        let duration = Double(pairs) * 2.0 * (beepDur + beepGap)
+        let buf = allocBuffer(sampleRate: sampleRate, duration: duration)
+        let data = buf.floatChannelData![0]
+        let freqs = [880.0, 660.0]
+        for i in 0..<Int(buf.frameLength) {
+            let t = Double(i) / sampleRate
+            let slot = Int(t / (beepDur + beepGap))
+            let lt   = t - Double(slot) * (beepDur + beepGap)
+            guard lt < beepDur else { data[i] = 0; continue }
+            let freq = freqs[slot % 2]
+            let env  = min(lt / 0.006, 1.0) * min((beepDur - lt) / 0.012, 1.0)
+            // slightly clipped sine for punch
+            let raw  = sin(2.0 * .pi * freq * lt) * env
+            data[i]  = Float(max(-0.9, min(0.9, raw * 1.15)))
+        }
+        return buf
+    }
+
+    // Digital: rising frequency sweep with square-wave harmonics
+    private func makeDigitalBuffer(sampleRate: Double) -> AVAudioPCMBuffer {
+        let duration = 0.9
+        let buf = allocBuffer(sampleRate: sampleRate, duration: duration)
+        let data = buf.floatChannelData![0]
+        let f0 = 440.0, f1 = 1320.0
+        var phase = 0.0
+        for i in 0..<Int(buf.frameLength) {
+            let t   = Double(i) / sampleRate
+            let p   = t / duration                          // 0→1
+            let env = min(t / 0.01, 1.0) * min((duration - t) / 0.05, 1.0)
+            let freq = f0 + (f1 - f0) * p * p              // quadratic sweep
+            phase += 2.0 * .pi * freq / sampleRate
+            // Odd harmonics only (square-ish) — just fundamental + 3rd for clarity
+            let s = (sin(phase) + 0.28 * sin(3.0 * phase) + 0.10 * sin(5.0 * phase)) * env * 0.75
+            data[i] = Float(max(-1.0, min(1.0, s)))
+        }
+        return buf
+    }
+
+    private func allocBuffer(sampleRate: Double, duration: Double) -> AVAudioPCMBuffer {
         let frameCount = AVAudioFrameCount(sampleRate * duration)
         let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1)!
-        let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount)!
-        buffer.frameLength = frameCount
-        let data = buffer.floatChannelData![0]
-        for i in 0..<Int(frameCount) {
-            let t = Double(i) / sampleRate
-            let envelope = min(t / 0.02, 1.0) * min((duration - t) / 0.02, 1.0)
-            data[i] = Float(sin(2.0 * .pi * frequency * t) * envelope)
-        }
-        return buffer
+        let buf = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount)!
+        buf.frameLength = frameCount
+        return buf
     }
 
     private func makeSilenceBuffer(sampleRate: Double, duration: Double) -> AVAudioPCMBuffer {
-        let frameCount = AVAudioFrameCount(sampleRate * duration)
-        let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1)!
-        let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount)!
-        buffer.frameLength = frameCount
-        return buffer
+        let buf = allocBuffer(sampleRate: sampleRate, duration: duration)
+        return buf
     }
 
     func vorschauSpielen() {
-        AudioServicesPlaySystemSound(alarmTon.systemSoundID)
+        // Stop previous preview engine if still running
+        previewEngine?.stop()
+        previewNode?.stop()
+        previewEngine = nil
+        previewNode = nil
+
+        let session = AVAudioSession.sharedInstance()
+        try? session.setCategory(.playback, mode: .default, options: [.defaultToSpeaker])
+        try? session.setActive(true)
+
+        let engine = AVAudioEngine()
+        let player = AVAudioPlayerNode()
+        engine.attach(player)
+        let sampleRate = 44100.0
+        let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1)!
+        engine.connect(player, to: engine.mainMixerNode, format: format)
+        engine.mainMixerNode.outputVolume = 1.0
+        player.volume = lautstaerke
+
+        guard (try? engine.start()) != nil else { return }
+        previewEngine = engine
+        previewNode = player
+
+        let (toneBuf, _) = makePulseBuffers(for: alarmTon, sampleRate: sampleRate)
+        player.scheduleBuffer(toneBuf, completionCallbackType: .dataPlayedBack) { [weak self] _ in
+            self?.previewEngine?.stop()
+            self?.previewEngine = nil
+            self?.previewNode = nil
+        }
+        player.play()
     }
 
     func stopAlarm() {
