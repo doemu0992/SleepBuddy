@@ -20,8 +20,10 @@ struct SleepBuddyApp: App {
             schema: Schema([TrainingSample.self]),
             cloudKitDatabase: .none
         )
+        // With migration plan: handles V1→V2 schema upgrade (added inverse relationships)
         if let container = try? ModelContainer(
             for: SleepSession.self, SleepPhase.self, SleepSoundEvent.self, TrainingSample.self,
+            migrationPlan: SleepMigrationPlan.self,
             configurations: cloudConfig, localConfig
         ) { return container }
 
@@ -33,6 +35,7 @@ struct SleepBuddyApp: App {
         )
         return try! ModelContainer(
             for: SleepSession.self, SleepPhase.self, SleepSoundEvent.self, TrainingSample.self,
+            migrationPlan: SleepMigrationPlan.self,
             configurations: sleepFallback, localConfig
         )
     }()
