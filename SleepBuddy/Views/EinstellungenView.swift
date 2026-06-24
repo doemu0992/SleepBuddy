@@ -1,6 +1,5 @@
 import SwiftUI
 import SwiftData
-import HealthKit
 
 struct EinstellungenView: View {
     @Environment(\.modelContext) private var modelContext
@@ -8,109 +7,97 @@ struct EinstellungenView: View {
 
     private let healthKit = HealthKitService()
 
-    @State private var exportLaeuft = false
-    @State private var exportErgebnis: String?
-
     @AppStorage("soundEvents_enabled") private var soundEventsAktiv = false
     @AppStorage("partnerModus_aktiv") private var partnerModusAktiv = false
     @AppStorage("partnerModus_stufe") private var partnerModusStufe = 0
+
+    @State private var exportLaeuft = false
+    @State private var exportErgebnis: String?
+    @State private var zeigeLoeschenBestaetigung = false
+
     var body: some View {
         List {
-            schlafgeraeuschSektion
+            aufzeichnungSektion
             partnerModusSektion
-            syncSektion
+            datenSektion
             appSektion
-            versionSektion
         }
         .navigationTitle("Einstellungen")
         .navigationBarTitleDisplayMode(.large)
-    }
-
-    // MARK: - Schlafgeräusche
-
-    private var schlafgeraeuschSektion: some View {
-        Section {
-            Toggle("Schlafgeräusche aufzeichnen", isOn: $soundEventsAktiv)
-                .tint(.indigo)
-        } header: {
-            Text("Schlafgeräusche")
-        } footer: {
-            Text("Wenn aktiviert, werden kurze Audioclips beim Erkennen von Schnarchen, Sprechen oder anderen Geräuschen aufgezeichnet und in iCloud gespeichert. Audio wird nur bei Geräuschereignissen gespeichert.")
+        .confirmationDialog(
+            "Alle Schlafdaten löschen?",
+            isPresented: $zeigeLoeschenBestaetigung,
+            titleVisibility: .visible
+        ) {
+            Button("Löschen", role: .destructive) { alleDatenLoeschen() }
+            Button("Abbrechen", role: .cancel) {}
+        } message: {
+            Text("Alle Schlafnächte und Phasen werden permanent gelöscht. Dieser Vorgang kann nicht rückgängig gemacht werden.")
         }
     }
 
+    // MARK: - Aufzeichnung
 
-    // MARK: - Partner-Modus
-
-    private var partnerModusSektion: some View {
+    private var aufzeichnungSektion: some View {
         Section {
-            Toggle("Zwei Personen im Bett", isOn: $partnerModusAktiv)
-                .tint(.indigo)
+            Toggle(isOn: $soundEventsAktiv) {
+                Label("Schlafgeräusche aufzeichnen", systemImage: "waveform.badge.mic")
+            }
+            .tint(.indigo)
 
-            if partnerModusAktiv {
+            Toggle(isOn: $partnerModusAktiv) {
+                Label("Partnermodus", systemImage: "person.2.fill")
+            }
+            .tint(.indigo)
+        } header: {
+            Text("Aufzeichnung")
+        } footer: {
+            if soundEventsAktiv {
+                Text("Kurze Audioclips werden bei Schnarchen oder Geräuschen in iCloud gespeichert.")
+            } else if partnerModusAktiv {
+                Text("SleepBuddy filtert Geräusche einer zweiten Person im Bett heraus.")
+            }
+        }
+    }
+
+    // MARK: - Partnermodus-Position
+
+    @ViewBuilder
+    private var partnerModusSektion: some View {
+        if partnerModusAktiv {
+            Section {
                 VStack(alignment: .leading, spacing: 10) {
                     Text("Position des Telefons")
                         .font(.subheadline)
-                        .foregroundStyle(.primary)
 
                     Picker("Position", selection: $partnerModusStufe) {
-                        Label("Auf meiner Seite", systemImage: "iphone").tag(0)
-                        Label("In der Mitte", systemImage: "arrow.left.and.right").tag(1)
-                        Label("Näher am Partner", systemImage: "person.2.fill").tag(2)
+                        Label("Meine Seite", systemImage: "iphone").tag(0)
+                        Label("Mitte", systemImage: "arrow.left.and.right").tag(1)
+                        Label("Partner", systemImage: "person.2.fill").tag(2)
                     }
                     .pickerStyle(.segmented)
-                    .labelsHidden()
 
-                    HStack(spacing: 6) {
-                        Image(systemName: positionSymbol)
-                            .foregroundStyle(.indigo)
-                            .font(.caption)
-                        Text(partnerModusHinweis)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
+                    Text(partnerModusHinweis)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
                 .padding(.vertical, 4)
-            }
-        } header: {
-            Text("Partnermodus")
-        } footer: {
-            if partnerModusAktiv {
-                Text("SleepBuddy filtert Geräusche des Partners heraus. Je näher das Telefon an dir liegt, desto besser funktioniert die Trennung.")
-            } else {
-                Text("Aktiviere den Partnermodus, wenn eine weitere Person im selben Bett schläft.")
+            } header: {
+                Text("Partnermodus")
             }
         }
     }
 
-    private var positionSymbol: String {
-        switch partnerModusStufe {
-        case 0: return "iphone"
-        case 1: return "arrow.left.and.right"
-        case 2: return "person.2.fill"
-        default: return "iphone"
-        }
-    }
+    // MARK: - Daten
 
-    private var partnerModusHinweis: String {
-        switch partnerModusStufe {
-        case 0: return "Optimal: Telefon liegt auf deinem Nachttisch. Deine Geräusche sind lauter."
-        case 1: return "Mittel: Geräusche beider Personen werden teilweise gefiltert."
-        case 2: return "Stark: Nur sehr laute Geräusche nah am Telefon werden erkannt."
-        default: return ""
-        }
-    }
-
-    // MARK: - Synchronisation
-
-    private var syncSektion: some View {
+    private var datenSektion: some View {
         Section {
             Button {
                 exportiereAlleSessionsNachtraglich()
             } label: {
                 HStack {
-                    Label("Jetzt synchronisieren", systemImage: "arrow.triangle.2.circlepath")
-                        .foregroundStyle(exportLaeuft ? Color.secondary : Color.indigo)
+                    Label("Mit PainDiary & Health synchronisieren", systemImage: "arrow.triangle.2.circlepath")
+                        .foregroundStyle(exportLaeuft ? .secondary : .indigo)
                     Spacer()
                     if exportLaeuft {
                         ProgressView().tint(.indigo)
@@ -124,10 +111,16 @@ struct EinstellungenView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+
+            Button(role: .destructive) {
+                zeigeLoeschenBestaetigung = true
+            } label: {
+                Label("Alle Schlafdaten löschen", systemImage: "trash")
+            }
         } header: {
-            Text("Nachträgliche Synchronisation")
+            Text("Daten")
         } footer: {
-            Text("Überträgt alle gespeicherten Schlafdaten erneut nach PainDiary und Apple Health.")
+            Text("Überträgt alle Schlafnächte nachträglich nach PainDiary und Apple Health.")
         }
     }
 
@@ -135,42 +128,34 @@ struct EinstellungenView: View {
 
     private var appSektion: some View {
         Section("App") {
-            Button("Onboarding erneut anzeigen") {
+            NavigationLink(destination: VersionsverlaufView()) {
+                Label("Versionsverlauf", systemImage: "clock.arrow.trianglehead.counterclockwise.rotate.90")
+            }
+
+            Button {
                 UserDefaults.standard.set(false, forKey: "onboarding_complete")
+            } label: {
+                Label("Onboarding erneut anzeigen", systemImage: "arrow.counterclockwise")
+                    .foregroundStyle(.orange)
             }
-            .foregroundStyle(.orange)
 
-            Button("Alle Schlafklassifikationen zurücksetzen") {
-                // TODO: ML-Samples löschen
-            }
-            .foregroundStyle(.red)
-        }
-    }
-
-    // MARK: - Version & Info
-
-    private var versionSektion: some View {
-        Section("Über SleepBuddy") {
             LabeledContent("Version") {
                 Text(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "–")
                     .foregroundStyle(.secondary)
             }
-            LabeledContent("Build") {
-                Text(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "–")
-                    .foregroundStyle(.secondary)
-            }
-
-            NavigationLink(destination: VersionsverlaufView()) {
-                Label("Versionsverlauf", systemImage: "clock.arrow.circlepath")
-            }
-
-            Link(destination: URL(string: "https://github.com/doemu0992/SleepBuddy")!) {
-                Label("Quellcode auf GitHub", systemImage: "chevron.left.forwardslash.chevron.right")
-            }
         }
     }
 
-    // MARK: - Logik
+    // MARK: - Helpers
+
+    private var partnerModusHinweis: String {
+        switch partnerModusStufe {
+        case 0: return "Telefon liegt auf deinem Nachttisch — deine Geräusche sind am lautesten."
+        case 1: return "Telefon liegt in der Mitte — Geräusche beider Personen werden gefiltert."
+        case 2: return "Telefon liegt näher am Partner — nur sehr laute Geräusche werden erkannt."
+        default: return ""
+        }
+    }
 
     private func exportiereAlleSessionsNachtraglich() {
         exportLaeuft = true
@@ -179,7 +164,6 @@ struct EinstellungenView: View {
             var painDiaryCount = 0
             var healthCount = 0
 
-            // PainDiary export
             let verknuepft = UserDefaults.standard.bool(forKey: "profil_paindiary_verknuepft")
             if verknuepft {
                 for session in alleSessions where session.endDate != nil {
@@ -188,7 +172,6 @@ struct EinstellungenView: View {
                 }
             }
 
-            // HealthKit export
             await healthKit.requestAuthorization()
             if healthKit.isAuthorized {
                 for session in alleSessions where session.endDate != nil {
@@ -206,6 +189,12 @@ struct EinstellungenView: View {
                     ? "Keine Verbindung aktiv (PainDiary oder HealthKit prüfen)"
                     : "✓ " + teile.joined(separator: ", ")
             }
+        }
+    }
+
+    private func alleDatenLoeschen() {
+        for session in alleSessions {
+            modelContext.delete(session)
         }
     }
 }
@@ -229,8 +218,7 @@ struct VersionsverlaufView: View {
                 Section {
                     ForEach(v.aenderungen, id: \.self) { aenderung in
                         Label(aenderung, systemImage: "checkmark.circle.fill")
-                            .foregroundStyle(.primary)
-                            .labelStyle(versionLabelStyle())
+                            .labelStyle(VersionLabelStyle())
                     }
                 } header: {
                     HStack {
@@ -248,7 +236,7 @@ struct VersionsverlaufView: View {
     }
 }
 
-private struct versionLabelStyle: LabelStyle {
+private struct VersionLabelStyle: LabelStyle {
     func makeBody(configuration: Configuration) -> some View {
         HStack(alignment: .top, spacing: 10) {
             configuration.icon.foregroundStyle(.indigo).font(.caption)
