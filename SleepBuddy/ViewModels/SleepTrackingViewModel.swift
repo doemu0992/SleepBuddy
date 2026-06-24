@@ -13,6 +13,8 @@ final class SleepTrackingViewModel {
     private(set) var isSleepOnsetDetected = false
     private(set) var isSnoring = false
     private(set) var errorMessage: String?
+    private(set) var liveHeartRateBPM: Double = 0   // HealthKit Watch HR (primary)
+    private(set) var liveBCGHeartRateBPM: Float = 0 // BCG accelerometer HR (fallback)
 
     // Services
     let insights = SleepInsightService()
@@ -81,6 +83,11 @@ final class SleepTrackingViewModel {
 
         motionService.onFeaturesUpdated = { [weak self] motion in
             self?.latestMotionFeatures = motion
+            if motion.isOnMattress && motion.bcgHeartRateBPM > 0 {
+                self?.liveBCGHeartRateBPM = motion.bcgHeartRateBPM
+            } else if !(motion.isOnMattress) {
+                self?.liveBCGHeartRateBPM = 0
+            }
         }
 
         audioService.onFeaturesUpdated = { [weak self] audio in
@@ -124,6 +131,7 @@ final class SleepTrackingViewModel {
                 Task { @MainActor [weak self] in
                     self?.classifier.currentHRBPM = bpm
                     self?.classifier.currentHRVms  = hrv ?? 0
+                    self?.liveHeartRateBPM = bpm
                 }
             }
 

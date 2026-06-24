@@ -103,11 +103,19 @@ final class SleepPhaseClassifier {
         let reg: Float = motion.isOnMattress && motion.breathingRateBPM > 0
             ? motion.breathingRegularity : audio.breathingRegularity
 
-        // Heart rate signal (from Apple Watch via HealthKit, 0 if unavailable)
-        let hasHR    = currentHRBPM > 0
-        let hrLow    = currentHRBPM < 56          // deep sleep: very slow HR
-        let hrMed    = currentHRBPM >= 56 && currentHRBPM < 68
-        let hrREM    = currentHRBPM >= 60 && currentHRBPM < 78  // REM: slightly elevated
+        // Heart rate: prefer Apple Watch (HealthKit, updated every 5 min),
+        // fall back to BCG from accelerometer z-axis (updated every 30 s, on-mattress only).
+        // BCG is noisier — lower confidence boosts when using it.
+        let bcgAvailable = motion.isOnMattress && motion.bcgHeartRateBPM > 0
+        let effectiveHRBPM: Double = currentHRBPM > 0 ? currentHRBPM
+                                   : bcgAvailable ? Double(motion.bcgHeartRateBPM) : 0
+        let usingBCG = currentHRBPM == 0 && bcgAvailable
+        let hrConfidenceScale: Double = usingBCG ? 0.6 : 1.0   // BCG is less reliable
+
+        let hasHR    = effectiveHRBPM > 0
+        let hrLow    = effectiveHRBPM < 56
+        let hrMed    = effectiveHRBPM >= 56 && effectiveHRBPM < 68
+        let hrREM    = effectiveHRBPM >= 60 && effectiveHRBPM < 78
         // High HRV = parasympathetic dominance = deep or REM sleep
         let hrvHigh  = currentHRVms > 50
         // Low HRV = stressed or awake
@@ -120,14 +128,14 @@ final class SleepPhaseClassifier {
         }
 
         // 1b. HR strongly indicates awake (HR > 80 during supposed sleep)
-        if hasHR && currentHRBPM > 80 && !remWindow {
+        if hasHR && effectiveHRBPM > 80 && !remWindow && !usingBCG {
             return (.awake, 0.72)
         }
 
         // 2. Snoring → light or deep sleep (not REM)
         if snoring > snoringThreshold {
             if bpm >= deepBreathMin && bpm <= deepBreathMax && reg >= deepRegularityMin {
-                let hrBoost = hasHR && hrLow ? 0.10 : 0.0
+                let hrBoost = hasHR && hrLow ? 0.10 * hrConfidenceScale : 0.0
                 return (.deep, min(0.75 + hrBoost, 0.90))
             }
             return (.light, 0.70)
@@ -136,8 +144,8 @@ final class SleepPhaseClassifier {
         // 3. No detectable breathing
         if bpm == 0 {
             if hasHR {
-                if hrLow && !remWindow { return (.deep, 0.60) }
-                if hrREM && remWindow  { return (.rem,  0.60) }
+                if hrLow && !remWindow { return (.deep, 0.55 + 0.05 * hrConfidenceScale) }
+                if hrREM && remWindow  { return (.rem,  0.55 + 0.05 * hrConfidenceScale) }
             }
             return amp > sleepAmplitudeMax ? (.awake, 0.6) : (.light, 0.4)
         }
@@ -149,7 +157,8 @@ final class SleepPhaseClassifier {
             && amp <= sleepAmplitudeMax
         {
             let breathScore = 1.0 - Double(abs(bpm - 12) / 3)
-            let hrBoost: Double = hasHR && hrLow && hrvHigh ? 0.10 : (hasHR && hrLow ? 0.05 : 0.0)
+            let hrBoost: Double = hasHR && hrLow && hrvHigh ? 0.10 * hrConfidenceScale
+                                : hasHR && hrLow ? 0.05 * hrConfidenceScale : 0.0
             return (.deep, min(0.5 + Double(reg) * 0.3 + breathScore * 0.2 + hrBoost, 0.95))
         }
 
@@ -159,7 +168,7 @@ final class SleepPhaseClassifier {
         let remRegMax: Float = remWindow ? 0.72 : remMaxRegularity
         let remVarMin: Float = remWindow ? 0.000003 : 0.00002
         let remConfBoost: Double = remWindow ? 0.18 : 0.0
-        let hrREMBoost: Double  = hasHR && hrREM && !hrvHigh ? 0.12 : 0.0
+        let hrREMBoost: Double  = hasHR && hrREM && !hrvHigh ? 0.12 * hrConfidenceScale : 0.0
 
         if bpm >= remBreathMin && bpm <= remBreathMax
             && reg < remRegMax
@@ -170,14 +179,14 @@ final class SleepPhaseClassifier {
             return (.rem, min(0.48 + irregularity * 0.35 + remConfBoost + hrREMBoost, 0.92))
         }
 
-        // 5b. HR strongly indicates REM even when audio signal is weak
-        if hasHR && hrREM && remWindow && amp <= sleepAmplitudeMax && !hrvHigh {
+        // 5b. HR strongly indicates REM even when audio signal is weak (Watch only — BCG too noisy)
+        if hasHR && !usingBCG && hrREM && remWindow && amp <= sleepAmplitudeMax && !hrvHigh {
             return (.rem, 0.70)
         }
 
         // 6. Deep sleep outside REM window (relaxed — catches cases missed above)
         if bpm >= deepBreathMin && bpm <= deepBreathMax && reg >= deepRegularityMin {
-            let hrBoost: Double = hasHR && hrLow ? 0.07 : 0.0
+            let hrBoost: Double = hasHR && hrLow ? 0.07 * hrConfidenceScale : 0.0
             return (.deep, min(0.65 + hrBoost, 0.80))
         }
 

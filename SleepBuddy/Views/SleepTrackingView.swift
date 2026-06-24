@@ -98,9 +98,10 @@ struct SleepTrackingView: View {
     private var trackingContent: some View {
         VStack(spacing: 0) {
             // Status bar indicators
-            HStack(spacing: 16) {
+            HStack(spacing: 10) {
                 sleepOnsetBadge
                 Spacer()
+                heartRateBadge
                 if viewModel.isSnoring {
                     Label("Schnarchen", systemImage: "waveform")
                         .font(.caption.bold())
@@ -114,6 +115,8 @@ struct SleepTrackingView: View {
             .padding(.horizontal, 24)
             .padding(.top, 56)
             .animation(.spring(response: 0.4, dampingFraction: 0.7), value: viewModel.isSnoring)
+            .animation(.spring(response: 0.4, dampingFraction: 0.7), value: viewModel.liveHeartRateBPM)
+            .animation(.spring(response: 0.4, dampingFraction: 0.7), value: viewModel.liveBCGHeartRateBPM)
 
             Spacer()
 
@@ -208,6 +211,26 @@ struct SleepTrackingView: View {
     }
 
     // MARK: - Helpers
+
+    @ViewBuilder private var heartRateBadge: some View {
+        if viewModel.liveHeartRateBPM > 0 {
+            Label("\(Int(viewModel.liveHeartRateBPM)) BPM", systemImage: "heart.fill")
+                .font(.caption.bold())
+                .foregroundStyle(.pink)
+                .padding(.horizontal, 10).padding(.vertical, 4)
+                .background(.pink.opacity(0.15))
+                .clipShape(Capsule())
+                .transition(.scale.combined(with: .opacity))
+        } else if viewModel.liveBCGHeartRateBPM > 0 {
+            Label("\(Int(viewModel.liveBCGHeartRateBPM)) BPM", systemImage: "waveform.path.ecg")
+                .font(.caption.bold())
+                .foregroundStyle(.pink.opacity(0.7))
+                .padding(.horizontal, 10).padding(.vertical, 4)
+                .background(.pink.opacity(0.10))
+                .clipShape(Capsule())
+                .transition(.scale.combined(with: .opacity))
+        }
+    }
 
     private var sleepOnsetBadge: some View {
         Group {
