@@ -84,7 +84,9 @@ struct ContentView: View {
         }
         .padding(.horizontal, 16)
         .padding(.top, 6)
-        .padding(.bottom, 16)
+        .padding(.bottom, max((UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .first?.windows.first?.safeAreaInsets.bottom ?? 0) - 4, 8))
         .background(
             Rectangle()
                 .fill(.ultraThinMaterial)
