@@ -59,6 +59,10 @@ struct SchlafapnoeRisikoView: View {
         return .erhoeht
     }
 
+    private var hasData: Bool {
+        sessions.contains { !$0.isActive && $0.totalDuration >= 3600 }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
@@ -66,44 +70,68 @@ struct SchlafapnoeRisikoView: View {
                     .font(.headline)
                     .foregroundStyle(.indigo)
                 Spacer()
-                Label(risiko.label, systemImage: risiko.icon)
-                    .font(.caption.bold())
-                    .foregroundStyle(risiko.color)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 4)
-                    .background(risiko.color.opacity(0.12), in: Capsule())
-            }
-
-            // Gradient bar + marker
-            GeometryReader { geo in
-                ZStack(alignment: .leading) {
-                    LinearGradient(
-                        colors: [.green, .yellow, .orange, .red],
-                        startPoint: .leading, endPoint: .trailing
-                    )
-                    .frame(height: 10)
-                    .clipShape(Capsule())
-
-                    // Triangle marker
-                    let x = geo.size.width * risiko.position
-                    Triangle()
-                        .fill(Color.white)
-                        .frame(width: 14, height: 10)
-                        .offset(x: x - 7, y: 11)
+                if hasData {
+                    Label(risiko.label, systemImage: risiko.icon)
+                        .font(.caption.bold())
+                        .foregroundStyle(risiko.color)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 4)
+                        .background(risiko.color.opacity(0.12), in: Capsule())
+                } else {
+                    Label("Monitoring läuft", systemImage: "waveform")
+                        .font(.caption.bold())
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 4)
+                        .background(Color.secondary.opacity(0.1), in: Capsule())
                 }
             }
-            .frame(height: 22)
-            .padding(.vertical, 4)
 
-            // Zone labels
-            HStack {
-                Text("Niedrig").font(.caption2).foregroundStyle(.green)
-                Spacer()
-                Text("Mild").font(.caption2).foregroundStyle(.yellow)
-                Spacer()
-                Text("Mittel").font(.caption2).foregroundStyle(.orange)
-                Spacer()
-                Text("Erhöht").font(.caption2).foregroundStyle(.red)
+            if hasData {
+                // Gradient bar + marker
+                GeometryReader { geo in
+                    ZStack(alignment: .leading) {
+                        LinearGradient(
+                            colors: [.green, .yellow, .orange, .red],
+                            startPoint: .leading, endPoint: .trailing
+                        )
+                        .frame(height: 10)
+                        .clipShape(Capsule())
+
+                        let x = geo.size.width * risiko.position
+                        Triangle()
+                            .fill(Color.white)
+                            .frame(width: 14, height: 10)
+                            .offset(x: x - 7, y: 11)
+                    }
+                }
+                .frame(height: 22)
+                .padding(.vertical, 4)
+
+                HStack {
+                    Text("Niedrig").font(.caption2).foregroundStyle(.green)
+                    Spacer()
+                    Text("Mild").font(.caption2).foregroundStyle(.yellow)
+                    Spacer()
+                    Text("Mittel").font(.caption2).foregroundStyle(.orange)
+                    Spacer()
+                    Text("Erhöht").font(.caption2).foregroundStyle(.red)
+                }
+            } else {
+                HStack(spacing: 16) {
+                    Image(systemName: "moon.zzz.fill")
+                        .font(.system(size: 28))
+                        .foregroundStyle(.indigo.opacity(0.4))
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Noch keine Daten")
+                            .font(.subheadline.bold())
+                        Text("Nach deiner ersten vollständigen Nacht (≥ 1 Stunde) erscheint hier deine Schnarchen-Analyse.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .padding(.vertical, 4)
             }
 
             Divider()
@@ -122,8 +150,8 @@ struct SchlafapnoeRisikoView: View {
 
     private var infoText: String {
         let n = min(sessions.filter { !$0.isActive && $0.totalDuration >= 3600 }.count, 7)
+        if n == 0 { return "Kein Ersatz für eine ärztliche Diagnose." }
         let rate = String(format: "%.0f", snoringPerHour)
-        if n == 0 { return "Noch keine ausreichenden Schlafdaten." }
         return "Ø \(rate) Schnarch-Ereignisse/h (letzte \(n) Nächte). Kein medizinischer Befund."
     }
 }

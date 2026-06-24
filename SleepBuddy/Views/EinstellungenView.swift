@@ -14,6 +14,8 @@ struct EinstellungenView: View {
     @State private var exportLaeuft = false
     @State private var exportErgebnis: String?
     @State private var zeigeLoeschenBestaetigung = false
+    @State private var csvShareItem: URL?
+    @State private var zeigeCSVShare = false
 
     var body: some View {
         List {
@@ -112,6 +114,18 @@ struct EinstellungenView: View {
                     .foregroundStyle(.secondary)
             }
 
+            Button {
+                exportiereCSV()
+            } label: {
+                Label("Schlafdaten als CSV exportieren", systemImage: "tablecells")
+                    .foregroundStyle(.indigo)
+            }
+            .sheet(isPresented: $zeigeCSVShare) {
+                if let url = csvShareItem {
+                    ShareSheet(items: [url])
+                }
+            }
+
             Button(role: .destructive) {
                 zeigeLoeschenBestaetigung = true
             } label: {
@@ -192,6 +206,38 @@ struct EinstellungenView: View {
         }
     }
 
+    private func exportiereCSV() {
+        let header = "Datum,Start,Ende,Dauer (h),Tiefschlaf (min),REM (min),Leichtschlaf (min),Wach (min),Einschlafen (min),Schnarchen,Qualität\n"
+        let fmt = DateFormatter()
+        fmt.dateFormat = "yyyy-MM-dd"
+        let timeFmt = DateFormatter()
+        timeFmt.dateFormat = "HH:mm"
+
+        let rows = alleSessions
+            .filter { !$0.isActive }
+            .sorted { $0.startDate < $1.startDate }
+            .map { s -> String in
+                let date = fmt.string(from: s.startDate)
+                let start = timeFmt.string(from: s.startDate)
+                let end = s.endDate.map { timeFmt.string(from: $0) } ?? ""
+                let dur = String(format: "%.2f", s.totalDuration / 3600)
+                let deep = Int(s.deepSleepDuration / 60)
+                let rem = Int(s.remSleepDuration / 60)
+                let light = Int(s.lightSleepDuration / 60)
+                let awake = Int(s.awakeDuration / 60)
+                let latency = s.sleepOnsetLatency.map { Int($0 / 60) }.map { String($0) } ?? ""
+                let snoring = s.snoringEventCount
+                let quality = s.subjectiveQuality
+                return "\(date),\(start),\(end),\(dur),\(deep),\(rem),\(light),\(awake),\(latency),\(snoring),\(quality)"
+            }
+
+        let csv = header + rows.joined(separator: "\n")
+        let tmpURL = FileManager.default.temporaryDirectory.appendingPathComponent("SleepBuddy-Export.csv")
+        try? csv.write(to: tmpURL, atomically: true, encoding: .utf8)
+        csvShareItem = tmpURL
+        zeigeCSVShare = true
+    }
+
     private func alleDatenLoeschen() {
         for session in alleSessions {
             modelContext.delete(session)
@@ -243,4 +289,16 @@ private struct VersionLabelStyle: LabelStyle {
             configuration.title.font(.subheadline)
         }
     }
+}
+
+// MARK: - ShareSheet
+
+struct ShareSheet: UIViewControllerRepresentable {
+    let items: [Any]
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: items, applicationActivities: nil)
+    }
+
+    func updateUIViewController(_ uvc: UIActivityViewController, context: Context) {}
 }

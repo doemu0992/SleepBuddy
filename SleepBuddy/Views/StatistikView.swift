@@ -2,11 +2,34 @@ import SwiftUI
 import SwiftData
 import Charts
 
+private struct TrendPoint: Identifiable {
+    let id = UUID()
+    let date: Date
+    let duration: Double   // hours
+    let score: Int
+}
+
 struct StatistikView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \SleepSession.startDate, order: .reverse) private var sessions: [SleepSession]
 
     @State private var selectedDate: Date = Calendar.current.startOfDay(for: Date())
+    @State private var trendPeriod: TrendPeriod = .month
+    @AppStorage("schlafZielStunden") private var schlafZiel = 8.0
+
+    private enum TrendPeriod: String, CaseIterable {
+        case month = "30 T"
+        case threeMonths = "3 M"
+        case sixMonths = "6 M"
+
+        var days: Int {
+            switch self {
+            case .month: return 30
+            case .threeMonths: return 90
+            case .sixMonths: return 180
+            }
+        }
+    }
 
     private var weekDays: [Date] {
         let cal = Calendar.current
@@ -118,6 +141,10 @@ struct StatistikView: View {
             }
             SchlafapnoeRisikoView(sessions: Array(sessions))
                 .padding(.horizontal)
+
+            if trendPoints(for: trendPeriod).count >= 3 {
+                langzeitCard
+            }
 
             NavigationLink(destination: SleepDetailView(session: session)) {
                 HStack {
@@ -332,6 +359,95 @@ struct StatistikView: View {
                 .padding(.horizontal, 32)
         }
         .padding(.top, 60)
+    }
+
+    // MARK: - Langzeit-Statistik
+
+    private func trendPoints(for period: TrendPeriod) -> [TrendPoint] {
+        let cal = Calendar.current
+        let cutoff = cal.date(byAdding: .day, value: -period.days, to: Date()) ?? Date()
+        return sessions
+            .filter { !$0.isActive && $0.totalDuration >= 1800 && $0.startDate >= cutoff }
+            .map { s in
+                TrendPoint(
+                    date: cal.startOfDay(for: s.startDate),
+                    duration: s.totalDuration / 3600,
+                    score: SchlafindexView.score(for: s)
+                )
+            }
+            .sorted { $0.date < $1.date }
+    }
+
+    private var langzeitCard: some View {
+        let points = trendPoints(for: trendPeriod)
+        let avgDur = points.isEmpty ? 0 : points.map(\.duration).reduce(0, +) / Double(points.count)
+        let avgScore = points.isEmpty ? 0 : points.map(\.score).reduce(0, +) / points.count
+        let goal = schlafZiel
+
+        return VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                Label("Langzeit-Trend", systemImage: "chart.line.uptrend.xyaxis")
+                    .font(.headline).foregroundStyle(.indigo)
+                Spacer()
+                Picker("", selection: $trendPeriod) {
+                    ForEach(TrendPeriod.allCases, id: \.self) { p in
+                        Text(p.rawValue).tag(p)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .frame(width: 160)
+            }
+
+            HStack(spacing: 0) {
+                miniStat("clock.fill", color: .indigo, value: String(format: "%.1fh", avgDur), label: "Ø Dauer")
+                Divider().frame(height: 36)
+                miniStat("star.fill", color: .purple, value: "\(avgScore)%", label: "Ø Score")
+                Divider().frame(height: 36)
+                miniStat("moon.fill", color: SleepPhaseType.deep.color, value: "\(points.count)", label: "Nächte")
+            }
+
+            // Duration chart
+            Chart {
+                ForEach(points) { pt in
+                    BarMark(
+                        x: .value("Datum", pt.date, unit: .day),
+                        y: .value("Stunden", pt.duration)
+                    )
+                    .foregroundStyle(pt.duration >= goal
+                        ? Color.indigo.opacity(0.7)
+                        : Color.indigo.opacity(0.35))
+                    .cornerRadius(3)
+                }
+                RuleMark(y: .value("Ziel", goal))
+                    .lineStyle(StrokeStyle(lineWidth: 1.5, dash: [4]))
+                    .foregroundStyle(Color.indigo.opacity(0.5))
+                    .annotation(position: .top, alignment: .trailing) {
+                        Text("Ziel").font(.caption2).foregroundStyle(.indigo.opacity(0.6))
+                    }
+            }
+            .chartXAxis {
+                AxisMarks(values: .stride(by: .day, count: trendPeriod == .month ? 7 : trendPeriod == .threeMonths ? 14 : 30)) { _ in
+                    AxisGridLine()
+                    AxisValueLabel(format: .dateTime.day().month(.abbreviated))
+                }
+            }
+            .chartYAxis {
+                AxisMarks(values: .stride(by: 2)) { val in
+                    AxisGridLine()
+                    AxisValueLabel { if let v = val.as(Double.self) { Text("\(Int(v))h") } }
+                }
+            }
+            .frame(height: 120)
+
+            Text("Balken = Schlafdauer · Gestrichelt = Schlafziel · Dunkel = Ziel erreicht")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
+        .padding()
+        .background(Color(.secondarySystemGroupedBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 20))
+        .shadow(color: Color.primary.opacity(0.06), radius: 12, x: 0, y: 3)
+        .padding(.horizontal)
     }
 
     // MARK: - Helpers

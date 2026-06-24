@@ -33,4 +33,30 @@ final class NotificationManager {
     func loescheSchlafErinnerung() {
         UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: [schlafErinnerungID])
     }
+
+    /// Calculates average bedtime from recent start dates and schedules a reminder 15 minutes before.
+    /// Falls back to the stored fixed time if fewer than 3 dates are provided.
+    func planeAdaptiveErinnerung(startDaten: [Date], fallbackStunde: Int, fallbackMinute: Int) {
+        guard startDaten.count >= 3 else {
+            planeSchlafErinnerung(stunde: fallbackStunde, minute: fallbackMinute)
+            return
+        }
+
+        let cal = Calendar.current
+        let minutesSinceMidnight = startDaten.map { date -> Double in
+            let comps = cal.dateComponents([.hour, .minute], from: date)
+            let h = comps.hour ?? 22
+            let m = comps.minute ?? 0
+            var mins = Double(h * 60 + m)
+            if mins < 12 * 60 { mins += 24 * 60 }
+            return mins
+        }
+
+        let avg = minutesSinceMidnight.reduce(0, +) / Double(minutesSinceMidnight.count)
+        let reminderMins = avg - 15
+        let totalMins = Int(reminderMins) % (24 * 60)
+        let stunde = (totalMins / 60) % 24
+        let minute = totalMins % 60
+        planeSchlafErinnerung(stunde: stunde, minute: minute)
+    }
 }

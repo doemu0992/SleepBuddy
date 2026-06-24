@@ -469,7 +469,7 @@ struct SleepDetailView: View {
     }
 
     private func noiseColor(_ db: Double) -> Color {
-        db < 35 ? .green : db < 50 ? .yellow : .red
+        db < 35 ? .green : db < 50 ? .orange : .red
     }
 
     private var ambientNoiseCard: some View {
@@ -477,23 +477,13 @@ struct SleepDetailView: View {
             Label("Umgebungslautstärke", systemImage: "waveform.and.mic").font(.headline)
 
             Chart(noiseData) { sample in
-                AreaMark(
+                BarMark(
                     x: .value("Zeit", sample.time),
                     yStart: .value("Boden", 20.0),
                     yEnd: .value("dB", sample.db)
                 )
-                .foregroundStyle(
-                    LinearGradient(
-                        colors: [Color.indigo.opacity(0.5), Color.indigo.opacity(0.1)],
-                        startPoint: .top, endPoint: .bottom
-                    )
-                )
-                LineMark(
-                    x: .value("Zeit", sample.time),
-                    y: .value("dB", sample.db)
-                )
-                .foregroundStyle(Color.indigo)
-                .lineStyle(StrokeStyle(lineWidth: 1.5))
+                .foregroundStyle(noiseColor(sample.db).opacity(0.75))
+                .cornerRadius(1)
             }
             .chartYScale(domain: 20...90)
             .chartXAxis {
@@ -503,8 +493,12 @@ struct SleepDetailView: View {
                 }
             }
             .chartYAxis {
-                AxisMarks(values: [30, 50, 70]) { val in
-                    AxisGridLine()
+                AxisMarks(values: [35, 50, 70]) { val in
+                    AxisGridLine().foregroundStyle(
+                        val.as(Int.self) == 35 ? Color.green.opacity(0.3)
+                        : val.as(Int.self) == 50 ? Color.orange.opacity(0.3)
+                        : Color.red.opacity(0.3)
+                    )
                     AxisValueLabel { Text("\(val.as(Int.self) ?? 0) dB").font(.caption2) }
                 }
             }
@@ -513,7 +507,7 @@ struct SleepDetailView: View {
             // Legend
             HStack(spacing: 16) {
                 legendDot(.green,  "< 35 dB  Sehr ruhig")
-                legendDot(.yellow, "35–50 dB  Normal")
+                legendDot(.orange, "35–50 dB  Normal")
                 legendDot(.red,    "> 50 dB  Laut")
             }
         }

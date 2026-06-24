@@ -1,11 +1,14 @@
 import SwiftUI
+import SwiftData
 import HealthKit
 
 struct ProfilView: View {
+    @Query(sort: \SleepSession.startDate, order: .reverse) private var sessions: [SleepSession]
     @State private var profil = SharedProfil.shared
     @AppStorage("profil_paindiary_verknuepft") private var painDiaryVerknuepft: Bool = false
     @AppStorage("einst_erinnerung_aktiv") private var erinnerungAktiv = false
     @AppStorage("einst_erinnerung_zeit") private var erinnerungZeitSek = 79200.0
+    @AppStorage("einst_adaptive_erinnerung") private var adaptiveErinnerung = true
 
     private let notif = NotificationManager.shared
 
@@ -92,15 +95,45 @@ struct ProfilView: View {
                 }
             }
             if erinnerungAktiv {
-                DatePicker("Uhrzeit", selection: erinnerungZeit, displayedComponents: .hourAndMinute)
-                    .onChange(of: erinnerungZeit.wrappedValue) { _, _ in planeErinnerung() }
+                Toggle(isOn: $adaptiveErinnerung) {
+                    Label("Automatisch aus Verlauf", systemImage: "sparkles")
+                }
+                .tint(.indigo)
+                .onChange(of: adaptiveErinnerung) { _, _ in planeErinnerung() }
+
+                if !adaptiveErinnerung {
+                    DatePicker("Uhrzeit", selection: erinnerungZeit, displayedComponents: .hourAndMinute)
+                        .onChange(of: erinnerungZeit.wrappedValue) { _, _ in planeErinnerung() }
+                } else {
+                    Text(adaptiveHinweis)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
+        }
+    }
+
+    private var adaptiveHinweis: String {
+        let recentCount = sessions.filter { !$0.isActive }.prefix(14).count
+        if recentCount >= 3 {
+            return "Basierend auf deinen letzten \(recentCount) Nächten wird die Erinnerung automatisch 15 Min. vor deiner durchschnittlichen Schlafenszeit geplant."
+        } else {
+            return "Noch zu wenige Nächte (\(recentCount)/3) für automatische Berechnung. Schlaf mindestens 3 Nächte, dann passt sich die Erinnerung an."
         }
     }
 
     private func planeErinnerung() {
         let dc = Calendar.current.dateComponents([.hour, .minute], from: erinnerungZeit.wrappedValue)
-        notif.planeSchlafErinnerung(stunde: dc.hour ?? 22, minute: dc.minute ?? 0)
+        if adaptiveErinnerung {
+            let recentDates = Array(sessions.filter { !$0.isActive }.prefix(14)).map(\.startDate)
+            notif.planeAdaptiveErinnerung(
+                startDaten: recentDates,
+                fallbackStunde: dc.hour ?? 22,
+                fallbackMinute: dc.minute ?? 0
+            )
+        } else {
+            notif.planeSchlafErinnerung(stunde: dc.hour ?? 22, minute: dc.minute ?? 0)
+        }
     }
 
     // MARK: - Verknüpfungen

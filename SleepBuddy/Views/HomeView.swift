@@ -15,19 +15,23 @@ struct HomeView: View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 20) {
-                    sleepButton
-                    if let session = lastSession, isMorgenBerichtRelevant(session) {
-                        if session.subjectiveQuality == 0 {
-                            MorgenBewertungCard(session: session)
+                    if sessions.isEmpty {
+                        emptyState
+                    } else {
+                        sleepButton
+                        if let session = lastSession, isMorgenBerichtRelevant(session) {
+                            if session.subjectiveQuality == 0 {
+                                MorgenBewertungCard(session: session)
+                            }
+                            MorgenBerichtCard(session: session)
                         }
-                        MorgenBerichtCard(session: session)
-                    }
-                    smartAlarmCard
-                    if let session = lastSession {
-                        lastNightCard(session)
-                    }
-                    if trackingViewModel.classifier.sampleCount > 0 {
-                        learningStatusCard
+                        smartAlarmCard
+                        if let session = lastSession {
+                            lastNightCard(session)
+                        }
+                        if trackingViewModel.classifier.sampleCount > 0 {
+                            learningStatusCard
+                        }
                     }
                 }
                 .padding()
@@ -54,6 +58,60 @@ struct HomeView: View {
             .task {
                 await trackingViewModel.requestAlarmPermission()
             }
+        }
+    }
+
+    // MARK: - Empty State
+
+    private var emptyState: some View {
+        VStack(spacing: 24) {
+            sleepButton
+
+            VStack(spacing: 16) {
+                Image(systemName: "moon.stars.fill")
+                    .font(.system(size: 52))
+                    .foregroundStyle(LinearGradient(colors: [.indigo, .purple], startPoint: .topLeading, endPoint: .bottomTrailing))
+
+                Text("Willkommen bei SleepBuddy")
+                    .font(.title2.bold())
+                    .multilineTextAlignment(.center)
+
+                Text("Lege dein iPhone heute Nacht aufs Bett — SleepBuddy erkennt deine Schlafphasen automatisch.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 8)
+            }
+            .padding(24)
+            .background(Color(.secondarySystemGroupedBackground))
+            .clipShape(RoundedRectangle(cornerRadius: 20))
+            .shadow(color: Color.primary.opacity(0.06), radius: 10, x: 0, y: 2)
+
+            VStack(spacing: 12) {
+                tipRow(icon: "iphone", color: .indigo, text: "iPhone neben dem Kopfkissen auf die Matratze legen")
+                tipRow(icon: "cable.connector", color: .purple, text: "Ladekabel anschließen — Tracking läuft die ganze Nacht")
+                tipRow(icon: "alarm.fill", color: .orange, text: "Optional: Smart Alarm für sanftes Aufwachen einrichten")
+            }
+            .padding()
+            .background(Color(.secondarySystemGroupedBackground))
+            .clipShape(RoundedRectangle(cornerRadius: 16))
+            .shadow(color: Color.primary.opacity(0.06), radius: 10, x: 0, y: 2)
+
+            smartAlarmCard
+        }
+    }
+
+    private func tipRow(icon: String, color: Color, text: String) -> some View {
+        HStack(alignment: .top, spacing: 14) {
+            ZStack {
+                Circle().fill(color.opacity(0.12)).frame(width: 36, height: 36)
+                Image(systemName: icon).foregroundStyle(color).font(.caption)
+            }
+            Text(text)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer()
         }
     }
 
@@ -174,25 +232,50 @@ struct HomeView: View {
     private var learningStatusCard: some View {
         let count = trackingViewModel.classifier.sampleCount
         let isML = count >= 40
-        return HStack(spacing: 12) {
-            Image(systemName: isML ? "brain.fill" : "brain")
-                .foregroundStyle(isML ? .indigo : .secondary)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(isML ? "KI aktiv" : "KI lernt noch")
-                    .font(.caption.bold())
-                    .foregroundStyle(isML ? .indigo : .secondary)
-                Text(isML ? "\(count) Messwerte — Klassifikator personalisiert"
-                          : "\(count)/40 Messwerte bis zur KI-Klassifikation")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 12) {
+                ZStack {
+                    Circle()
+                        .fill(isML ? Color.indigo.opacity(0.12) : Color.secondary.opacity(0.1))
+                        .frame(width: 40, height: 40)
+                    Image(systemName: isML ? "brain.fill" : "brain")
+                        .foregroundStyle(isML ? .indigo : .secondary)
+                        .font(.body)
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(isML ? "Persönliche KI aktiv" : "KI lernt dich kennen")
+                        .font(.subheadline.bold())
+                        .foregroundStyle(isML ? .indigo : .primary)
+                    Text(isML
+                         ? "\(count) Messwerte gesammelt"
+                         : "\(count) von 40 Messwerten")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                if isML {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(.indigo)
+                        .font(.title3)
+                }
             }
-            Spacer()
+
             if !isML {
                 ProgressView(value: Double(count), total: 40)
                     .tint(.indigo)
-                    .frame(width: 60)
+
+                Text("Nach \(40 - count) weiteren Nächten schaltet SleepBuddy auf deinen persönlichen KI-Klassifikator um — Schlafphasen werden dann noch genauer erkannt.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             } else {
-                Image(systemName: "checkmark.circle.fill").foregroundStyle(.indigo)
+                HStack(spacing: 6) {
+                    Image(systemName: "sparkles").foregroundStyle(.indigo).font(.caption)
+                    Text("Dein persönlicher Schlafklassifikator ist aktiv. Bewertungen nach dem Aufwachen verbessern ihn weiter.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
         }
         .padding()

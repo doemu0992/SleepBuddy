@@ -14,9 +14,12 @@ struct OnboardingView: View {
     @State private var requestingMic = false
     @State private var requestingHealth = false
     @State private var requestingNotif = false
+    @State private var partnerModusAktiv = false
+    @AppStorage("partnerModus_aktiv") private var partnerModusGespeichert = false
+    @AppStorage("partnerModus_stufe") private var partnerModusStufe = 1
 
     private let navy = Color(red: 0.05, green: 0.07, blue: 0.18)
-    private let totalSteps = 7
+    private let totalSteps = 8
 
     var body: some View {
         ZStack {
@@ -38,7 +41,7 @@ struct OnboardingView: View {
                 // Skip button (only for permission/optional steps)
                 HStack {
                     Spacer()
-                    if [3, 4, 5].contains(step) {
+                    if [3, 4, 5, 6].contains(step) {
                         Button("Überspringen") { advance() }
                             .font(.subheadline)
                             .foregroundStyle(.white.opacity(0.5))
@@ -76,7 +79,8 @@ struct OnboardingView: View {
         case 3: micStep
         case 4: healthStep
         case 5: notifStep
-        case 6: goalStep
+        case 6: partnerModusStep
+        case 7: goalStep
         default: EmptyView()
         }
     }
@@ -307,7 +311,86 @@ struct OnboardingView: View {
         .padding(.horizontal, 24)
     }
 
-    // Step 6: Sleep goal
+    // Step 6: Partnermodus
+    private var partnerModusStep: some View {
+        VStack(spacing: 28) {
+            ZStack {
+                Circle().fill(Color.purple.opacity(0.15)).frame(width: 130, height: 130)
+                Image(systemName: "person.2.fill")
+                    .font(.system(size: 52))
+                    .foregroundStyle(.purple)
+            }
+
+            Text("Partnermodus")
+                .font(.title.bold()).foregroundStyle(.white)
+
+            Text("Schläfst du nicht alleine? Dann passe die Mikrofon-Empfindlichkeit an, damit SleepBuddy nur dich aufzeichnet.")
+                .multilineTextAlignment(.center)
+                .foregroundStyle(.white.opacity(0.7))
+                .padding(.horizontal, 8)
+
+            VStack(spacing: 12) {
+                Toggle(isOn: $partnerModusAktiv) {
+                    Label("Partnermodus aktivieren", systemImage: "person.2.fill")
+                        .font(.subheadline.bold())
+                        .foregroundStyle(.white)
+                }
+                .tint(.purple)
+                .padding()
+                .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 14))
+
+                if partnerModusAktiv {
+                    VStack(spacing: 8) {
+                        partnerStufeButton(stufe: 1, icon: "iphone.and.arrow.forward", title: "Stufe 1 – Nebeneinander", sub: "iPhone liegt zwischen euch oder sehr nah am eigenen Kissen")
+                        partnerStufeButton(stufe: 2, icon: "person.2.wave.2.fill", title: "Stufe 2 – Wenig Abstand", sub: "Partner liegt direkt daneben, iPhone am eigenen Kissen")
+                    }
+                }
+            }
+        }
+        .padding(.horizontal, 24)
+        .onChange(of: partnerModusAktiv) { _, val in
+            partnerModusGespeichert = val
+        }
+        .onChange(of: partnerModusStufe) { _, _ in }
+    }
+
+    private func partnerStufeButton(stufe: Int, icon: String, title: String, sub: String) -> some View {
+        let selected = partnerModusStufe == stufe
+        return Button { partnerModusStufe = stufe } label: {
+            HStack(alignment: .top, spacing: 14) {
+                Image(systemName: icon)
+                    .foregroundStyle(selected ? .purple : .white.opacity(0.5))
+                    .frame(width: 28)
+                    .padding(.top, 2)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(title)
+                        .font(.subheadline.bold())
+                        .foregroundStyle(selected ? .white : .white.opacity(0.6))
+                    Text(sub)
+                        .font(.caption)
+                        .foregroundStyle(selected ? .white.opacity(0.8) : .white.opacity(0.4))
+                        .fixedSize(horizontal: false, vertical: true)
+                        .multilineTextAlignment(.leading)
+                }
+                Spacer(minLength: 0)
+                if selected {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(.purple)
+                        .padding(.top, 2)
+                }
+            }
+            .padding()
+            .frame(maxWidth: .infinity)
+            .background(selected ? Color.purple.opacity(0.2) : Color.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 12))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .strokeBorder(selected ? Color.purple.opacity(0.6) : Color.clear, lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    // Step 7: Sleep goal
     private var goalStep: some View {
         VStack(spacing: 28) {
             Image(systemName: "moon.stars.fill")
@@ -349,8 +432,8 @@ struct OnboardingView: View {
     private var nextButton: some View {
         Button {
             if step == totalSteps - 1 {
-                // Save goal and complete
                 UserDefaults.standard.set(sleepGoalHours, forKey: "schlafZielStunden")
+                partnerModusGespeichert = partnerModusAktiv
                 onComplete()
             } else {
                 advance()
