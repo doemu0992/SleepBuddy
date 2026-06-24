@@ -89,6 +89,7 @@ struct SchlafindexView: View {
         ScrollView {
             VStack(spacing: 20) {
                 scoreKarte
+                scoreErklaerung
                 subScoreKarte
                 phasenKarte
                 infoKarte
@@ -140,6 +141,77 @@ struct SchlafindexView: View {
         .background(Color(.secondarySystemGroupedBackground))
         .clipShape(RoundedRectangle(cornerRadius: 16))
         .shadow(color: Color.primary.opacity(0.06), radius: 10, x: 0, y: 2)
+    }
+
+    // MARK: - Score Erklärung
+
+    private var scoreErklaerung: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label("Warum \(score)%?", systemImage: "questionmark.circle.fill")
+                .font(.headline).foregroundStyle(.indigo)
+
+            VStack(alignment: .leading, spacing: 8) {
+                erklaerungsZeile(
+                    icon: "clock.fill", color: .indigo,
+                    text: dauerErklaerung
+                )
+                Divider()
+                erklaerungsZeile(
+                    icon: "moon.fill", color: .purple,
+                    text: effizienzErklaerung
+                )
+                Divider()
+                erklaerungsZeile(
+                    icon: "waveform.path", color: .orange,
+                    text: unterbrechungsErklaerung
+                )
+            }
+        }
+        .padding()
+        .background(Color(.secondarySystemGroupedBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .shadow(color: Color.primary.opacity(0.06), radius: 10, x: 0, y: 2)
+    }
+
+    private func erklaerungsZeile(icon: String, color: Color, text: String) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: icon).foregroundStyle(color).frame(width: 20)
+            Text(text).font(.subheadline).fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var dauerErklaerung: String {
+        let h = actualSleep / 3600
+        let ziel = schlafZielStunden < 5 ? 8.0 : schlafZielStunden
+        if dauerScore >= 45 {
+            return "Dauer top: \(String(format: "%.1f", h))h Schlaf entspricht deinem Ziel von \(Int(ziel))h."
+        } else if dauerScore >= 30 {
+            return "Dauer ok: \(String(format: "%.1f", h))h Schlaf – noch \(String(format: "%.1f", ziel - h))h unter deinem Ziel."
+        } else {
+            return "Dauer zu kurz: Nur \(String(format: "%.1f", h))h Schlaf. Ziel: \(Int(ziel))h — \(String(format: "%.1f", ziel - h))h fehlen."
+        }
+    }
+
+    private var effizienzErklaerung: String {
+        let eff = Int(sleepEfficiency * 100)
+        if effizienzScore >= 25 {
+            return "Effizienz ausgezeichnet: \(eff)% deiner Zeit im Bett hast du wirklich geschlafen (Ziel ≥ 90%)."
+        } else if effizienzScore >= 15 {
+            return "Effizienz gut: \(eff)% Schlafeffizienz – etwas Zeit wach im Bett verbracht."
+        } else {
+            return "Effizienz niedrig: Nur \(eff)% Schlafeffizienz. Lange Einschlafzeit oder nächtliches Aufwachen drücken den Wert."
+        }
+    }
+
+    private var unterbrechungsErklaerung: String {
+        let min = Int(postOnsetAwakeMinutes)
+        if unterbrechungsScore >= 18 {
+            return "Kaum unterbrochen: Du warst nach dem Einschlafen praktisch gar nicht mehr wach."
+        } else if unterbrechungsScore >= 10 {
+            return "Wenige Unterbrechungen: \(min) Min wach nach dem Einschlafen – leicht erhöht aber normal."
+        } else {
+            return "Viele Unterbrechungen: \(min) Min wach nach dem Einschlafen. Stressabbau vor dem Schlaf kann helfen."
+        }
     }
 
     // MARK: - Sub Scores

@@ -185,6 +185,11 @@ final class SleepTrackingViewModel {
         await stopTracking()
     }
 
+    /// User taps "Snooze" — pauses alarm for 5 minutes, tracking continues.
+    func snoozeAlarm() {
+        smartAlarm.snooze()
+    }
+
     func correctPhase(_ phase: SleepPhase, to newType: SleepPhaseType) {
         guard let context = modelContext else { return }
         phase.phaseType = newType

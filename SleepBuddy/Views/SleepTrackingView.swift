@@ -192,18 +192,38 @@ struct SleepTrackingView: View {
                 Text("Du bist gerade in einer Leichtschlafphase —\nder ideale Moment zum Aufwachen.")
                     .multilineTextAlignment(.center)
                     .foregroundStyle(.white.opacity(0.7))
+                if viewModel.smartAlarm.snoozeCount > 0 {
+                    Text("Snooze \(viewModel.smartAlarm.snoozeCount)×")
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(0.4))
+                }
             }
 
             Spacer()
 
-            Button {
-                Task { await viewModel.dismissAlarm(); dismiss() }
-            } label: {
-                Text("Aufwachen")
-                    .font(.title2.bold()).foregroundStyle(.white)
-                    .frame(maxWidth: .infinity).padding()
-                    .background(.indigo)
-                    .clipShape(RoundedRectangle(cornerRadius: 16))
+            VStack(spacing: 12) {
+                Button {
+                    Task { await viewModel.dismissAlarm(); dismiss() }
+                } label: {
+                    Text("Aufwachen")
+                        .font(.title2.bold()).foregroundStyle(.white)
+                        .frame(maxWidth: .infinity).padding()
+                        .background(.indigo)
+                        .clipShape(RoundedRectangle(cornerRadius: 16))
+                }
+
+                if viewModel.smartAlarm.snoozeCount < 3 {
+                    Button {
+                        viewModel.snoozeAlarm()
+                    } label: {
+                        Label("5 Min Snooze", systemImage: "moon.zzz.fill")
+                            .font(.subheadline.bold())
+                            .foregroundStyle(.indigo)
+                            .frame(maxWidth: .infinity).padding(.vertical, 14)
+                            .background(.indigo.opacity(0.15))
+                            .clipShape(RoundedRectangle(cornerRadius: 16))
+                    }
+                }
             }
             .padding(.horizontal, 32)
             .padding(.bottom, 48)

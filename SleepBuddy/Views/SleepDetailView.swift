@@ -13,6 +13,7 @@ struct SleepDetailView: View {
     @State private var audioPlayer: AVAudioPlayer?
     @State private var playingEventID: Date?
     @State private var downloadingEventID: Date?
+    @State private var spo2Percent: Double? = nil
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
 
@@ -43,6 +44,8 @@ struct SleepDetailView: View {
                     extraStatsRow
                 }
                 phaseBarCard
+                hypnogramCard
+                spo2Card
                 if !session.noiseSamples.isEmpty {
                     ambientNoiseCard
                 }
@@ -63,6 +66,12 @@ struct SleepDetailView: View {
         .background(Color(.systemGroupedBackground))
         .navigationTitle(session.startDate.formatted(date: .long, time: .omitted))
         .navigationBarTitleDisplayMode(.inline)
+        .task {
+            let hk = HealthKitService()
+            if let end = session.endDate {
+                spo2Percent = await hk.averageSpO2(from: session.startDate, to: end)
+            }
+        }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button(role: .destructive) { deleteSession() } label: {
@@ -210,7 +219,7 @@ struct SleepDetailView: View {
 
     private var phaseBarCard: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Schlafphasen")
+            Label("Schlafphasen", systemImage: "bed.double.fill")
                 .font(.headline)
 
             if !session.phasesArray.isEmpty {
@@ -237,6 +246,152 @@ struct SleepDetailView: View {
         .background(Color(.secondarySystemGroupedBackground))
         .clipShape(RoundedRectangle(cornerRadius: 16))
         .shadow(color: Color.primary.opacity(0.06), radius: 10, x: 0, y: 2)
+    }
+
+    // MARK: - Hypnogram
+
+    private struct HypnoPoint: Identifiable {
+        let id = UUID()
+        let time: Date
+        let depth: Double  // 0=wach, 1=leicht, 2=rem, 3=tief
+        let phase: SleepPhaseType
+    }
+
+    private var hypnoData: [HypnoPoint] {
+        let sorted = session.phasesArray.sorted { $0.startDate < $1.startDate }
+        var points: [HypnoPoint] = []
+        for phase in sorted {
+            let depth: Double = switch phase.phaseType {
+            case .awake: 0
+            case .light: 1
+            case .rem:   2
+            case .deep:  3
+            }
+            points.append(HypnoPoint(time: phase.startDate, depth: depth, phase: phase.phaseType))
+            points.append(HypnoPoint(time: phase.endDate,   depth: depth, phase: phase.phaseType))
+        }
+        return points
+    }
+
+    @ViewBuilder
+    private var hypnogramCard: some View {
+        if !session.phasesArray.isEmpty {
+            VStack(alignment: .leading, spacing: 12) {
+                Label("Schlafverlauf", systemImage: "waveform.path.ecg")
+                    .font(.headline)
+
+                Chart(hypnoData) { point in
+                    LineMark(
+                        x: .value("Zeit", point.time),
+                        y: .value("Tiefe", point.depth)
+                    )
+                    .foregroundStyle(
+                        LinearGradient(
+                            colors: [.indigo.opacity(0.7), .purple.opacity(0.7)],
+                            startPoint: .top, endPoint: .bottom
+                        )
+                    )
+                    .lineStyle(StrokeStyle(lineWidth: 2))
+                    .interpolationMethod(.stepStart)
+
+                    AreaMark(
+                        x: .value("Zeit", point.time),
+                        yStart: .value("Boden", -0.1),
+                        yEnd: .value("Tiefe", point.depth)
+                    )
+                    .foregroundStyle(
+                        LinearGradient(
+                            colors: [.indigo.opacity(0.25), .indigo.opacity(0.05)],
+                            startPoint: .top, endPoint: .bottom
+                        )
+                    )
+                    .interpolationMethod(.stepStart)
+                }
+                .chartYScale(domain: -0.1...3.3)
+                .chartYAxis {
+                    AxisMarks(values: [0, 1, 2, 3]) { val in
+                        AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5, dash: [4]))
+                            .foregroundStyle(Color.secondary.opacity(0.3))
+                        AxisValueLabel {
+                            switch val.as(Int.self) {
+                            case 0: Text("Wach").font(.caption2).foregroundStyle(SleepPhaseType.awake.color)
+                            case 1: Text("Leicht").font(.caption2).foregroundStyle(SleepPhaseType.light.color)
+                            case 2: Text("REM").font(.caption2).foregroundStyle(SleepPhaseType.rem.color)
+                            case 3: Text("Tief").font(.caption2).foregroundStyle(SleepPhaseType.deep.color)
+                            default: EmptyView()
+                            }
+                        }
+                    }
+                }
+                .chartXAxis {
+                    AxisMarks(values: .stride(by: .hour)) { _ in
+                        AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5, dash: [4]))
+                            .foregroundStyle(Color.secondary.opacity(0.2))
+                        AxisValueLabel(format: .dateTime.hour(.defaultDigits(amPM: .omitted)).minute())
+                            .font(.caption2)
+                    }
+                }
+                .frame(height: 130)
+            }
+            .padding()
+            .background(Color(.secondarySystemGroupedBackground))
+            .clipShape(RoundedRectangle(cornerRadius: 16))
+            .shadow(color: Color.primary.opacity(0.06), radius: 10, x: 0, y: 2)
+        }
+    }
+
+    // MARK: - SpO₂ Card
+
+    @ViewBuilder
+    private var spo2Card: some View {
+        if let spo2 = spo2Percent {
+            let pct = Int(spo2 * 100)
+            let color: Color = pct >= 95 ? .green : pct >= 90 ? .yellow : .red
+            let label: String = pct >= 95 ? "Normal" : pct >= 90 ? "Leicht reduziert" : "Reduziert"
+
+            VStack(alignment: .leading, spacing: 12) {
+                Label("Blutsauerstoff (SpO₂)", systemImage: "drop.fill")
+                    .font(.headline)
+
+                HStack(spacing: 20) {
+                    ZStack {
+                        Circle()
+                            .stroke(color.opacity(0.15), lineWidth: 10)
+                        Circle()
+                            .trim(from: 0, to: CGFloat(pct) / 100)
+                            .stroke(color, style: StrokeStyle(lineWidth: 10, lineCap: .round))
+                            .rotationEffect(.degrees(-90))
+                        VStack(spacing: 2) {
+                            Text("\(pct)%")
+                                .font(.title2.bold())
+                                .foregroundStyle(color)
+                            Text("SpO₂")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .frame(width: 80, height: 80)
+
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(label)
+                            .font(.subheadline.bold())
+                            .foregroundStyle(color)
+                        Text("Ø über die gesamte Nacht, gemessen via Apple Watch.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        if pct < 90 {
+                            Label("Konsultiere einen Arzt bei anhaltend niedrigem SpO₂.", systemImage: "exclamationmark.triangle.fill")
+                                .font(.caption)
+                                .foregroundStyle(.orange)
+                        }
+                    }
+                }
+            }
+            .padding()
+            .background(Color(.secondarySystemGroupedBackground))
+            .clipShape(RoundedRectangle(cornerRadius: 16))
+            .shadow(color: Color.primary.opacity(0.06), radius: 10, x: 0, y: 2)
+        }
     }
 
     // MARK: - AI Insight Card

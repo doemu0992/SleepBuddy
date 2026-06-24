@@ -78,6 +78,11 @@ final class SmartAlarmService {
 
     private(set) var alarmFired = false
     private(set) var alarmFiredDate: Date?
+    private(set) var snoozeCount = 0
+    private var snoozeTask: Task<Void, Never>?
+
+    /// Standard-Snooze in Minuten (5 min)
+    let snoozeDuration: TimeInterval = 5 * 60
     private(set) var hasNotificationPermission = false
 
     private let notificationID = "com.sleepbuddy.smartalarm"
@@ -110,7 +115,25 @@ final class SmartAlarmService {
 
     func disarm() {
         UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: [notificationID])
+        snoozeTask?.cancel()
+        snoozeTask = nil
         stopAlarm()
+    }
+
+    // MARK: - Snooze
+
+    /// Stops the alarm for `snoozeDuration` then re-triggers.
+    func snooze() {
+        guard alarmFired, snoozeCount < 3 else { return }
+        snoozeCount += 1
+        stopAlarm()
+        alarmFired = false
+        snoozeTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            try? await Task.sleep(for: .seconds(snoozeDuration))
+            guard !Task.isCancelled else { return }
+            self.triggerAlarm(at: Date())
+        }
     }
 
     // MARK: - Phase monitoring
