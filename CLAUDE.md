@@ -12,6 +12,10 @@ Jede neue View, jedes neue Feature und jede Änderung muss diesen Regeln folgen.
 | UI | SwiftUI |
 | Datenpersistenz | SwiftData + CloudKit (immer aktiv) |
 | Audio | AVAudioEngine (Background Audio Entitlement) |
+| Geräuscherkennung | `SoundAnalysis.SNClassifySoundRequest` (iOS 15+) |
+| Beschleunigungssensor | `CoreMotion.CMMotionManager` (50 Hz) |
+| ML-Klassifikator | CoreML → Online k-NN → Regelbasiert (Fallback-Chain) |
+| Apple Intelligence | `FoundationModels.LanguageModelSession` (iOS 26+) |
 | Gesundheitsdaten | HealthKit |
 | iCloud Settings Sync | `NSUbiquitousKeyValueStore` via `ICloudSettingsSync` |
 | iCloud Audio Clips | iCloud Documents (`iCloud.DG-Software-Solution.PainDiary/SleepSounds/`) |
@@ -293,6 +297,23 @@ NavigationStack
 | `remSleepDuration` | `TimeInterval` | Summe aller `.rem`-Phasen |
 | `lightSleepDuration` | `TimeInterval` | Summe aller `.light`-Phasen |
 | `awakeDuration` | `TimeInterval` | Summe aller `.awake`-Phasen |
+| `bruxismEventCount` | `Int` | Anzahl `.bruxism`-Events |
+| `coughingEventCount` | `Int` | Anzahl `.coughing`-Events |
+| `computedQualityScore` | `Double` | 0–100, restorativer Schlaf + Abzüge |
+
+**`computedQualityScore`-Formel:**
+```swift
+// Basis: (Tiefschlaf + REM) / Gesamtdauer × 200 (capped at 100)
+var score = min((restorative / total) * 200, 100)
+// Einschlafen > 20 min: −0.5 Pkt/min, max −10
+score -= min(max(latencyMin - 20, 0) * 0.5, 10)
+// Schnarchen: −0.5 Pkt/Event, max −15
+score -= min(Double(snoringEventCount) * 0.5, 15)
+// Bruxismus: −0.3 Pkt/Event, max −5
+score -= min(Double(bruxismEventCount) * 0.3, 5)
+```
+
+> `computedQualityScore` ist der **direkte Session-Score** (verwendet in MorgenBerichtCard). `SchlafindexView.score(for:)` ist der **Schlaf-Index** (verwendet in StatistikView, SleepHistoryView) — beide koexistieren mit unterschiedlichen Algorithmen.
 
 > **CloudKit-Pflicht:** Alle Attribute müssen optional sein oder Default-Werte haben. Beziehungen brauchen `inverse`. Niemals CloudKit aus dem `modelContainer` entfernen.
 
@@ -1056,6 +1077,62 @@ guard SystemLanguageModel.default.isAvailable else { error = "...nicht verfügba
 ```
 
 > **Niemals** `FoundationModels` ohne `#available(iOS 26, *)` Guard und `SystemLanguageModel.default.isAvailable` Check aufrufen.
+
+---
+
+## Shared UI-Komponenten
+
+### MorgenBewertungCard
+
+**Datei:** `Views/MorgenBewertungCard.swift`
+
+Subjektive Schlafbewertung 1–5 (😴/🙁/😐/🙂/😄). Erscheint in `HomeView` solange `session.subjectiveQuality == 0`.
+
+**ML-Feedback-Loop:** Schlechte Bewertung (1–2) → alle `TrainingSample`s der Session werden auf `isUserCorrected = true` gesetzt → k-NN gewichtet sie 3× höher → Klassifikator lernt schneller aus der falschen Nacht.
+
+```swift
+if stufe <= 2 {
+    // alle TrainingSamples dieser Session als korrigiert markieren
+    for s in samples { s.isUserCorrected = true }
+}
+session.subjectiveQuality = stufe
+```
+
+> Niemals `MorgenBewertungCard` anzeigen wenn `subjectiveQuality > 0` — sonst erscheint sie jede Nacht erneut.
+
+---
+
+### SleepPhaseBarView
+
+**Datei:** `Views/SleepPhaseBarView.swift`
+
+Horizontaler Phasen-Balken — proportionale Farbblöcke für alle Phasen.
+
+```swift
+// Verwendung:
+SleepPhaseBarView(phases: session.phasesArray, totalDuration: session.totalDuration)
+// Jede Phase: Rectangle().fill(phase.phaseType.color), Breite ∝ duration/total
+```
+
+Wird in `SleepHistoryView`-Zeilen und `lastNightCard` der HomeView verwendet.
+
+---
+
+### SharedProfil
+
+**Datei:** `Services/SharedProfil.swift`
+
+Singleton — liest/schreibt Profil-Daten aus dem App Group UserDefaults (`group.com.doemu0992.sleepbuddy`), damit PainDiary dieselben Profildaten lesen kann.
+
+| Property | App-Group-Key |
+|----------|--------------|
+| `vorname` | `shared_vorname` |
+| `nachname` | `shared_nachname` |
+| `geburtsdatum` | `shared_geburtsdatum` (als `Double` TimeInterval) |
+| `geschlecht` | `shared_geschlecht` |
+| `anzeigeName` | computed: `"\(vorname) \(nachname)"` |
+
+> `ICloudSettingsSync` synchronisiert diese Keys mit `ag_`-Präfix über iCloud. `SharedProfil` liest/schreibt immer direkt ohne Präfix.
 
 ---
 
