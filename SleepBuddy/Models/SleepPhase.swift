@@ -8,6 +8,7 @@ final class SleepPhase {
     var endDate: Date = Date()
     var phaseTypeRaw: String = SleepPhaseType.awake.rawValue
     var confidence: Double = 1.0
+    var session: SleepSession?
 
     init(startDate: Date, endDate: Date, phaseType: SleepPhaseType, confidence: Double = 1.0) {
         self.startDate = startDate

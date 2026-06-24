@@ -39,6 +39,7 @@ final class SleepSoundEvent {
     var iCloudFileName: String?
     var decibelLevel: Double = 0.0
     var confidenceScore: Double = 0.0
+    var session: SleepSession?
 
     init(timestamp: Date, type: SoundEventType, durationSeconds: Double, iCloudFileName: String? = nil, decibelLevel: Double = 0.0, confidenceScore: Double = 0.0) {
         self.timestamp = timestamp

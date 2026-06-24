@@ -23,5 +23,7 @@
     <array>
         <string>iCloud.DG-Software-Solution.PainDiary</string>
     </array>
+    <key>com.apple.developer.ubiquity-kvstore-identifier</key>
+    <string>$(TeamIdentifierPrefix)iCloud.DG-Software-Solution.PainDiary</string>
 </dict>
 </plist>
