@@ -353,6 +353,219 @@ FileManager.default.url(forUbiquityContainerIdentifier: "iCloud.DG-Software-Solu
 
 ---
 
+## Umgebungsgeräusch-System
+
+### Ambient Noise Floor — Kalibrierung & Tracking
+
+**Datei:** `Services/SoundEventService.swift`
+
+Der Umgebungsgeräusch-Schwellenwert wird **automatisch über die gesamte Nacht** kalibriert und angepasst — damit Ventilatoren, Klimaanlagen, Straßenlärm etc. keine Fehlalarme auslösen.
+
+**Phase 1: Initialkalibrierung (erste 60 Sekunden)**
+
+```swift
+// 480 Ticks × (1/8 Hz) = 60 Sekunden
+private let calibrationTicks = 480
+
+// Kalibrierung: 75. Perzentil der ersten 60s → robuster Startwert
+// (ignoriert einzelne laute Momente beim Einschlafen)
+let sorted = calibrationValues.sorted()
+ambientEMA = sorted[Int(Double(sorted.count) * 0.75)]
+isCalibrated = true
+```
+
+**Phase 2: Adaptiver EMA die ganze Nacht**
+
+```swift
+// Zeitkonstante ≈ 60 s bei 8 Hz (alpha = 0.002)
+private let ambientAlpha: Float = 0.002
+
+// Update NUR während echter Stille (kein aktives Event, ≥ 1s Ruhe)
+guard eventStartDate == nil, consecutiveQuietTicks >= 8 else { return }
+ambientEMA = ambientEMA * (1.0 - ambientAlpha) + amplitude * ambientAlpha
+```
+
+**Schwellenwert-Berechnung:**
+```swift
+// EMA × 2.5 — reagiert auf langsame Änderungen (AC ein/aus, Fenster öffnen)
+// Minimum: baseAmplitudeThreshold (Partner-Modus angepasst)
+var amplitudeThreshold: Float { max(ambientEMA * 2.5, baseAmplitudeThreshold) }
+```
+
+| Modus | `baseAmplitudeThreshold` |
+|-------|--------------------------|
+| Normal | 0.018 |
+| Partner Stufe 1 | 0.035 |
+| Partner Stufe 2 | 0.058 |
+
+**Invariante:** Sound-Events dürfen den Noise Floor **nicht** erhöhen — der EMA wird nur in echten Ruhepausen aktualisiert.
+
+---
+
+### Umgebungslautstärke-Messung (dB/Minute)
+
+**Gemessen in:** `SleepTrackingViewModel.handleFeatures()`  
+**Gespeichert in:** `SleepSession.noiseSamples: [Double]` (ein Wert pro Minute)
+
+```swift
+// Umrechnung Amplitude → dB SPL (approximiert, 0–120 dB Skala)
+let db = max(0, min(120, 20.0 * log10(max(Double(avg), 1e-6)) + 90.0))
+session.noiseSamples.append(db)
+```
+
+**Prozess:**
+1. Jeder `AudioFeatures`-Update (alle ~125ms) → `noiseAccumulator.append(audio.averageAmplitude)`
+2. Alle 60 Sekunden: Durchschnitt berechnen → dB-Wert → `noiseSamples`
+3. Accumulator leeren → nächste Minute
+
+**Darstellung in `SleepDetailView`:** `noiseSection` — Linechart über die Nacht, Y-Achse 0–100 dB.
+
+---
+
+### Sound Event Detection
+
+**Datei:** `Services/SoundEventService.swift`
+
+**Event-Erkennungs-Pipeline:**
+
+```
+AudioFeatures (8 Hz) → tick(amplitude:snoringScore:speechLikelihood:)
+    → updateAmbientNoise()              ← Kalibrierung
+    → isLoud = amplitude > amplitudeThreshold
+    → 4 aufeinanderfolgende laute Ticks (0.5s) → eventStartDate setzen
+    → classifyEvent() → SoundEventType
+    → 8 aufeinanderfolgende ruhige Ticks (1s) → finaliseEvent()
+    → minDuration prüfen
+    → circularBuffer → saveToICloud() oder lokal
+    → onEventCaptured(timestamp, type, duration, fileName, decibelLevel, confidence)
+```
+
+**Timing-Parameter:**
+
+| Parameter | Wert | Beschreibung |
+|-----------|------|-------------|
+| `loudTicksToStart` | 4 (0.5s) | Konsekutive laute Ticks um Event zu starten |
+| `quietTicksToEnd` | 8 (1.0s) | Konsekutive ruhige Ticks um Event zu beenden |
+| `cooldownAfterEventSeconds` | 4.0s | Pause nach Event (verhindert Doppelerkennung) |
+| `clipDuration` | 30s | Länge des gespeicherten Audio-Clips |
+| Ring-Buffer Größe | 35s × Samplerate | Genug Vorlauf für vollständigen Clip |
+
+**Mindestdauer pro Typ:**
+
+| Typ | Mindestdauer |
+|-----|-------------|
+| Husten | 0.5s |
+| Zähneknirschen (Bruxismus) | 0.8s |
+| Alle anderen | 2.5s |
+
+**Event-Klassifikation:**
+1. Aktiver ML-Hint vorhanden (< 5s alt) → ML-Typ übernehmen
+2. `snoringScore > 0.45` → `.snoring`
+3. `speechLikelihood > 0.4` → `.talking`
+4. Sonst → `.other`
+
+---
+
+### Apple ML Sound Classification
+
+**Datei:** `Services/SoundClassificationService.swift`
+
+Nutzt `SoundAnalysis.SNClassifySoundRequest` (iOS 15+) mit Apple's eingebautem `classifierIdentifier: .version1`.
+
+**Einstellungen:**
+```swift
+request.windowDuration = CMTimeMakeWithSeconds(1.5, preferredTimescale: 44100)
+request.overlapFactor = 0.5
+// CPU-Schonung: nur jeden 4. Buffer analysieren (analyzeEveryN = 4)
+```
+
+**Erkannte Klassen und Mindest-Konfidenz:**
+
+| ML-Identifier | `SoundEventType` | Min. Konfidenz | Kategorie |
+|--------------|-----------------|----------------|-----------|
+| `snoring` | `.snoring` | 0.50 | Persönlich |
+| `speech` | `.talking` | 0.55 | Persönlich |
+| `cough` / `coughing` | `.coughing` | 0.50 | Persönlich |
+| `teeth_chattering` / `teeth_grinding` | `.bruxism` | 0.40 | Persönlich |
+| `dog` / `dog_barking` / `barking` | `.dogBarking` | 0.50–0.55 | Extern |
+| `music` / `musical_instrument` | `.music` | 0.60 | Extern |
+| `alarm_clock` / `alarm` / `smoke_detector` / `siren` | `.alarm` | 0.55 | Extern |
+| `car_horn` / `honking` / `vehicle` | `.traffic` | 0.50–0.60 | Extern |
+| `baby_cry` / `crying` / `infant_cry` | `.baby` | 0.55 | Extern |
+
+**ML-Primär-Trigger** (für leise Sounds die Amplitude-Schwelle nie überschreiten):
+```swift
+// Bruxismus und Husten: hohe ML-Konfidenz → Event direkt starten (kein Tick-Counter)
+let isMLPrimary = type == .bruxism || type == .coughing
+if isMLPrimary && confidence >= 0.65 && eventStartDate == nil && !isInCooldown {
+    eventStartDate = Date()
+    pendingEventType = type
+    consecutiveLoudTicks = loudTicksToStart  // bypass amplitude gating
+}
+```
+
+**ML-Hint-Alter:** Max. 5 Sekunden — ältere Hints werden ignoriert.
+
+---
+
+### SoundEventType — Datenmodell
+
+**Datei:** `Models/SleepSoundEvent.swift`
+
+| Typ | Icon | Farbe | `isExternal` |
+|-----|------|-------|--------------|
+| `.snoring` | `waveform` | `.orange` | false |
+| `.talking` | `bubble.left.fill` | `.blue` | false |
+| `.coughing` | `lungs.fill` | `.teal` | false |
+| `.bruxism` | `mouth.fill` | `.pink` | false |
+| `.other` | `speaker.wave.2.fill` | `.secondary` | false |
+| `.dogBarking` | `pawprint.fill` | `.brown` | **true** |
+| `.music` | `music.note` | `.indigo` | **true** |
+| `.alarm` | `bell.fill` | `.red` | **true** |
+| `.traffic` | `car.fill` | `.gray` | **true** |
+| `.baby` | `figure.and.child.holdinghands` | `.mint` | **true** |
+
+**SwiftData-Modell `SleepSoundEvent`:**
+
+| Property | Typ | Beschreibung |
+|----------|-----|-------------|
+| `timestamp` | `Date` | Ereignis-Startzeit |
+| `typeRaw` | `String` | `SoundEventType.rawValue` (CloudKit-safe) |
+| `durationSeconds` | `Double` | Ereignis-Dauer |
+| `iCloudFileName` | `String?` | Dateiname in `SleepSounds/` (nil wenn deaktiviert) |
+| `decibelLevel` | `Double` | Mittlere dB-Lautstärke des Events (0–120) |
+| `confidenceScore` | `Double` | ML-Konfidenz (0.0 = regelbasiert) |
+| `session` | `SleepSession?` | Inverse Relation (cascade delete) |
+
+**iCloud-Fallback:** Wenn iCloud nicht verfügbar → lokal in `Documents/SleepSounds/`, Dateiname mit Präfix `local://`.
+
+---
+
+### Phase-Smoothing im TrackingViewModel
+
+**Datei:** `ViewModels/SleepTrackingViewModel.swift`
+
+Phasenwechsel werden **stabilisiert** bevor sie in SwiftData geschrieben werden:
+
+```swift
+// Kandidatenphase muss stabil bleiben für minPhaseDuration
+var minPhaseDuration: TimeInterval {
+    healthKit.hasHeartRateAccess ? 60 : 90   // 60s mit Watch, 90s ohne
+}
+
+// Phasenwechsel: erst wenn Kandidat >= minPhaseDuration gehalten hat
+if result.phase != pendingPhase {
+    pendingPhase = result.phase
+    pendingPhaseStartDate = now
+} else if result.phase != currentPhase,
+          now.timeIntervalSince(pendingPhaseStartDate) >= minPhaseDuration {
+    finalizeCurrentPhase(endDate: now, session: session)
+    currentPhase = result.phase
+}
+```
+
+---
+
 ## Sensor-System
 
 Die gesamte Schlafphasenerkennung basiert auf zwei parallelen Sensordaten-Streams: **Audio** (Mikrofon) und **Motion** (Beschleunigungssensor). Beide werden kombiniert und an den Klassifikator weitergegeben.
