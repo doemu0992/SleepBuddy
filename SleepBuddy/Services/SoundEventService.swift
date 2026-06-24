@@ -19,11 +19,19 @@ final class SoundEventService {
         set { UserDefaults.standard.set(newValue, forKey: "soundEvents_enabled") }
     }
 
-    // MARK: - Adaptive noise-floor calibration (first 60 s of session)
+    // MARK: - Continuous adaptive noise floor
 
+    /// Exponential moving average of quiet-moment amplitude — seeded in first 60 s,
+    /// then updated throughout the night so threshold tracks fans, traffic, AC, etc.
+    private var ambientEMA: Float = 0.012
+    private let ambientAlpha: Float = 0.002     // time constant ≈ 60 s at 8 Hz
+    private var isCalibrated = false
     private var calibrationValues: [Float] = []
-    private let calibrationTicks = 480          // 60 s × 8 Hz
-    private var calibratedThreshold: Float?     // nil until calibration done
+    private let calibrationTicks = 480          // 60 s × 8 Hz seed window
+
+    // EMA × 2.5 adapts to room noise; baseAmplitudeThreshold is the hard minimum
+    // (partner mode explicitly raises it, so we never go below that).
+    private var amplitudeThreshold: Float { max(ambientEMA * 2.5, baseAmplitudeThreshold) }
 
     // MARK: - Circular raw-sample buffer (last 35 s at native sample rate)
 
@@ -43,9 +51,7 @@ final class SoundEventService {
         }
     }
 
-    private var amplitudeThreshold: Float { calibratedThreshold ?? baseAmplitudeThreshold }
-
-    private let cooldownAfterEventSeconds: TimeInterval = 4.0  // reduced from 10 s
+    private let cooldownAfterEventSeconds: TimeInterval = 4.0
 
     private var eventStartDate: Date?
     private var pendingEventType: SoundEventType = .other
@@ -105,17 +111,7 @@ final class SoundEventService {
 
     /// Feed amplitude + scores per 8 Hz envelope tick (called on background queue).
     func tick(amplitude: Float, snoringScore: Float, speechLikelihood: Float) {
-        // Adaptive threshold: sample ambient noise for the first 60 s
-        if calibrationValues.count < calibrationTicks {
-            calibrationValues.append(amplitude)
-            if calibrationValues.count == calibrationTicks {
-                let sorted = calibrationValues.sorted()
-                let p75 = sorted[Int(Double(sorted.count) * 0.75)]
-                // 2.5× the 75th-percentile ambient level; clamped between floor and base value
-                calibratedThreshold = max(0.008, min(p75 * 2.5, baseAmplitudeThreshold))
-            }
-        }
-
+        updateAmbientNoise(amplitude: amplitude)
         if isInCooldown { return }
 
         let isLoud = amplitude > amplitudeThreshold
@@ -146,7 +142,29 @@ final class SoundEventService {
         mlHintConfidence = 0
         mlHintDate = nil
         calibrationValues.removeAll()
-        calibratedThreshold = nil
+        ambientEMA = 0.012
+        isCalibrated = false
+    }
+
+    // MARK: - Ambient noise tracking
+
+    /// Seeds EMA from the first 60 s, then keeps it updated during quiet moments all night.
+    /// Only advances during genuine silence so sound events don't raise the noise floor.
+    private func updateAmbientNoise(amplitude: Float) {
+        if !isCalibrated {
+            calibrationValues.append(amplitude)
+            if calibrationValues.count >= calibrationTicks {
+                let sorted = calibrationValues.sorted()
+                // 75th-percentile of first 60 s → robust seed that ignores initial loud moments
+                ambientEMA = sorted[Int(Double(sorted.count) * 0.75)]
+                isCalibrated = true
+                calibrationValues.removeAll()
+            }
+            return
+        }
+        // Post-calibration: update only during quiet stretches (no active event, ≥ 1 s silence)
+        guard eventStartDate == nil, consecutiveQuietTicks >= 8 else { return }
+        ambientEMA = ambientEMA * (1.0 - ambientAlpha) + amplitude * ambientAlpha
     }
 
     // MARK: - Audio file URL for playback
