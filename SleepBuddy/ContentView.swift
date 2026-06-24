@@ -26,27 +26,22 @@ struct ContentView: View {
         .tint(.indigo)
         .overlay(alignment: .bottom) {
             Button { showTracking = true } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: trackingViewModel.isTracking ? "waveform" : "moon.stars.fill")
-                        .font(.system(size: 16, weight: .semibold))
-                    Text(trackingViewModel.isTracking ? "Läuft…" : "Tracker starten")
-                        .font(.subheadline.bold())
-                }
-                .foregroundStyle(.white)
-                .padding(.horizontal, 20)
-                .padding(.vertical, 14)
-                .background(
-                    Capsule()
+                ZStack {
+                    Circle()
                         .fill(
                             LinearGradient(
                                 colors: trackingViewModel.isTracking ? [.purple, .indigo] : [.indigo, .purple],
-                                startPoint: .leading, endPoint: .trailing
+                                startPoint: .topLeading, endPoint: .bottomTrailing
                             )
                         )
-                        .shadow(color: .indigo.opacity(0.4), radius: 10, x: 0, y: 4)
-                )
+                        .frame(width: 54, height: 54)
+                        .shadow(color: .indigo.opacity(0.5), radius: 8, x: 0, y: 4)
+                    Image(systemName: trackingViewModel.isTracking ? "waveform" : "moon.stars.fill")
+                        .font(.system(size: 22, weight: .bold))
+                        .foregroundStyle(.white)
+                }
             }
-            .padding(.bottom, 52)
+            .padding(.bottom, 4)
         }
         .fullScreenCover(isPresented: $showTracking) {
             SleepTrackingView(viewModel: trackingViewModel)
