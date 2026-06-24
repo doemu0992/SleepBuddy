@@ -61,11 +61,6 @@ struct SleepDetailView: View {
                 }
             }
         }
-        .task {
-            if insightService.summary == nil && !insightService.isGenerating {
-                await insightService.generateInsights(for: session)
-            }
-        }
         .sheet(item: $correctingPhase) { phase in
             PhaseCorrectionSheet(phase: phase) { newType in
                 applyCorrection(phase: phase, newType: newType)
@@ -254,6 +249,16 @@ struct SleepDetailView: View {
                     Text("Wird analysiert…").font(.subheadline).foregroundStyle(.secondary)
                 }
                 .padding(.vertical, 4)
+            } else if insightService.summary == nil && insightService.error == nil {
+                Button {
+                    Task { await insightService.generateInsights(for: session) }
+                } label: {
+                    Label("Analyse starten", systemImage: "sparkles")
+                        .font(.subheadline.bold()).foregroundStyle(.white)
+                        .frame(maxWidth: .infinity).padding(.vertical, 12)
+                        .background(Color.indigo, in: RoundedRectangle(cornerRadius: 12))
+                }
+                .buttonStyle(.plain)
             } else if let summary = insightService.summary {
                 Text(summary)
                     .font(.subheadline)

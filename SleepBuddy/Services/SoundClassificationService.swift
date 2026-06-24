@@ -9,6 +9,8 @@ final class SoundClassificationService: NSObject {
 
     private var analyzer: SNAudioStreamAnalyzer?
     private let analysisQueue = DispatchQueue(label: "com.sleepbuddy.soundanalysis", qos: .utility)
+    private var bufferCounter = 0
+    private let analyzeEveryN = 4  // run ML every 4th buffer to reduce CPU load
 
     func start(format: AVAudioFormat) {
         guard #available(iOS 15, *) else { return }
@@ -25,6 +27,8 @@ final class SoundClassificationService: NSObject {
 
     func analyze(buffer: AVAudioPCMBuffer, time: AVAudioTime) {
         guard let analyzer else { return }
+        bufferCounter += 1
+        guard bufferCounter % analyzeEveryN == 0 else { return }
         analysisQueue.async {
             analyzer.analyze(buffer, atAudioFramePosition: time.sampleTime)
         }
@@ -32,6 +36,7 @@ final class SoundClassificationService: NSObject {
 
     func stop() {
         analyzer = nil
+        bufferCounter = 0
     }
 }
 
