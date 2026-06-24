@@ -109,7 +109,7 @@ final class MotionAnalysisService {
         // Remove gravity (mean) to isolate movement
         var mean: Float = 0
         vDSP_meanv(samples, 1, &mean, nF)
-        var signal = samples.map { $0 - mean }
+        let signal = samples.map { $0 - mean }
 
         // RMS of signal — on a nightstand this is near 0
         var rms: Float = 0
