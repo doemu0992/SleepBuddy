@@ -27,12 +27,32 @@ final class SleepPhaseClassifier {
     private let deepRegularityMin: Float = 0.65
     private let remMaxRegularity: Float = 0.50
 
+    // MARK: - Sleep cycle timing (for REM window inference)
+
+    /// Set when sleep onset is confirmed by SleepOnsetDetector.
+    var sleepOnsetDate: Date?
+
+    /// Returns true when we are likely in a REM window.
+    /// REM follows a ~90-min cycle: first REM ~70 min after onset,
+    /// then every 90 min. Later cycles are longer (up to 30 min).
+    private func inREMWindow() -> Bool {
+        guard let onset = sleepOnsetDate else { return false }
+        let elapsedMin = Date().timeIntervalSince(onset) / 60
+        guard elapsedMin >= 65 else { return false }   // no REM before ~65 min
+        let cycle = elapsedMin.truncatingRemainder(dividingBy: 90)
+        // Last 25 min of each 90-min cycle = REM likely
+        return cycle >= 65
+    }
+
     // MARK: - History smoothing
 
     private var history: [(phase: SleepPhaseType, confidence: Double)] = []
     private let historySize = 3
 
-    func reset() { history.removeAll() }
+    func reset() {
+        history.removeAll()
+        sleepOnsetDate = nil
+    }
 
     func classify(audio: AudioFeatures, motion: MotionFeatures) -> (phase: SleepPhaseType, confidence: Double) {
         let raw = rawClassify(audio: audio, motion: motion)
@@ -50,6 +70,7 @@ final class SleepPhaseClassifier {
         let variance = audio.amplitudeVariance
         let mov = motion.movementIntensity
         let snoring = audio.snoringIntensity
+        let remWindow = inREMWindow()
 
         // 1. Movement → awake (motion is most reliable signal)
         if motion.isSignificant || amp > awakeAmplitudeThreshold {
@@ -57,9 +78,8 @@ final class SleepPhaseClassifier {
             return (.awake, conf)
         }
 
-        // 2. Snoring → likely light or deep sleep, not awake
+        // 2. Snoring → light or deep sleep (not REM)
         if snoring > snoringThreshold {
-            // Snoring during deep: slow regular breathing
             if bpm >= deepBreathMin && bpm <= deepBreathMax && reg >= deepRegularityMin {
                 return (.deep, 0.75)
             }
@@ -71,8 +91,9 @@ final class SleepPhaseClassifier {
             return amp > sleepAmplitudeMax ? (.awake, 0.6) : (.light, 0.4)
         }
 
-        // 4. Deep sleep: slow + regular + quiet
-        if bpm >= deepBreathMin && bpm <= deepBreathMax
+        // 4. Deep sleep: slow + regular + quiet (only outside REM windows)
+        if !remWindow
+            && bpm >= deepBreathMin && bpm <= deepBreathMax
             && reg >= deepRegularityMin
             && amp <= sleepAmplitudeMax
         {
@@ -80,17 +101,27 @@ final class SleepPhaseClassifier {
             return (.deep, min(0.5 + Double(reg) * 0.3 + breathScore * 0.2, 0.92))
         }
 
-        // 5. REM: irregular breathing, some movement variation, but quiet overall
+        // 5. REM: irregular breathing, quiet.
+        //    In a REM window the thresholds are relaxed — less regularity required.
+        let remRegMax: Float = remWindow ? 0.72 : remMaxRegularity          // 0.72 vs 0.50
+        let remVarMin: Float = remWindow ? 0.000003 : 0.00002               // much more lenient
+        let remConfBoost: Double = remWindow ? 0.18 : 0.0
+
         if bpm >= remBreathMin && bpm <= remBreathMax
-            && reg < remMaxRegularity
-            && variance > 0.00002
+            && reg < remRegMax
+            && variance > remVarMin
             && amp <= sleepAmplitudeMax
         {
-            let irregularity = Double(remMaxRegularity - reg) / Double(remMaxRegularity)
-            return (.rem, 0.5 + irregularity * 0.3)
+            let irregularity = Double(remRegMax - reg) / Double(remRegMax)
+            return (.rem, min(0.48 + irregularity * 0.35 + remConfBoost, 0.88))
         }
 
-        // 6. Light sleep
+        // 6. Deep sleep outside REM window (relaxed — catches cases missed above)
+        if bpm >= deepBreathMin && bpm <= deepBreathMax && reg >= deepRegularityMin {
+            return (.deep, 0.65)
+        }
+
+        // 7. Light sleep
         if bpm >= lightBreathMin && bpm <= lightBreathMax {
             return (.light, min(0.45 + Double(reg) * 0.25, 0.75))
         }

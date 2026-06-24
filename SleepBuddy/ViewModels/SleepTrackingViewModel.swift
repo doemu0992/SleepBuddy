@@ -174,6 +174,7 @@ final class SleepTrackingViewModel {
         // Sleep onset detection
         if !isSleepOnsetDetected && onsetDetector.update(audio: audio, motion: motion) {
             isSleepOnsetDetected = true
+            classifier.sleepOnsetDate = onsetDetector.sleepOnset
         }
 
         // Snoring — only count new onset events (false → true transition)
