@@ -47,6 +47,7 @@
 		AA000040 /* SoundClassificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100040 /* SoundClassificationService.swift */; };
 		AA000041 /* MorgenBerichtView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100041 /* MorgenBerichtView.swift */; };
 		AA000042 /* SchlafindexView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100042 /* SchlafindexView.swift */; };
+		AA000043 /* SleepMigrationPlan.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100043 /* SleepMigrationPlan.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -92,6 +93,7 @@
 		AA100040 /* SoundClassificationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoundClassificationService.swift; sourceTree = "<group>"; };
 		AA100041 /* MorgenBerichtView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MorgenBerichtView.swift; sourceTree = "<group>"; };
 		AA100042 /* SchlafindexView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SchlafindexView.swift; sourceTree = "<group>"; };
+		AA100043 /* SleepMigrationPlan.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepMigrationPlan.swift; sourceTree = "<group>"; };
 		AA200001 /* SleepBuddy.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SleepBuddy.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -137,6 +139,7 @@
 				AA100022 /* TrainingSample.swift */,
 				AA100036 /* SleepNightSummary.swift */,
 				AA100037 /* SleepSoundEvent.swift */,
+				AA100043 /* SleepMigrationPlan.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -328,6 +331,7 @@
 				AA000040 /* SoundClassificationService.swift in Sources */,
 				AA000041 /* MorgenBerichtView.swift in Sources */,
 				AA000042 /* SchlafindexView.swift in Sources */,
+				AA000043 /* SleepMigrationPlan.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
