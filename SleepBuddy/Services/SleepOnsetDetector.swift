@@ -11,7 +11,14 @@ final class SleepOnsetDetector {
     // Thresholds
     private let onsetWindowsRequired = 10   // 10 × 30s = 5 min of sleep-compatible signal
     private let wakeWindowsRequired = 3     // 3 × 30s = 1.5 min of awake signal to confirm wake
-    private let awakeAmplitude: Float = 0.025
+    private var awakeAmplitude: Float {
+        guard UserDefaults.standard.bool(forKey: "partnerModus_aktiv") else { return 0.025 }
+        switch UserDefaults.standard.integer(forKey: "partnerModus_stufe") {
+        case 1: return 0.045
+        case 2: return 0.070
+        default: return 0.025
+        }
+    }
     private let awakeMotion: Float = 0.35
 
     private let windowDuration: TimeInterval = 30  // each window = 30 seconds

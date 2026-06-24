@@ -23,11 +23,14 @@ struct EinstellungenView: View {
     }
 
     @AppStorage("soundEvents_enabled") private var soundEventsAktiv = false
+    @AppStorage("partnerModus_aktiv") private var partnerModusAktiv = false
+    @AppStorage("partnerModus_stufe") private var partnerModusStufe = 0
 
     var body: some View {
         List {
             erinnerungSektion
             schlafgeraeuschSektion
+            partnerModusSektion
             syncSektion
             appSektion
             versionSektion
@@ -83,6 +86,67 @@ struct EinstellungenView: View {
         }
     }
 
+
+    // MARK: - Partner-Modus
+
+    private var partnerModusSektion: some View {
+        Section {
+            Toggle("Zwei Personen im Bett", isOn: $partnerModusAktiv)
+                .tint(.indigo)
+
+            if partnerModusAktiv {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Position des Telefons")
+                        .font(.subheadline)
+                        .foregroundStyle(.primary)
+
+                    Picker("Position", selection: $partnerModusStufe) {
+                        Label("Auf meiner Seite", systemImage: "iphone").tag(0)
+                        Label("In der Mitte", systemImage: "arrow.left.and.right").tag(1)
+                        Label("Näher am Partner", systemImage: "person.2.fill").tag(2)
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+
+                    HStack(spacing: 6) {
+                        Image(systemName: positionSymbol)
+                            .foregroundStyle(.indigo)
+                            .font(.caption)
+                        Text(partnerModusHinweis)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+        } header: {
+            Text("Partnermodus")
+        } footer: {
+            if partnerModusAktiv {
+                Text("SleepBuddy filtert Geräusche des Partners heraus. Je näher das Telefon an dir liegt, desto besser funktioniert die Trennung.")
+            } else {
+                Text("Aktiviere den Partnermodus, wenn eine weitere Person im selben Bett schläft.")
+            }
+        }
+    }
+
+    private var positionSymbol: String {
+        switch partnerModusStufe {
+        case 0: return "iphone"
+        case 1: return "arrow.left.and.right"
+        case 2: return "person.2.fill"
+        default: return "iphone"
+        }
+    }
+
+    private var partnerModusHinweis: String {
+        switch partnerModusStufe {
+        case 0: return "Optimal: Telefon liegt auf deinem Nachttisch. Deine Geräusche sind lauter."
+        case 1: return "Mittel: Geräusche beider Personen werden teilweise gefiltert."
+        case 2: return "Stark: Nur sehr laute Geräusche nah am Telefon werden erkannt."
+        default: return ""
+        }
+    }
 
     // MARK: - Synchronisation
 

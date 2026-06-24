@@ -6,7 +6,14 @@ final class SleepPhaseClassifier {
 
     // MARK: - Thresholds
 
-    private let awakeAmplitudeThreshold: Float = 0.035
+    private var awakeAmplitudeThreshold: Float {
+        guard UserDefaults.standard.bool(forKey: "partnerModus_aktiv") else { return 0.035 }
+        switch UserDefaults.standard.integer(forKey: "partnerModus_stufe") {
+        case 1: return 0.062
+        case 2: return 0.095
+        default: return 0.035
+        }
+    }
     private let sleepAmplitudeMax: Float = 0.020
     private let awakeMotionThreshold: Float = 0.35
     private let snoringThreshold: Float = 0.3

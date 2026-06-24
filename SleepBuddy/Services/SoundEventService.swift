@@ -28,7 +28,14 @@ final class SoundEventService {
 
     // MARK: - Event detection state
 
-    private let amplitudeThreshold: Float = 0.018
+    private var amplitudeThreshold: Float {
+        guard UserDefaults.standard.bool(forKey: "partnerModus_aktiv") else { return 0.018 }
+        switch UserDefaults.standard.integer(forKey: "partnerModus_stufe") {
+        case 1: return 0.035   // Telefon in der Mitte
+        case 2: return 0.058   // Partner näher am Telefon
+        default: return 0.018
+        }
+    }
     private let minEventSeconds: TimeInterval = 2.5
     private let cooldownAfterEventSeconds: TimeInterval = 10.0
 
