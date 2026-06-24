@@ -379,7 +379,7 @@ struct OnboardingView: View {
 
     private func requestMic() {
         requestingMic = true
-        AVAudioSession.sharedInstance().requestRecordPermission { granted in
+        AVAudioApplication.requestRecordPermission { granted in
             DispatchQueue.main.async {
                 micGranted = granted
                 requestingMic = false
