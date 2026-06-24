@@ -890,14 +890,180 @@ private func autoSyncPainDiaryIfNeeded() {
 
 ---
 
-## Architektur-Regeln
+## ML-Klassifikator-Stack
 
-1. **MVVM**: Views haben keine Business-Logik. ViewModels koordinieren Services.
-2. **`@Observable`**: Services nutzen iOS 17 Observation. `Task<Void, Never>?` → `@ObservationIgnored`.
-3. **SwiftData + CloudKit**: Niemals `cloudKitDatabase: .none`. Alle Model-Attribute optional oder mit Default.
-4. **Audio Background**: `UIBackgroundModes: audio` in Info.plist + Entitlement.
-5. **Farben**: Schlafphasen immer via `SleepPhaseType.color`. Kein Hardcode.
-6. **Keine Duplikate**: Jede Einstellung an genau einem Ort.
+Die Schlafphasenerkennung hat **drei Ebenen** — automatischer Fallback von oben nach unten:
+
+```
+1. CoreML-Modell (SleepPhaseClassifier.mlmodelc)
+   → Trainiertes Modell aus dem Bundle (wenn vorhanden)
+   → 6D-Feature-Vektor → direkte Klassenvorhersage mit Konfidenzwerten
+
+2. Online k-NN (OnlineSleepClassifier)
+   → Aktiv sobald ≥ 40 gespeicherte TrainingSamples vorhanden
+   → Lernt aus jeder Nacht automatisch
+
+3. Regelbasierter Fallback (SleepPhaseClassifier)
+   → Nacht 1 (kein Training-History vorhanden)
+   → Immer aktiv wenn CoreML und k-NN nicht greifen
+```
+
+**Einstiegspunkt:** `MLSleepClassifier` — koordiniert alle drei Ebenen.
+
+### TrainingSample (SwiftData-Modell)
+
+**Datei:** `Models/TrainingSample.swift`
+
+6-dimensionaler Feature-Vektor + Ground-Truth-Label, persistent in SwiftData:
+
+| Feature | Normalisierung (Divisor) |
+|---------|------------------------|
+| `averageAmplitude` | 0.05 |
+| `amplitudeVariance` | 0.001 |
+| `breathingRateBPM` | 20.0 |
+| `breathingRegularity` | 1.0 |
+| `movementIntensity` | 1.0 |
+| `snoringIntensity` | 1.0 |
+
+```swift
+// Euklidische Distanz im normalisierten 6D-Raum
+func distance(to audio: AudioFeatures, motion: MotionFeatures) -> Float
+```
+
+**User-Korrekturen:** `isUserCorrected = true` → 3× Gewichtung im k-NN (`correctedWeight = 3.0`).
+
+### OnlineSleepClassifier (k-NN)
+
+**Datei:** `Services/OnlineSleepClassifier.swift`
+
+| Parameter | Wert | Beschreibung |
+|-----------|------|-------------|
+| `k` | 7 | Nächste Nachbarn |
+| `minSamplesForKNN` | 40 | Mindestanzahl für k-NN-Aktivierung |
+| `correctedWeight` | 3.0 | Gewicht für manuell korrigierte Samples |
+| `historySize` | 3 | Smoothing-Fenster (identisch zu Regelklassifikator) |
+
+**Session-Buffer:** Während der Nacht werden alle Messungen im RAM gehalten (`sessionBuffer`). Erst beim Beenden der Nacht (`flushSessionBuffer`) → SwiftData-Insert.
+
+**User-Korrektur:** `correctSamples(from:to:correctPhase:context:)` — setzt Label + `isUserCorrected = true` für alle Samples im Zeitraum → sofortiger `context.save()`.
+
+**Konfidenz-Formel k-NN:**
+```swift
+// Gewicht = 1/Distanz × correctedWeight (falls korrigiert)
+// Konfidenz = 0.4 + (Siegervotes / Gesamtvotes) × 0.55
+Double(0.4 + (winner.value / max(total, 1e-6)) * 0.55)
+```
+
+### CoreML-Integration
+
+**Datei:** `Services/MLSleepClassifier.swift`
+
+```swift
+// Bundle-Lookup beim App-Start
+Bundle.main.url(forResource: "SleepPhaseClassifier", withExtension: "mlmodelc")
+
+// Input-Features (Dictionary)
+"averageAmplitude", "amplitudeVariance", "breathingRateBPM",
+"breathingRegularity", "movementIntensity", "snoringIntensity"
+
+// Output
+"phase" → String (SleepPhaseType.rawValue)
+"phaseProbability" → [String: Double] (Konfidenz je Klasse)
+```
+
+> CoreML-Modell ist **optional** — fehlt es im Bundle, ist k-NN oder Regelklassifikator aktiv. Niemals den Fallback-Chain unterbrechen.
+
+---
+
+## HomeView
+
+**Datei:** `Views/HomeView.swift`
+
+```
+NavigationStack
+└── ScrollView
+    ├── sleepButton              → Großer "Schlafen"-Button (startet Tracking)
+    ├── MorgenBewertungCard      → Subjektive Bewertung 1–5 (nur wenn letzte Session unbewertet, heute)
+    ├── MorgenBerichtCard        → KI-Morgen-Report (nur wenn letzte Session heute)
+    ├── smartAlarmCard           → Smart-Alarm Konfiguration (Zeitfenster, Ton)
+    ├── lastNightCard(session)   → Kurzübersicht letzte Nacht (Score, Dauer, Phasen)
+    └── learningStatusCard       → Lernfortschritt k-NN (nur wenn sampleCount > 0)
+```
+
+**Bedingungen für Morgen-Cards:**
+```swift
+// Relevant wenn letzte Session heute oder gestern und ≥ 1h
+private func isMorgenBerichtRelevant(_ session: SleepSession) -> Bool
+// MorgenBewertungCard: session.subjectiveQuality == 0
+// MorgenBerichtCard: immer wenn isMorgenBerichtRelevant
+```
+
+---
+
+## Morgen-Report (Apple Intelligence)
+
+**Datei:** `Views/MorgenBerichtView.swift`
+
+Generiert einen personalisierten Morgen-Report via `FoundationModels.LanguageModelSession` (iOS 26+). Auf älteren iOS-Versionen: Template-basierter Fallback.
+
+**Daten im Prompt:**
+- Schlafqualität (Score 0–100), Gesamtdauer, Tiefschlaf, REM, Schnarchen-Ereignisse, Zähneknirschen, Husten
+- Vortag-Score (falls vorhanden) → Vergleich
+- 7-Tage-Schnitt Qualität + Dauer (falls ≥ 2 Nächte)
+
+**Vergleichs-Zeile (immer sichtbar):**
+- Vortag: `+X% vs. Gestern` (grün) / `−X% vs. Gestern` (rot) / `Wie gestern` (neutral)
+- 7-Tage: `Ø 7 Tage: X%` mit Trend-Farbe
+
+**Prompt-Format:**
+```
+Erstelle einen kurzen, freundlichen Morgen-Report auf Deutsch (3–4 Sätze).
+Vergleiche diese Nacht mit dem Vortag und dem Wochendurchschnitt wenn vorhanden.
+Keine Diagnosen, nur Beobachtungen und einen Tipp für den Tag.
+```
+
+**Reload-Button** erscheint nach Generierung — setzt `bericht = nil` und `hasGenerated = false`.
+
+**Template-Fallback (iOS < 26):** Regelbasierte Satzgenerierung aus den gleichen Datenpunkten — kein leerer Zustand.
+
+---
+
+## SleepInsightService (Apple Intelligence)
+
+**Datei:** `Services/SleepInsightService.swift`
+
+Strukturierter KI-Analyse-Service für `SleepDetailView` — **anderer Zweck als MorgenBerichtCard**.
+
+| | MorgenBerichtCard | SleepInsightService |
+|--|--|--|
+| Ort | HomeView | SleepDetailView |
+| Format | Freitext (3–4 Sätze) | Strukturiert: Zusammenfassung + 3 Empfehlungen |
+| Parsing | Kein Parsing | `ZUSAMMENFASSUNG:` + `EMPFEHLUNG_1/2/3:` Tags |
+| Reload | Ja (Button) | Ja (`reset()`) |
+
+**Output-Properties:**
+```swift
+private(set) var summary: String?           // Hauptzusammenfassung
+private(set) var recommendations: [String]  // Max. 3 personalisierte Empfehlungen
+private(set) var isGenerating: Bool
+private(set) var error: String?
+```
+
+**iOS-Gate:**
+```swift
+guard #available(iOS 26.0, *) else { error = "Apple Intelligence erfordert iOS 26."; return }
+guard SystemLanguageModel.default.isAvailable else { error = "...nicht verfügbar."; return }
+```
+
+> **Niemals** `FoundationModels` ohne `#available(iOS 26, *)` Guard und `SystemLanguageModel.default.isAvailable` Check aufrufen.
+
+---
+
+## Architektur-Regeln (Ergänzung)
+
+7. **ML-Stack**: Niemals den Fallback-Chain (CoreML → k-NN → Regelbasiert) unterbrechen.
+8. **Apple Intelligence**: Immer `#available(iOS 26, *)` + `SystemLanguageModel.default.isAvailable` prüfen.
+9. **TrainingSamples**: Session-Buffer erst beim Nacht-Ende flushen — nicht während der Aufnahme in SwiftData schreiben.
 
 ---
 
