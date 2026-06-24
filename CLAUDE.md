@@ -353,6 +353,36 @@ FileManager.default.url(forUbiquityContainerIdentifier: "iCloud.DG-Software-Solu
 
 ---
 
+## Sensor-System
+
+Die gesamte Schlafphasenerkennung basiert auf zwei parallelen Sensordaten-Streams: **Audio** (Mikrofon) und **Motion** (Beschleunigungssensor). Beide werden kombiniert und an den Klassifikator weitergegeben.
+
+### Sensor-Pipeline (Überblick)
+
+```
+Mikrofon → AudioAnalysisService
+    → installTap (1024 Samples)
+    → onBufferReady → SoundEventService (Ring-Buffer, opt-in Clips)
+    → analysisQueue → processBuffer()
+        → FFT (vDSP, 4096 Punkte)
+        → AudioFeatures (Amplitude, Atemrate, Schnarchen, Sprache)
+        → SleepPhaseClassifier.classify(audio:motion:)
+
+Beschleunigungssensor → MotionAnalysisService
+    → CMMotionManager, 50 Hz
+    → Bewegungsintensität (30s Fenster)
+    → Atemrate via Autokorrelation (10 Hz, downsampled)
+    → BCG-Herzrate via z-Achse (50 Hz, nur wenn Telefon auf Matratze)
+    → MotionFeatures
+    → SleepPhaseClassifier.classify(audio:motion:)
+
+Apple Watch → HealthKitService
+    → HKStatisticsQueryDescriptor (alle 5 min)
+    → HR + HRV → SleepPhaseClassifier.currentHRBPM / .currentHRVms
+```
+
+---
+
 ## Audio-System
 
 **Datei:** `Services/AudioAnalysisService.swift`
@@ -367,34 +397,158 @@ try session.setActive(true, options: .notifyOthersOnDeactivation)
 
 **Datenschutz-Invariante:** Rohdaten verlassen niemals den RAM. Nur Feature-Vektoren (Amplitude, Spektralbänder) fließen in den Klassifikator. Kein Audio wird ohne explizite User-Aktivierung gespeichert.
 
+**Feature-Extraktion:**
+
+| Feature | Methode | Beschreibung |
+|---------|---------|-------------|
+| `averageAmplitude` | RMS über 30s-Envelope-Buffer | Lautstärkepegel |
+| `amplitudeVariance` | Varianz des demeaned Envelopes | Unregelmäßigkeit |
+| `breathingRateBPM` | Autokorrelation (8 Hz Envelope, 9–30 BPM Range) | Atemfrequenz aus Audio |
+| `breathingRegularity` | 1 / (1 + diffVar×1000) | 0=unregelmäßig, 1=perfekt |
+| `snoringIntensity` | FFT-Spektralband 80–500 Hz / Gesamtenergie | Schnarchen-Score 0–1 |
+| `speechLikelihood` | FFT-Spektralband 300–3500 Hz (minus Schnarchen-Anteil) | Sprach-Score 0–1 |
+
 **Verarbeitungs-Pipeline:**
 ```
 Mikrofon → AVAudioEngine.inputNode
     → installTap (1024 Samples)
     → onBufferReady (für SoundEventService Ring-Buffer)
     → analysisQueue.async → processBuffer()
-        → FFT (vDSP)
-        → Feature-Vektor (Amplitude, Spektralbänder, Snoring-Score)
-        → SleepPhaseClassifier
+        → FFT (vDSP, 4096 Punkte, Hann-Fenster)
+        → Feature-Vektor → onFeaturesUpdated
 ```
 
-### SleepPhaseClassifier
+---
+
+## Motion-System
+
+**Datei:** `Services/MotionAnalysisService.swift`
+
+Liest Beschleunigungssensor via `CMMotionManager` bei **50 Hz**. Erkennt:
+
+| Feature | Methode | Beschreibung |
+|---------|---------|-------------|
+| `movementIntensity` | RMS-Varianz der Magnitude (30s, 1500 Samples) | 0=still, 1=wach/bewegt |
+| `breathingRateBPM` | Autokorrelation (10 Hz, 9–30 BPM) | Atemfrequenz aus Mattress-Vibration |
+| `breathingRegularity` | ACF-Peak-Stärke | Zuverlässigkeit der Atemmessung |
+| `isOnMattress` | `rms > 0.0008` (ACF-Schwelle) | Telefon liegt auf Matratze |
+| `bcgHeartRateBPM` | BCG via z-Achse, Autokorrelation (50 Hz, 48–150 BPM) | Herzrate via Ballistokardiographie |
+
+**Sample-Rates:**
+- Rohsignal: 50 Hz (Magnitude, z-Achse)
+- Atemrate: 10 Hz (jeder 5. Sample, `downsampleCounter`)
+- BCG: 50 Hz z-Achse (Bandpass: HP 1.5s MA + LP 3-Sample MA)
+
+**BCG-Algorithmus:**
+1. High-Pass: 1.5s gleitender Mittelwert subtrahieren (entfernt DC + Atemfrequenz < 0.7 Hz)
+2. Low-Pass: 3-Sample MA (unterdrückt Sensor-Rauschen > ~8 Hz)
+3. Autokorrelation im Lag-Bereich 48–150 BPM
+4. Peak-Stärke > 0.35 erforderlich (noisier als Audio)
+5. BCG nur aktiv wenn `isOnMattress == true`
+
+---
+
+## SleepPhaseClassifier
 
 **Datei:** `Services/SleepPhaseClassifier.swift`
 
-Regelbasierter Klassifikator — gibt alle N Sekunden eine Phasenschätzung aus. Eingang: Feature-Vektor aus `AudioAnalysisService`. Ausgang: `SleepPhaseType`.
+Regelbasierter Klassifikator — kombiniert Audio + Motion + HR/HRV + Schlafzyklus-Timing.
 
-### SleepOnsetDetector
+**Eingaben:**
+
+| Quelle | Property | Priorität |
+|--------|----------|-----------|
+| Apple Watch (HealthKit) | `currentHRBPM`, `currentHRVms` | Höchste — alle 5 min |
+| BCG (Beschleunigungssensor) | `motion.bcgHeartRateBPM` | Fallback wenn kein Watch — `hrConfidenceScale = 0.6` |
+| Akkelerometer | `motion.breathingRateBPM` | Wenn `isOnMattress == true` (direkter) |
+| Mikrofon | `audio.breathingRateBPM` | Fallback wenn Nightstand |
+
+**Klassifikations-Logik (Reihenfolge):**
+
+1. **Bewegung/Lautstärke** → `.awake` (stärkste Signal)
+2. **HR > 80 BPM** (außerhalb REM-Fenster, kein BCG) → `.awake`
+3. **Schnarchen** → `.deep` (langsam + regelmäßig) oder `.light`
+4. **Keine Atemrate erkennbar** → HR-basiert oder `.light`/`.awake` je nach Amplitude
+5. **Tief**: langsam (9–15 BPM) + regelmäßig + leise + außerhalb REM-Fenster
+6. **REM**: unregelmäßig (reg < 0.50), leise, im REM-Fenster
+7. **HR-REM**: Watch-HR im REM-Bereich (60–78), kein BCG → `.rem` (Conf. 0.70)
+8. **Leicht**: 14–19 BPM oder Restfall
+
+**REM-Fenster-Erkennung:**
+```swift
+// Erstes REM ~70 min nach Onset, dann alle 90 min
+// Letzten 25 min jedes 90-min-Zyklus = REM wahrscheinlich
+let cycle = elapsedMin.truncatingRemainder(dividingBy: 90)
+return cycle >= 65
+```
+
+**Partner-Modus-Anpassungen:**
+
+| Stufe | `awakeMotionThreshold` | `awakeAmplitudeThreshold` | `deepRegularityMin` |
+|-------|----------------------|--------------------------|---------------------|
+| Aus | 0.35 | 0.035 | 0.65 |
+| 1 (zwischen Partnern) | 0.50 | 0.062 | 0.52 |
+| 2 (Partner näher) | 0.65 | 0.095 | 0.45 |
+
+**History-Smoothing:** Letzte 3 Messungen — Mehrheitsvotum nach gewichteter Konfidenz.
+
+---
+
+## SleepOnsetDetector
 
 **Datei:** `Services/SleepOnsetDetector.swift`
 
-Erkennt den Zeitpunkt des Einschlafens anhand von Amplitudenabfall + Bewegungslosigkeit. Setzt `SleepSession.sleepOnsetDate`.
+Erkennt den Zeitpunkt des Einschlafens. Zwei Modi:
 
-### SmartAlarmService
+| Modus | Bedingung | Fenster für Onset |
+|-------|-----------|-------------------|
+| **Matratze** | `motion.isOnMattress == true` (Atemrhythmus via Beschleunigungssensor) | 5 × 30s = 2.5 min |
+| **Nachttisch** | Keine Atemrate via Sensor | 10 × 30s = 5 min (Audio-Stille + Bewegungslosigkeit) |
+
+Setzt `SleepSession.sleepOnsetDate` bei Bestätigung. Wacht-Erkennung: 3 aufeinanderfolgende aktive Fenster → `isAsleep = false`.
+
+---
+
+## SmartAlarmService
 
 **Datei:** `Services/SmartAlarmService.swift`
 
-Weckt in der Leichtschlafphase innerhalb eines konfigurierbaren Zeitfensters (`earliestWakeTime`…`latestWakeTime`). Snooze max. 3×.
+Weckt in der Leichtschlaf- oder Wach-Phase innerhalb eines Zeitfensters.
+
+**Keys (UserDefaults):**
+
+| Key | Typ | Beschreibung |
+|-----|-----|-------------|
+| `smartAlarm.isEnabled` | `Bool` | Alarm aktiv |
+| `smartAlarm.earliestHour/Minute` | `Int` | Frühestes Weckfenster |
+| `smartAlarm.latestHour/Minute` | `Int` | Spätestes Weckfenster (Failsafe-Notification) |
+| `smartAlarm.alarmTon` | `String` | `AlarmTon.rawValue` |
+| `smartAlarm.lautstaerke` | `Float` | 0.0–1.0, Standard 0.8 |
+
+**Snooze:** Max. 3×, je 5 Minuten. `snoozeCount` wird über `Task` gesteuert.
+
+**Alarm-Töne (AVAudioEngine-Synthese):**
+
+| Ton | Beschreibung | Gap |
+|-----|-------------|-----|
+| `.sanft` | C4+G4+C5 Akkord, langsames Crescendo | 1.8s |
+| `.natur` | 3 FM-Vogel-Pfiffe (1200→1600, 1500→1900, 1800→2200 Hz) | 1.4s |
+| `.klassisch` | C5→E5→G5→C6 Arpeggio, Piano-Decay | 1.0s |
+| `.signal` | Alternierend 880/660 Hz, 3 Paare | 0.6s |
+| `.digital` | Quadratischer Sweep 440→1320 Hz | 0.8s |
+
+**AVAudioSession beim Alarm:**
+```swift
+// Alarm: Lautsprecher erzwingen, Aufnahme läuft weiter (microphone INPUT unberührt)
+try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .duckOthers, .allowBluetoothHFP])
+try session.overrideOutputAudioPort(.speaker)
+
+// Nach Alarm: zurück zur Aufnahme-Session
+try session.setCategory(.playAndRecord, mode: .measurement, options: [.mixWithOthers, .allowBluetoothHFP])
+try session.overrideOutputAudioPort(.none)
+```
+
+**Failsafe:** `UNCalendarNotificationTrigger` auf `latestWakeTime` als Absicherung.
 
 ---
 
