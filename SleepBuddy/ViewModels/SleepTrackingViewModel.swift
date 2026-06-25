@@ -449,7 +449,7 @@ final class SleepTrackingViewModel {
     // longer bouts where the label is more reliable.
     private func applyPlausibilityCorrection(to session: SleepSession) {
         let minPlausibleDuration: TimeInterval = 180   // 3 minutes
-        var phases = session.phasesArray.sorted { $0.startDate < $1.startDate }
+        let phases = session.phasesArray.sorted { $0.startDate < $1.startDate }
         guard phases.count >= 3 else { return }
 
         var changed = false
