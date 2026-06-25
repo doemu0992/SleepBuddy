@@ -480,13 +480,39 @@ struct SleepDetailView: View {
             Label("Umgebungslautstärke", systemImage: "waveform.and.mic").font(.headline)
 
             Chart(noiseData) { sample in
-                BarMark(
+                // Colored area fill: three stacked areas for thresholds
+                AreaMark(
                     x: .value("Zeit", sample.time),
                     yStart: .value("Boden", 20.0),
+                    yEnd: .value("dB", min(sample.db, 35.0))
+                )
+                .foregroundStyle(Color.green.opacity(0.18))
+                .interpolationMethod(.catmullRom)
+
+                AreaMark(
+                    x: .value("Zeit", sample.time),
+                    yStart: .value("Boden", min(sample.db, 35.0)),
+                    yEnd: .value("dB", min(sample.db, 50.0))
+                )
+                .foregroundStyle(Color.orange.opacity(0.20))
+                .interpolationMethod(.catmullRom)
+
+                AreaMark(
+                    x: .value("Zeit", sample.time),
+                    yStart: .value("Boden", min(sample.db, 50.0)),
                     yEnd: .value("dB", sample.db)
                 )
-                .foregroundStyle(noiseColor(sample.db).opacity(0.75))
-                .cornerRadius(1)
+                .foregroundStyle(Color.red.opacity(0.22))
+                .interpolationMethod(.catmullRom)
+
+                // Wave line colored by current dB level
+                LineMark(
+                    x: .value("Zeit", sample.time),
+                    y: .value("dB", sample.db)
+                )
+                .foregroundStyle(noiseColor(sample.db))
+                .lineStyle(StrokeStyle(lineWidth: 2))
+                .interpolationMethod(.catmullRom)
             }
             .chartYScale(domain: 20...90)
             .chartXAxis {
@@ -498,14 +524,14 @@ struct SleepDetailView: View {
             .chartYAxis {
                 AxisMarks(values: [35, 50, 70]) { val in
                     AxisGridLine().foregroundStyle(
-                        val.as(Int.self) == 35 ? Color.green.opacity(0.3)
-                        : val.as(Int.self) == 50 ? Color.orange.opacity(0.3)
-                        : Color.red.opacity(0.3)
+                        val.as(Int.self) == 35 ? Color.green.opacity(0.4)
+                        : val.as(Int.self) == 50 ? Color.orange.opacity(0.4)
+                        : Color.red.opacity(0.4)
                     )
                     AxisValueLabel { Text("\(val.as(Int.self) ?? 0) dB").font(.caption2) }
                 }
             }
-            .frame(height: 100)
+            .frame(height: 110)
 
             // Legend
             HStack(spacing: 16) {

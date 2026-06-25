@@ -100,7 +100,7 @@ struct SchlafapnoeRisikoView: View {
 
                         let x = geo.size.width * risiko.position
                         Triangle()
-                            .fill(Color.white)
+                            .fill(Color.primary)
                             .frame(width: 14, height: 10)
                             .offset(x: x - 7, y: 11)
                     }
