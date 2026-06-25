@@ -413,7 +413,7 @@ struct WochenMusterKarte: View {
         do {
             var result = ""
             let stream = session.streamResponse(to: prompt)
-            for try await partial in stream { result = partial }
+            for try await partial in stream { result = partial.text }
             generatedText = result.trimmingCharacters(in: .whitespacesAndNewlines)
         } catch {
             genError = error.localizedDescription

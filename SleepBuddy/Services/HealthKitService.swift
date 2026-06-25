@@ -56,7 +56,8 @@ final class HealthKitService {
                 predicate: fullPred,
                 limit: HKObjectQueryNoLimit,
                 sortDescriptors: [NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: true)]
-            ) { _, samples, _ in
+            ) { [weak self] _, samples, _ in
+                guard let self else { continuation.resume(returning: []); return }
                 let segments = (samples as? [HKCategorySample] ?? []).compactMap { s -> WatchSleepSegment? in
                     guard let phase = self.sleepPhase(from: s.value) else { return nil }
                     return WatchSleepSegment(start: s.startDate, end: s.endDate, phase: phase)
