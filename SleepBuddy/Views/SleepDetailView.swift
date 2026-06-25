@@ -971,16 +971,18 @@ struct SleepDetailView: View {
     }
 
     private func applySoundCorrection(event: SleepSoundEvent, confirmed: Bool, newType: SoundEventType?) {
-        let feedback = SoundFeedbackService.shared
+        let ud = UserDefaults.standard
         if confirmed {
-            feedback.recordConfirmed(type: event.type)
+            ud.set(ud.integer(forKey: "soundFeedback.\(event.type.rawValue).confirmed") + 1,
+                   forKey: "soundFeedback.\(event.type.rawValue).confirmed")
             event.isUserCorrected = true
         } else if let newType {
-            let originalType = event.type
-            feedback.recordCorrection(from: originalType, to: newType)
-            if event.originalTypeRaw == nil {
-                event.originalTypeRaw = event.typeRaw   // preserve original ML label
-            }
+            let orig = event.type
+            ud.set(ud.integer(forKey: "soundFeedback.\(orig.rawValue).rejected") + 1,
+                   forKey: "soundFeedback.\(orig.rawValue).rejected")
+            ud.set(ud.integer(forKey: "soundFeedback.\(newType.rawValue).missed") + 1,
+                   forKey: "soundFeedback.\(newType.rawValue).missed")
+            if event.originalTypeRaw == nil { event.originalTypeRaw = event.typeRaw }
             event.typeRaw = newType.rawValue
             event.isUserCorrected = true
         }

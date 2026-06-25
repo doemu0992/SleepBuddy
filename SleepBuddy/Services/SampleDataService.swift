@@ -25,7 +25,6 @@ enum SampleDataService {
     // MARK: - Night 1: Personal sleep sounds (snoring-heavy night)
 
     private static func insertNight1_Schnarchen(today: Date, into context: ModelContext) {
-        let cal = Calendar.current
         let start = makeDate(today: today, offsetDays: -2, hour: 23, minute: 0)
         let end   = makeDate(today: today, offsetDays: -1, hour: 7,  minute: 10)
         let session = makeSession(start: start, end: end, quality: 3, changes: 5, context: context)
