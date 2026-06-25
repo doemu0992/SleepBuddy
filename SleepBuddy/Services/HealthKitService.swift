@@ -51,15 +51,15 @@ final class HealthKitService {
             let notSelfPred = NSCompoundPredicate(notPredicateWithSubpredicate: selfPred)
             let fullPred = NSCompoundPredicate(andPredicateWithSubpredicates: [timePred, notSelfPred])
 
+            let phaseMapper = sleepPhase(from:)
             let query = HKSampleQuery(
                 sampleType: sleepType,
                 predicate: fullPred,
                 limit: HKObjectQueryNoLimit,
                 sortDescriptors: [NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: true)]
-            ) { [weak self] _, samples, _ in
-                guard let self else { continuation.resume(returning: []); return }
+            ) { _, samples, _ in
                 let segments = (samples as? [HKCategorySample] ?? []).compactMap { s -> WatchSleepSegment? in
-                    guard let phase = self.sleepPhase(from: s.value) else { return nil }
+                    guard let phase = phaseMapper(s.value) else { return nil }
                     return WatchSleepSegment(start: s.startDate, end: s.endDate, phase: phase)
                 }
                 continuation.resume(returning: segments)

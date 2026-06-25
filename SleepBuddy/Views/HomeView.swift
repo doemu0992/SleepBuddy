@@ -411,10 +411,8 @@ struct WochenMusterKarte: View {
         let prompt = buildPrompt()
         let session = LanguageModelSession()
         do {
-            var result = ""
-            let stream = session.streamResponse(to: prompt)
-            for try await partial in stream { result = partial.text }
-            generatedText = result.trimmingCharacters(in: .whitespacesAndNewlines)
+            let result = try await session.respond(to: prompt)
+            generatedText = result.content.trimmingCharacters(in: .whitespacesAndNewlines)
         } catch {
             genError = error.localizedDescription
         }
