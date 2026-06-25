@@ -37,13 +37,25 @@ final class SleepPhaseClassifier {
     private let remMaxRegularity: Float = 0.68
 
     // Two overlapping breathing rhythms reduce regularity — lower the bar in partner mode.
+    // Homeostatic pressure: when user has a deep-sleep deficit, we widen the deep detection
+    // window so the classifier doesn't miss genuine deep sleep bouts.
     private var deepRegularityMin: Float {
-        guard UserDefaults.standard.bool(forKey: "partnerModus_aktiv") else { return 0.65 }
-        switch UserDefaults.standard.integer(forKey: "partnerModus_stufe") {
-        case 1: return 0.52
-        case 2: return 0.45
-        default: return 0.65
+        var base: Float
+        if UserDefaults.standard.bool(forKey: "partnerModus_aktiv") {
+            switch UserDefaults.standard.integer(forKey: "partnerModus_stufe") {
+            case 1: base = 0.52
+            case 2: base = 0.45
+            default: base = 0.65
+            }
+        } else {
+            base = 0.65
         }
+        // Deficit > 30 min → lower threshold by up to 0.10 (capped at 0.35)
+        if deepSleepDeficitMinutes > 30 {
+            let reduction = Float(min(deepSleepDeficitMinutes / 300.0, 1.0)) * 0.10
+            base = max(base - reduction, 0.35)
+        }
+        return base
     }
 
     // MARK: - Heart rate input (from Apple Watch via HealthKit, updated every 5 min)
@@ -100,6 +112,27 @@ final class SleepPhaseClassifier {
         return late - early
     }
 
+    // MARK: - Breathing rate trend
+    // Tracks the last 5 breathing rate measurements to detect direction of change.
+    // Falling rate → deepening sleep → boost deep confidence.
+    // Rising rate → arousal or lighter sleep → reduce deep, boost light/awake.
+    private var bpmHistory: [Float] = []
+    private let bpmHistorySize = 5
+
+    /// Positive = rate rising (arousal/REM), negative = falling (deepening).
+    private var bpmTrend: Float {
+        guard bpmHistory.count >= 4 else { return 0 }
+        let half = bpmHistory.count / 2
+        let early = bpmHistory.prefix(half).reduce(0, +) / Float(half)
+        let late  = bpmHistory.suffix(half).reduce(0, +) / Float(half)
+        return late - early
+    }
+
+    // MARK: - Homeostatic sleep pressure
+    // When user has accumulated a deep-sleep deficit, lower the regularity threshold
+    // so deep sleep is detected more easily — reflecting increased sleep pressure.
+    var deepSleepDeficitMinutes: Double = 0
+
     // MARK: - Phase transition matrix
     // Weights reflect physiological plausibility of transitions.
     // Applied as a confidence multiplier to the raw classification result.
@@ -120,8 +153,10 @@ final class SleepPhaseClassifier {
         history.removeAll()
         hrHistory.removeAll()
         hrvHistory.removeAll()
+        bpmHistory.removeAll()
         sleepOnsetDate = nil
         lastCommittedPhase = .awake
+        deepSleepDeficitMinutes = 0
     }
 
     func classify(audio: AudioFeatures, motion: MotionFeatures) -> (phase: SleepPhaseType, confidence: Double) {
@@ -196,7 +231,7 @@ final class SleepPhaseClassifier {
         let usingBCG = currentHRBPM == 0 && bcgAvailable
         let hrConfidenceScale: Double = usingBCG ? 0.6 : 1.0   // BCG is less reliable
 
-        // Update HR/HRV history for trend analysis
+        // Update HR/HRV/BPM history for trend analysis
         if effectiveHRBPM > 0 {
             hrHistory.append(effectiveHRBPM)
             if hrHistory.count > hrHistorySize { hrHistory.removeFirst() }
@@ -204,6 +239,10 @@ final class SleepPhaseClassifier {
         if currentHRVms > 0 {
             hrvHistory.append(currentHRVms)
             if hrvHistory.count > hrHistorySize { hrvHistory.removeFirst() }
+        }
+        if bpm > 0 {
+            bpmHistory.append(bpm)
+            if bpmHistory.count > bpmHistorySize { bpmHistory.removeFirst() }
         }
 
         let hasHR    = effectiveHRBPM > 0
@@ -260,11 +299,11 @@ final class SleepPhaseClassifier {
             && amp <= sleepAmplitudeMax
         {
             let breathScore = 1.0 - Double(abs(bpm - 12) / 3)
-            // HRV rising = increasing parasympathetic tone = deepening sleep → boost
-            // HRV already high (>50) = established deep/REM state → also boost
             let hrvBoost: Double = hrvRising || (hasHR && hrvHigh) ? 0.08 : 0.0
             let hrBoost: Double = hasHR && hrLow ? 0.05 * hrConfidenceScale : 0.0
-            return (.deep, min(0.5 + Double(reg) * 0.3 + breathScore * 0.2 + hrBoost + hrvBoost, 0.95))
+            // Falling BPM trend = deepening sleep = boost; rising = possible arousal = reduce
+            let bpmTrendBoost: Double = bpmTrend < -1.5 ? 0.06 : (bpmTrend > 2.0 ? -0.05 : 0.0)
+            return (.deep, min(0.5 + Double(reg) * 0.3 + breathScore * 0.2 + hrBoost + hrvBoost + bpmTrendBoost, 0.95))
         }
 
         // 5. REM: irregular breathing, quiet.
@@ -301,11 +340,11 @@ final class SleepPhaseClassifier {
 
         // 7. Light sleep
         if bpm >= lightBreathMin && bpm <= lightBreathMax {
-            // Low HRV or falling HRV during light sleep → arousal, might be awake
             if hasHR && (hrvLow || (hrvFalling && currentHRVms > 0)) { return (.awake, 0.55) }
-            // HRV rising suggests deepening → could be transitioning to deep
             let hrvBoost: Double = hrvRising ? 0.06 : 0.0
-            return (.light, min(0.45 + Double(reg) * 0.25 + (hasHR && hrMed ? 0.05 : 0.0) + hrvBoost, 0.78))
+            // Rising BPM trend toward light range = arousal; falling = may deepen to deep soon
+            let bpmTrendAdj: Double = bpmTrend > 2.0 ? 0.05 : (bpmTrend < -2.0 ? -0.04 : 0.0)
+            return (.light, min(0.45 + Double(reg) * 0.25 + (hasHR && hrMed ? 0.05 : 0.0) + hrvBoost + bpmTrendAdj, 0.78))
         }
 
         return amp <= sleepAmplitudeMax ? (.light, 0.45) : (.awake, 0.55)

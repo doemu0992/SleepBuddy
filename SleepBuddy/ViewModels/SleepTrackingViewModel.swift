@@ -106,6 +106,9 @@ final class SleepTrackingViewModel {
         soundEventService.reset()
         noiseAccumulator.removeAll()
         lastNoiseSampleDate = .distantPast
+
+        // Homeostatic sleep pressure: compute deep-sleep deficit from recent sessions
+        computeAndApplyDeepSleepDeficit()
         lastBCGSampleDate = .distantPast
         lastPositionSampleDate = .distantPast
         lastSnoringEventEndDate = .distantPast
@@ -221,6 +224,9 @@ final class SleepTrackingViewModel {
         if let context = modelContext {
             classifier.flushSessionBuffer(to: context)
         }
+
+        // Post-hoc plausibility correction: remove/merge implausibly short isolated phases
+        applyPlausibilityCorrection(to: session)
 
         classifier.reset()
         try? modelContext?.save()
@@ -434,5 +440,53 @@ final class SleepTrackingViewModel {
         )
         session.phases?.append(phase)
         modelContext?.insert(phase)
+    }
+
+    // MARK: - Post-hoc plausibility correction
+    // After all phases are committed, scan for physiologically implausible short "islands".
+    // A phase < 3 min sandwiched between two identical neighbours is replaced with the
+    // neighbour's type. This handles edge-case noise in the classifier without touching
+    // longer bouts where the label is more reliable.
+    private func applyPlausibilityCorrection(to session: SleepSession) {
+        let minPlausibleDuration: TimeInterval = 180   // 3 minutes
+        var phases = session.phasesArray.sorted { $0.startDate < $1.startDate }
+        guard phases.count >= 3 else { return }
+
+        var changed = false
+        for i in 1..<(phases.count - 1) {
+            let prev = phases[i - 1]
+            let curr = phases[i]
+            let next = phases[i + 1]
+            let duration = curr.endDate.timeIntervalSince(curr.startDate)
+            // Short phase flanked by the same type on both sides → merge into neighbours
+            if duration < minPlausibleDuration && prev.phaseType == next.phaseType && curr.phaseType != prev.phaseType {
+                curr.phaseType = prev.phaseType
+                changed = true
+            }
+            // Deep→REM direct without light: a very short deep phase (< 4 min) that is
+            // immediately followed by REM is physiologically unlikely — call it light sleep.
+            if curr.phaseType == .deep && next.phaseType == .rem && duration < 240 {
+                curr.phaseType = .light
+                changed = true
+            }
+        }
+        if changed { try? modelContext?.save() }
+    }
+
+    // MARK: - Homeostatic sleep pressure
+    // Read recent sessions from SwiftData and pass any deep-sleep deficit to the classifier.
+    private func computeAndApplyDeepSleepDeficit() {
+        guard let context = modelContext else { return }
+        let descriptor = FetchDescriptor<SleepSession>(
+            predicate: #Predicate { $0.endDate != nil },
+            sortBy: [SortDescriptor(\.startDate, order: .reverse)]
+        )
+        let recent = (try? context.fetch(descriptor))?.prefix(7) ?? []
+        guard !recent.isEmpty else { return }
+        let targetDeepMinutes: Double = 90  // ideal ~90 min deep sleep per night
+        let avgDeep = recent.map { $0.deepSleepDuration / 60 }.reduce(0, +) / Double(recent.count)
+        let deficit = max(0, targetDeepMinutes - avgDeep)
+        // Pass deficit to rule-based classifier (accessed via MLSleepClassifier → OnlineSleepClassifier → fallback)
+        classifier.onlineClassifier.deepSleepDeficitMinutes = deficit
     }
 }

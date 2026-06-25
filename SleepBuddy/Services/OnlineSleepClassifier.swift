@@ -40,7 +40,12 @@ final class OnlineSleepClassifier {
         set { fallback.currentHRVms = newValue }
     }
 
-    private var sessionBuffer: [(timestamp: Date, audio: AudioFeatures, motion: MotionFeatures, phase: SleepPhaseType)] = []
+    var deepSleepDeficitMinutes: Double {
+        get { fallback.deepSleepDeficitMinutes }
+        set { fallback.deepSleepDeficitMinutes = newValue }
+    }
+
+    private var sessionBuffer: [(timestamp: Date, audio: AudioFeatures, motion: MotionFeatures, phase: SleepPhaseType, elapsedMinutes: Float)] = []
 
     // MARK: - Lifecycle
 
@@ -83,7 +88,8 @@ final class OnlineSleepClassifier {
         bufferTickCounter += 1
         if bufferTickCounter >= knnRunEveryNTicks {
             bufferTickCounter = 0
-            sessionBuffer.append((timestamp: Date(), audio: audio, motion: motion, phase: result.phase))
+            let elapsed = sleepOnsetDate.map { Float(Date().timeIntervalSince($0) / 60) } ?? 0
+            sessionBuffer.append((timestamp: Date(), audio: audio, motion: motion, phase: result.phase, elapsedMinutes: elapsed))
         }
 
         return result
@@ -97,7 +103,8 @@ final class OnlineSleepClassifier {
                 timestamp: entry.timestamp,
                 audio: entry.audio,
                 motion: entry.motion,
-                label: entry.phase
+                label: entry.phase,
+                elapsedMinutes: entry.elapsedMinutes
             )
             context.insert(sample)
             samples.append(sample)
@@ -141,15 +148,16 @@ final class OnlineSleepClassifier {
 
         let now = Date()
         let secPerDay: Double = 86400
-        let lambda = Float(log(2.0) / decayHalfLifeDays)   // decay constant
+        let lambda = Float(log(2.0) / decayHalfLifeDays)
+        let currentElapsed = sleepOnsetDate.map { Float(now.timeIntervalSince($0) / 60) } ?? 0
 
         let neighbours = samples
-            .sorted { $0.distance(to: audio, motion: motion) < $1.distance(to: audio, motion: motion) }
+            .sorted { $0.distance(to: audio, motion: motion, currentElapsed: currentElapsed) < $1.distance(to: audio, motion: motion, currentElapsed: currentElapsed) }
             .prefix(k)
             .map { s -> Neighbour in
-                let d = s.distance(to: audio, motion: motion)
+                let d = s.distance(to: audio, motion: motion, currentElapsed: currentElapsed)
                 let daysSince = Float(now.timeIntervalSince(s.timestamp) / secPerDay)
-                let timeDecay = exp(-lambda * max(0, daysSince))   // 1.0 today → 0.5 after 30d
+                let timeDecay = exp(-lambda * max(0, daysSince))
                 let w = (d < 1e-6 ? 1000 : 1.0 / d) * (s.isUserCorrected ? correctedWeight : 1) * timeDecay
                 return Neighbour(phase: s.phase, weight: w)
             }
