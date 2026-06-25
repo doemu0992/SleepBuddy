@@ -45,14 +45,19 @@ struct SleepBuddyApp: App {
     // MARK: - In-memory container (instant, ~1 ms)
 
     nonisolated static func makeInMemoryContainer() -> ModelContainer {
-        let config = ModelConfiguration(isStoredInMemoryOnly: true)
-        if let c = try? ModelContainer(
-            for: SleepSession.self, SleepPhase.self, SleepSoundEvent.self, TrainingSample.self,
-            configurations: config
-        ) { return c }
+        let sleepConfig = ModelConfiguration(
+            "SleepData",
+            schema: Schema([SleepSession.self, SleepPhase.self, SleepSoundEvent.self]),
+            isStoredInMemoryOnly: true
+        )
+        let mlConfig = ModelConfiguration(
+            "MLData",
+            schema: Schema([TrainingSample.self]),
+            isStoredInMemoryOnly: true
+        )
         return try! ModelContainer(
             for: SleepSession.self, SleepPhase.self, SleepSoundEvent.self, TrainingSample.self,
-            configurations: ModelConfiguration(isStoredInMemoryOnly: true)
+            configurations: sleepConfig, mlConfig
         )
     }
 
