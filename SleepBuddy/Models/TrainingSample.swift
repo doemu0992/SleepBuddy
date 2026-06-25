@@ -27,6 +27,22 @@ final class TrainingSample {
         self.isUserCorrected = isUserCorrected
     }
 
+    init(timestamp: Date,
+         averageAmplitude: Float, amplitudeVariance: Float,
+         breathingRateBPM: Float, breathingRegularity: Float,
+         movementIntensity: Float, snoringIntensity: Float,
+         label: SleepPhaseType, isUserCorrected: Bool = false) {
+        self.timestamp = timestamp
+        self.averageAmplitude = averageAmplitude
+        self.amplitudeVariance = amplitudeVariance
+        self.breathingRateBPM = breathingRateBPM
+        self.breathingRegularity = breathingRegularity
+        self.movementIntensity = movementIntensity
+        self.snoringIntensity = snoringIntensity
+        self.label = label.rawValue
+        self.isUserCorrected = isUserCorrected
+    }
+
     var phase: SleepPhaseType { SleepPhaseType(rawValue: label) ?? .awake }
 
     /// Euclidean distance in normalized 6D feature space.
