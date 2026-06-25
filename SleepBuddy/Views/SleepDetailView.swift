@@ -260,25 +260,23 @@ struct SleepDetailView: View {
 
     private struct HypnoPoint: Identifiable {
         let id = UUID()
-        let time: Date
+        let startDate: Date
+        let endDate: Date
         let depth: Double  // 0=wach, 1=leicht, 2=rem, 3=tief
         let phase: SleepPhaseType
     }
 
     private var hypnoData: [HypnoPoint] {
-        let sorted = session.phasesArray.sorted { $0.startDate < $1.startDate }
-        var points: [HypnoPoint] = []
-        for phase in sorted {
+        session.phasesArray.sorted { $0.startDate < $1.startDate }.map { phase in
             let depth: Double = switch phase.phaseType {
             case .awake: 0
             case .light: 1
             case .rem:   2
             case .deep:  3
             }
-            points.append(HypnoPoint(time: phase.startDate, depth: depth, phase: phase.phaseType))
-            points.append(HypnoPoint(time: phase.endDate,   depth: depth, phase: phase.phaseType))
+            return HypnoPoint(startDate: phase.startDate, endDate: phase.endDate,
+                              depth: depth, phase: phase.phaseType)
         }
-        return points
     }
 
     @ViewBuilder
@@ -289,31 +287,13 @@ struct SleepDetailView: View {
                     .font(.headline)
 
                 Chart(hypnoData) { point in
-                    LineMark(
-                        x: .value("Zeit", point.time),
-                        y: .value("Tiefe", point.depth)
-                    )
-                    .foregroundStyle(
-                        LinearGradient(
-                            colors: [SleepPhaseType.deep.color.opacity(0.7), SleepPhaseType.rem.color.opacity(0.7)],
-                            startPoint: .top, endPoint: .bottom
-                        )
-                    )
-                    .lineStyle(StrokeStyle(lineWidth: 2))
-                    .interpolationMethod(.stepStart)
-
-                    AreaMark(
-                        x: .value("Zeit", point.time),
+                    RectangleMark(
+                        xStart: .value("Start", point.startDate),
+                        xEnd:   .value("Ende",  point.endDate),
                         yStart: .value("Boden", -0.1),
-                        yEnd: .value("Tiefe", point.depth)
+                        yEnd:   .value("Tiefe", point.depth)
                     )
-                    .foregroundStyle(
-                        LinearGradient(
-                            colors: [SleepPhaseType.deep.color.opacity(0.25), SleepPhaseType.deep.color.opacity(0.05)],
-                            startPoint: .top, endPoint: .bottom
-                        )
-                    )
-                    .interpolationMethod(.stepStart)
+                    .foregroundStyle(point.phase.color.opacity(0.75))
                 }
                 .chartYScale(domain: -0.1...3.3)
                 .chartYAxis {
