@@ -37,8 +37,11 @@ final class AudioAnalysisService {
     private var chunkSamples: [Float] = []
     private var samplesPerEnvelopeTick: Int { Int(audioSampleRate / envelopeSampleRate) }
 
-    // FFT setup (created once, reused)
+    // FFT setup for raw-audio snoring/speech (4096-point, created once)
     private var fftSetup: FFTSetup?
+    // Separate FFT setup for envelope breathing rate (256-point)
+    private var envelopeFftSetup: FFTSetup?
+    private let envelopeFftSize = 256
 
     func start() throws {
         let session = AVAudioSession.sharedInstance()
@@ -52,6 +55,8 @@ final class AudioAnalysisService {
 
         let log2n = vDSP_Length(log2(Float(fftSize)))
         fftSetup = vDSP_create_fftsetup(log2n, FFTRadix(FFT_RADIX2))
+        let log2env = vDSP_Length(log2(Float(envelopeFftSize)))
+        envelopeFftSetup = vDSP_create_fftsetup(log2env, FFTRadix(FFT_RADIX2))
 
         inputNode.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, time in
             self?.onBufferReady?(buffer, time)
@@ -67,6 +72,7 @@ final class AudioAnalysisService {
         engine.inputNode.removeTap(onBus: 0)
         engine.stop()
         if let setup = fftSetup { vDSP_destroy_fftsetup(setup); fftSetup = nil }
+        if let setup = envelopeFftSetup { vDSP_destroy_fftsetup(setup); envelopeFftSetup = nil }
         try? AVAudioSession.sharedInstance().setActive(false)
         envelopeBuffer.removeAll()
         chunkSamples.removeAll()
@@ -133,7 +139,7 @@ final class AudioAnalysisService {
         var variance: Float = 0
         vDSP_measqv(demeaned, 1, &variance, vDSP_Length(n))
 
-        let breathingRate = estimateBreathingRate(envelope: demeaned, sampleRate: envelopeSampleRate)
+        let breathingRate = fusedBreathingRate(envelope: demeaned)
         let regularity = computeRegularity(envelope: demeaned)
         let snoring = snoringIntensity(rawSamples: rawSampleBuffer, sampleRate: audioSampleRate)
         let speech = speechLikelihood(rawSamples: rawSampleBuffer, sampleRate: audioSampleRate)
@@ -149,7 +155,78 @@ final class AudioAnalysisService {
         )
     }
 
-    // MARK: - Breathing rate (autocorrelation)
+    // MARK: - Breathing rate (dual method: autocorrelation + FFT peak, fused)
+
+    /// Fuses autocorrelation and FFT-peak estimates for more robust breathing rate detection.
+    /// If both agree (within 2 BPM), average them. If only one is valid, use it.
+    private func fusedBreathingRate(envelope: [Float]) -> Float {
+        let acf = estimateBreathingRate(envelope: envelope, sampleRate: envelopeSampleRate)
+        let fft = estimateBreathingRateFFT(envelope: envelope)
+
+        switch (acf > 0, fft > 0) {
+        case (false, false): return 0
+        case (true, false):  return acf
+        case (false, true):  return fft
+        case (true, true):
+            // Both valid — agree within 2 BPM → weighted average (autocorrelation slightly favoured)
+            if abs(acf - fft) <= 2.0 { return acf * 0.6 + fft * 0.4 }
+            // Disagreement — trust autocorrelation (longer window, more robust for slow rhythms)
+            return acf
+        }
+    }
+
+    /// FFT-peak breathing rate: dominant spectral peak in 9–30 BPM range of the 30s envelope.
+    private func estimateBreathingRateFFT(envelope: [Float]) -> Float {
+        guard let setup = envelopeFftSetup, envelope.count >= envelopeFftSize / 2 else { return 0 }
+
+        let n = envelopeFftSize
+        var padded = [Float](repeating: 0, count: n)
+        let copyLen = min(envelope.count, n)
+        padded.replaceSubrange(0..<copyLen, with: envelope.prefix(copyLen))
+
+        var window = [Float](repeating: 0, count: n)
+        vDSP_hann_window(&window, vDSP_Length(n), Int32(vDSP_HANN_NORM))
+        var windowed = [Float](repeating: 0, count: n)
+        vDSP_vmul(padded, 1, window, 1, &windowed, 1, vDSP_Length(n))
+
+        var realPart = [Float](repeating: 0, count: n / 2)
+        var imagPart = [Float](repeating: 0, count: n / 2)
+        realPart.withUnsafeMutableBufferPointer { rp in
+            imagPart.withUnsafeMutableBufferPointer { ip in
+                var sc = DSPSplitComplex(realp: rp.baseAddress!, imagp: ip.baseAddress!)
+                windowed.withUnsafeBufferPointer { wp in
+                    wp.baseAddress!.withMemoryRebound(to: DSPComplex.self, capacity: n / 2) { cp in
+                        vDSP_ctoz(cp, 2, &sc, 1, vDSP_Length(n / 2))
+                    }
+                }
+                vDSP_fft_zrip(setup, &sc, 1, vDSP_Length(log2(Float(n))), FFTDirection(FFT_FORWARD))
+            }
+        }
+
+        var magnitudes = [Float](repeating: 0, count: n / 2)
+        for i in 0..<n / 2 { magnitudes[i] = realPart[i] * realPart[i] + imagPart[i] * imagPart[i] }
+
+        // Breathing range: 9–30 BPM = 0.15–0.5 Hz
+        let hzPerBin = envelopeSampleRate / Double(n)
+        let minBin = max(1, Int(0.15 / hzPerBin))
+        let maxBin = min(n / 2 - 1, Int(0.5 / hzPerBin))
+        guard minBin < maxBin else { return 0 }
+
+        var bestBin = minBin
+        var bestMag: Float = 0
+        for i in minBin...maxBin where magnitudes[i] > bestMag {
+            bestMag = magnitudes[i]; bestBin = i
+        }
+
+        // Require the peak to stand out above noise floor
+        var totalMag: Float = 0
+        vDSP_sve(magnitudes, 1, &totalMag, vDSP_Length(n / 2))
+        let meanMag = totalMag / Float(n / 2)
+        guard bestMag > meanMag * 3.0 else { return 0 }   // peak must be 3× above average
+
+        let hz = Double(bestBin) * hzPerBin
+        return Float(hz * 60.0)
+    }
 
     private func estimateBreathingRate(envelope: [Float], sampleRate: Double) -> Float {
         let n = envelope.count

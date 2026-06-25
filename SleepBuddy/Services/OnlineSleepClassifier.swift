@@ -9,7 +9,9 @@ final class OnlineSleepClassifier {
     private let k = 7
     private let minSamplesForKNN = 40
     private let correctedWeight: Float = 3.0
-    private let historySize = 3
+    private let historySize = 6
+    /// Exponential half-life for time decay: samples 30 days old get 50% weight.
+    private let decayHalfLifeDays: Double = 30.0
 
     // k-NN is expensive — only run every 240 ticks (30s at 8 Hz), cache result in between
     private var knnTickCounter = 0
@@ -137,12 +139,18 @@ final class OnlineSleepClassifier {
     private func knnClassify(audio: AudioFeatures, motion: MotionFeatures) -> (phase: SleepPhaseType, confidence: Double) {
         struct Neighbour { let phase: SleepPhaseType; let weight: Float }
 
+        let now = Date()
+        let secPerDay: Double = 86400
+        let lambda = Float(log(2.0) / decayHalfLifeDays)   // decay constant
+
         let neighbours = samples
             .sorted { $0.distance(to: audio, motion: motion) < $1.distance(to: audio, motion: motion) }
             .prefix(k)
             .map { s -> Neighbour in
                 let d = s.distance(to: audio, motion: motion)
-                let w = (d < 1e-6 ? 1000 : 1.0 / d) * (s.isUserCorrected ? correctedWeight : 1)
+                let daysSince = Float(now.timeIntervalSince(s.timestamp) / secPerDay)
+                let timeDecay = exp(-lambda * max(0, daysSince))   // 1.0 today → 0.5 after 30d
+                let w = (d < 1e-6 ? 1000 : 1.0 / d) * (s.isUserCorrected ? correctedWeight : 1) * timeDecay
                 return Neighbour(phase: s.phase, weight: w)
             }
 
