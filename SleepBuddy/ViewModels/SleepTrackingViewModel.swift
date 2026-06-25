@@ -115,6 +115,8 @@ final class SleepTrackingViewModel {
             let event = SleepSoundEvent(timestamp: timestamp, type: type, durationSeconds: duration, iCloudFileName: fileName, decibelLevel: decibelLevel, confidenceScore: confidenceScore)
             ctx.insert(event)
             session.soundEvents?.append(event)
+            // Count confirmed snoring events here — avoids 8 Hz false positives from raw feature
+            if type == .snoring { session.snoringEventCount += 1 }
         }
 
         do {
@@ -220,10 +222,10 @@ final class SleepTrackingViewModel {
             }
         }
 
-        // Snoring — count new onset events regardless of clip-save setting
-        let newSnoring = audio.snoringIntensity > 0.4
-        if newSnoring && !isSnoring { currentSession?.snoringEventCount += 1 }
-        isSnoring = newSnoring
+        // Snoring — count via confirmed SoundEvents in onEventCaptured (not raw feature ticks).
+        // The raw snoringIntensity feature oscillates at 8 Hz and would produce thousands of
+        // false positives from fans/HVAC. We keep isSnoring for the live badge only.
+        isSnoring = audio.snoringIntensity > 0.4
 
         // Smart alarm check
         smartAlarm.checkPhase(result.phase)

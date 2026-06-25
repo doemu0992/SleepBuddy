@@ -14,7 +14,7 @@ final class SleepPhaseClassifier {
         default: return 0.035
         }
     }
-    private let sleepAmplitudeMax: Float = 0.020
+    private let sleepAmplitudeMax: Float = 0.028
     private let snoringThreshold: Float = 0.3
 
     // Motion threshold: raised in partner mode because partner movements
@@ -32,9 +32,9 @@ final class SleepPhaseClassifier {
     private let deepBreathMax: Float = 15
     private let lightBreathMin: Float = 14
     private let lightBreathMax: Float = 19
-    private let remBreathMin: Float = 12
-    private let remBreathMax: Float = 22
-    private let remMaxRegularity: Float = 0.50
+    private let remBreathMin: Float = 11
+    private let remBreathMax: Float = 24
+    private let remMaxRegularity: Float = 0.68
 
     // Two overlapping breathing rhythms reduce regularity — lower the bar in partner mode.
     private var deepRegularityMin: Float {
@@ -147,7 +147,10 @@ final class SleepPhaseClassifier {
                 if hrLow && !remWindow { return (.deep, 0.55 + 0.05 * hrConfidenceScale) }
                 if hrREM && remWindow  { return (.rem,  0.55 + 0.05 * hrConfidenceScale) }
             }
-            return amp > sleepAmplitudeMax ? (.awake, 0.6) : (.light, 0.4)
+            if amp > sleepAmplitudeMax { return (.awake, 0.6) }
+            // In a REM window with no breathing signal: prefer REM over light
+            if remWindow { return (.rem, 0.42) }
+            return (.light, 0.4)
         }
 
         // 4. Deep sleep: slow + regular + quiet (only outside REM windows)
@@ -165,9 +168,9 @@ final class SleepPhaseClassifier {
         // 5. REM: irregular breathing, quiet.
         //    In a REM window the thresholds are relaxed — less regularity required.
         //    HR-based REM boost: slightly elevated HR + low HRV is classic REM.
-        let remRegMax: Float = remWindow ? 0.72 : remMaxRegularity
-        let remVarMin: Float = remWindow ? 0.000003 : 0.00002
-        let remConfBoost: Double = remWindow ? 0.18 : 0.0
+        let remRegMax: Float = remWindow ? 0.82 : remMaxRegularity
+        let remVarMin: Float = remWindow ? 0.000002 : 0.000008
+        let remConfBoost: Double = remWindow ? 0.20 : 0.0
         let hrREMBoost: Double  = hasHR && hrREM && !hrvHigh ? 0.12 * hrConfidenceScale : 0.0
 
         if bpm >= remBreathMin && bpm <= remBreathMax
