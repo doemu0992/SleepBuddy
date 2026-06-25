@@ -10,6 +10,14 @@ final class OnlineSleepClassifier {
     private let correctedWeight: Float = 3.0
     private let historySize = 3
 
+    // k-NN is expensive — only run every 240 ticks (30s at 8 Hz), cache result in between
+    private var knnTickCounter = 0
+    private let knnRunEveryNTicks = 240
+    private var cachedKNNResult: (phase: SleepPhaseType, confidence: Double) = (.light, 0.5)
+
+    // Session buffer: one entry per 30s (every knnRunEveryNTicks calls), not per 8Hz tick
+    private var bufferTickCounter = 0
+
     private var samples: [TrainingSample] = []
     private var history: [(phase: SleepPhaseType, confidence: Double)] = []
     private let fallback = SleepPhaseClassifier()
@@ -42,20 +50,39 @@ final class OnlineSleepClassifier {
         history.removeAll()
         fallback.reset()
         sessionBuffer.removeAll()
+        knnTickCounter = 0
+        bufferTickCounter = 0
+        cachedKNNResult = (.light, 0.5)
     }
 
     // MARK: - Classification
 
     func classify(audio: AudioFeatures, motion: MotionFeatures) -> (phase: SleepPhaseType, confidence: Double) {
-        let raw = samples.count >= minSamplesForKNN
-            ? knnClassify(audio: audio, motion: motion)
-            : fallback.classify(audio: audio, motion: motion)
+        // k-NN is O(n) per call — throttle to once per 30s (every knnRunEveryNTicks audio ticks)
+        knnTickCounter += 1
+        let raw: (phase: SleepPhaseType, confidence: Double)
+        if samples.count >= minSamplesForKNN {
+            if knnTickCounter >= knnRunEveryNTicks {
+                knnTickCounter = 0
+                cachedKNNResult = knnClassify(audio: audio, motion: motion)
+            }
+            raw = cachedKNNResult
+        } else {
+            raw = fallback.classify(audio: audio, motion: motion)
+        }
 
         history.append(raw)
         if history.count > historySize { history.removeFirst() }
 
         let result = smoothed()
-        sessionBuffer.append((timestamp: Date(), audio: audio, motion: motion, phase: result.phase))
+
+        // Store one session sample per 30s (same cadence as k-NN) — avoids 230K entries/night
+        bufferTickCounter += 1
+        if bufferTickCounter >= knnRunEveryNTicks {
+            bufferTickCounter = 0
+            sessionBuffer.append((timestamp: Date(), audio: audio, motion: motion, phase: result.phase))
+        }
+
         return result
     }
 
