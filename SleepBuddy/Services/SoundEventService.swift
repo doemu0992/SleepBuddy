@@ -23,7 +23,7 @@ final class SoundEventService {
 
     /// Exponential moving average of quiet-moment amplitude — seeded in first 60 s,
     /// then updated throughout the night so threshold tracks fans, traffic, AC, etc.
-    private var ambientEMA: Float = 0.012
+    private var ambientEMA: Float = 0.008
     private let ambientAlpha: Float = 0.002     // time constant ≈ 60 s at 8 Hz
     private var isCalibrated = false
     private var calibrationValues: [Float] = []
@@ -43,11 +43,11 @@ final class SoundEventService {
     // MARK: - Event detection state
 
     private var baseAmplitudeThreshold: Float {
-        guard UserDefaults.standard.bool(forKey: "partnerModus_aktiv") else { return 0.018 }
+        guard UserDefaults.standard.bool(forKey: "partnerModus_aktiv") else { return 0.010 }
         switch UserDefaults.standard.integer(forKey: "partnerModus_stufe") {
-        case 1: return 0.035
-        case 2: return 0.058
-        default: return 0.018
+        case 1: return 0.022   // Mitte: etwas höher, Partner-Geräusche unterdrücken
+        case 2: return 0.040   // Partner: deutlich höher, nur laute eigene Geräusche
+        default: return 0.010
         }
     }
 
