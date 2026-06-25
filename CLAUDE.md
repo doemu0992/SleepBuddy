@@ -241,12 +241,78 @@ LinearGradient(
 
 ```swift
 // Alle Charts (Schlafverlauf, Umgebungslautstärke, Herzfrequenz) sind scrollbar.
+// X-Domain exakt auf Session-Zeitraum fixieren — verhindert SwiftCharts-Puffer vor Startzeit.
 // X-Labels jede Stunde, sichtbares Fenster 3h — funktioniert für jede Schlafdauer.
+.chartXScale(domain: session.startDate...(session.endDate ?? Date()))
 .chartScrollableAxes(.horizontal)
 .chartXVisibleDomain(length: 3 * 3600)
 ```
 
 > Warum scrollbar: fixes Frame komprimiert eine 8h-Nacht auf ~360px → Labels überlappen, kurze Phasen unsichtbar. Mit 3h-Fenster sind Labels immer gut lesbar und Wach-Phasen am Anfang/Ende klar sichtbar.
+
+> **`chartXScale(domain:)` ist Pflicht:** Ohne explizite Domain fügt SwiftCharts automatisch einen Puffer vor dem ersten Datenpunkt ein — die Achse beginnt z.B. bei 22:00 obwohl die Session um 22:30 startet.
+
+**Tracker Start/Ende — Zeitanzeige über jedem Chart (bindend):**
+
+> SwiftCharts-Annotationen auf `RuleMark` (`.annotation(position: .top)`) werden vom Chart-Frame abgeschnitten und sind nicht sichtbar. Lösung: Zeiten als separaten `HStack` **über** dem Chart anzeigen.
+
+```swift
+// Shared computed property in SleepDetailView (kein @ViewBuilder — kein View):
+private var chartTimeFmt: DateFormatter {
+    let f = DateFormatter(); f.dateFormat = "HH:mm"; return f
+}
+
+// @ViewBuilder wegen if let ohne else:
+@ViewBuilder
+private var trackerTimeRow: some View {
+    HStack {
+        Label(chartTimeFmt.string(from: session.startDate), systemImage: "play.fill")
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(.indigo)
+        Spacer()
+        if let end = session.endDate {
+            Label(chartTimeFmt.string(from: end), systemImage: "stop.fill")
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.indigo)
+                .environment(\.layoutDirection, .rightToLeft)
+        }
+    }
+}
+```
+
+Zusätzlich gestrichelte `RuleMark`-Linien im Chart als visuelle Ankerpunkte (ohne `.annotation`):
+
+```swift
+RuleMark(x: .value("Start", session.startDate))
+    .foregroundStyle(Color.indigo.opacity(0.5))
+    .lineStyle(StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
+if let end = session.endDate {
+    RuleMark(x: .value("Ende", end))
+        .foregroundStyle(Color.indigo.opacity(0.5))
+        .lineStyle(StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
+}
+```
+
+Alle drei Charts (Schlafverlauf, Umgebungslautstärke, Herzfrequenz) enthalten `trackerTimeRow` + RuleMarks.
+
+**`@ViewBuilder` auf computed View-Properties (bindend):**
+
+> Eine `var foo: some View` mit einem `if`- oder `if let`-Branch **ohne** `else` braucht `@ViewBuilder` — sonst Compiler-Fehler "result builder disabled by explicit return" und "no return statements to infer type".
+
+```swift
+// FALSCH — kein @ViewBuilder, if ohne else → Compilerfehler
+private var hypnogramCard: some View {
+    if !session.phasesArray.isEmpty { VStack { ... } }
+}
+
+// RICHTIG
+@ViewBuilder
+private var hypnogramCard: some View {
+    if !session.phasesArray.isEmpty { VStack { ... } }
+}
+```
+
+> `@ViewBuilder` **nicht** auf Nicht-View-Properties setzen (z.B. `DateFormatter`-Computed-Var) — das erzeugt ebenfalls einen Compilerfehler.
 
 **Flächen-Gradient:**
 ```swift
