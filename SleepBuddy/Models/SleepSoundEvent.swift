@@ -107,6 +107,9 @@ final class SleepSoundEvent {
     var decibelLevel: Double = 0.0
     var confidenceScore: Double = 0.0
     var session: SleepSession?
+    // User feedback — nil = not yet reviewed
+    var isUserCorrected: Bool = false
+    var originalTypeRaw: String?    // original ML type before correction
 
     init(timestamp: Date, type: SoundEventType, durationSeconds: Double, iCloudFileName: String? = nil, decibelLevel: Double = 0.0, confidenceScore: Double = 0.0) {
         self.timestamp = timestamp
@@ -119,5 +122,10 @@ final class SleepSoundEvent {
 
     var type: SoundEventType {
         SoundEventType(rawValue: typeRaw) ?? .other
+    }
+
+    var originalType: SoundEventType? {
+        guard let raw = originalTypeRaw else { return nil }
+        return SoundEventType(rawValue: raw)
     }
 }

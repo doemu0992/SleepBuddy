@@ -13,6 +13,7 @@ struct SleepDetailView: View {
     @State private var audioPlayer: AVAudioPlayer?
     @State private var playingEventID: Date?
     @State private var downloadingEventID: Date?
+    @State private var correctingEvent: SleepSoundEvent?
     @State private var spo2Percent: Double? = nil
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
@@ -86,6 +87,11 @@ struct SleepDetailView: View {
         .sheet(item: $correctingPhase) { phase in
             PhaseCorrectionSheet(phase: phase) { newType in
                 applyCorrection(phase: phase, newType: newType)
+            }
+        }
+        .sheet(item: $correctingEvent) { event in
+            SoundCorrectionSheet(event: event) { confirmed, newType in
+                applySoundCorrection(event: event, confirmed: confirmed, newType: newType)
             }
         }
     }
@@ -772,6 +778,13 @@ struct SleepDetailView: View {
                     } else {
                         Image(systemName: "waveform.slash").font(.caption).foregroundStyle(.tertiary)
                     }
+
+                    Button { correctingEvent = event } label: {
+                        Image(systemName: event.isUserCorrected ? "checkmark.circle.fill" : "pencil.circle")
+                            .font(.title3)
+                            .foregroundStyle(event.isUserCorrected ? .green : .secondary)
+                    }
+                    .buttonStyle(.plain)
                 }
             }
         }
@@ -957,6 +970,23 @@ struct SleepDetailView: View {
         try? modelContext.save()
     }
 
+    private func applySoundCorrection(event: SleepSoundEvent, confirmed: Bool, newType: SoundEventType?) {
+        let feedback = SoundFeedbackService.shared
+        if confirmed {
+            feedback.recordConfirmed(type: event.type)
+            event.isUserCorrected = true
+        } else if let newType {
+            let originalType = event.type
+            feedback.recordCorrection(from: originalType, to: newType)
+            if event.originalTypeRaw == nil {
+                event.originalTypeRaw = event.typeRaw   // preserve original ML label
+            }
+            event.typeRaw = newType.rawValue
+            event.isUserCorrected = true
+        }
+        try? modelContext.save()
+    }
+
     private func deleteSession() {
         for phase in session.phasesArray { modelContext.delete(phase) }
         modelContext.delete(session)
@@ -1013,5 +1043,180 @@ struct PhaseCorrectionSheet: View {
                 }
             }
         }
+    }
+}
+
+// MARK: - Sound Correction Sheet
+
+struct SoundCorrectionSheet: View {
+    let event: SleepSoundEvent
+    let onDone: (Bool, SoundEventType?) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var audioPlayer: AVAudioPlayer?
+    @State private var isPlaying = false
+
+    private var sleepTypes: [SoundEventType] { SoundEventType.allCases.filter { !$0.isExternal } }
+    private var externalTypes: [SoundEventType] { SoundEventType.allCases.filter { $0.isExternal } }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                // Audio preview section
+                if let fileName = event.iCloudFileName {
+                    Section {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("Aufnahme anhören")
+                                    .font(.subheadline.bold())
+                                Text(event.timestamp.formatted(date: .omitted, time: .shortened) + " · " + formatDuration(event.durationSeconds))
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Button { togglePlay(fileName: fileName) } label: {
+                                Image(systemName: isPlaying ? "stop.circle.fill" : "play.circle.fill")
+                                    .font(.largeTitle)
+                                    .foregroundStyle(isPlaying ? .orange : .indigo)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+
+                // Current detection
+                Section {
+                    HStack(spacing: 12) {
+                        ZStack {
+                            Circle().fill(event.type.color.opacity(0.15)).frame(width: 40, height: 40)
+                            Image(systemName: event.type.icon).foregroundStyle(event.type.color)
+                        }
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Erkannt als: \(event.type.rawValue)")
+                                .font(.subheadline.bold())
+                            if let orig = event.originalType, orig != event.type {
+                                Text("Ursprünglich: \(orig.rawValue)").font(.caption).foregroundStyle(.secondary)
+                            }
+                            if event.confidenceScore > 0 {
+                                Text("Konfidenz: \(Int(event.confidenceScore * 100))%")
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
+                        Spacer()
+                        if !event.isUserCorrected {
+                            Button {
+                                onDone(true, nil)
+                                dismiss()
+                            } label: {
+                                Label("Korrekt", systemImage: "checkmark.circle.fill")
+                                    .font(.caption.bold())
+                                    .foregroundStyle(.white)
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 6)
+                                    .background(Color.green, in: Capsule())
+                            }
+                            .buttonStyle(.plain)
+                        } else {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundStyle(.green)
+                        }
+                    }
+                } header: {
+                    Text("Erkennung")
+                }
+
+                // Reassign — personal sounds
+                Section {
+                    ForEach(sleepTypes, id: \.self) { type in
+                        Button {
+                            onDone(false, type)
+                            dismiss()
+                        } label: {
+                            HStack(spacing: 12) {
+                                ZStack {
+                                    Circle().fill(type.color.opacity(0.15)).frame(width: 36, height: 36)
+                                    Image(systemName: type.icon).foregroundStyle(type.color).font(.caption)
+                                }
+                                Text(type.rawValue).foregroundStyle(.primary)
+                                Spacer()
+                                if type == event.type {
+                                    Image(systemName: "checkmark").foregroundStyle(.indigo)
+                                }
+                            }
+                        }
+                    }
+                } header: {
+                    Text("Als Schlafgeräusch zuordnen")
+                }
+
+                // Reassign — external sounds
+                Section {
+                    ForEach(externalTypes, id: \.self) { type in
+                        Button {
+                            onDone(false, type)
+                            dismiss()
+                        } label: {
+                            HStack(spacing: 12) {
+                                ZStack {
+                                    Circle().fill(type.color.opacity(0.15)).frame(width: 36, height: 36)
+                                    Image(systemName: type.icon).foregroundStyle(type.color).font(.caption)
+                                }
+                                Text(type.rawValue).foregroundStyle(.primary)
+                                Spacer()
+                                if type == event.type {
+                                    Image(systemName: "checkmark").foregroundStyle(.indigo)
+                                }
+                            }
+                        }
+                    }
+                } header: {
+                    Text("Als Umgebungsgeräusch zuordnen")
+                } footer: {
+                    Text("Korrekturen werden gespeichert und verbessern die Erkennung dauerhaft.")
+                }
+            }
+            .navigationTitle("Geräusch korrigieren")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Abbrechen") { dismiss() }
+                }
+            }
+        }
+        .presentationDetents([.large])
+        .onDisappear { audioPlayer?.stop() }
+    }
+
+    private func togglePlay(fileName: String) {
+        if isPlaying {
+            audioPlayer?.stop()
+            audioPlayer = nil
+            isPlaying = false
+            return
+        }
+        let url: URL?
+        if fileName.hasPrefix("local://") {
+            let name = String(fileName.dropFirst("local://".count))
+            url = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first?
+                .appendingPathComponent("SleepSounds").appendingPathComponent(name)
+        } else {
+            url = FileManager.default.url(forUbiquityContainerIdentifier: "iCloud.DG-Software-Solution.PainDiary")?
+                .appendingPathComponent("Documents/SleepSounds/\(fileName)")
+        }
+        guard let url else { return }
+        try? AVAudioSession.sharedInstance().setCategory(.playback)
+        try? AVAudioSession.sharedInstance().setActive(true)
+        if let player = try? AVAudioPlayer(contentsOf: url) {
+            player.play()
+            audioPlayer = player
+            isPlaying = true
+            Task {
+                try? await Task.sleep(for: .seconds(player.duration + 0.5))
+                await MainActor.run { isPlaying = false; audioPlayer = nil }
+            }
+        }
+    }
+
+    private func formatDuration(_ s: TimeInterval) -> String {
+        let i = Int(s); return i < 60 ? "\(i)s" : "\(i/60)m \(i%60)s"
     }
 }

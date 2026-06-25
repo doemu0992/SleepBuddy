@@ -144,10 +144,11 @@ extension SoundClassificationService: SNResultsObserving {
             ("water_tap",            .water,      0.50),
         ]
 
-        // Pick the highest-confidence match across all mappings — not the first one that
-        // passes the threshold, since multiple identifiers can match the same event.
+        // Pick the highest-confidence match — threshold adjusted by user feedback history.
+        let feedback = SoundFeedbackService.shared
         var best: (type: SoundEventType, confidence: Double)? = nil
-        for (id, type, minConf) in mappings {
+        for (id, type, baseConf) in mappings {
+            let minConf = feedback.adjustedThreshold(for: type, base: baseConf)
             if let c = classifications.classification(forIdentifier: id),
                c.confidence >= minConf,
                c.confidence > (best?.confidence ?? 0) {
