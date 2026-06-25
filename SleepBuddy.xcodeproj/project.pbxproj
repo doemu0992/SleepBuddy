@@ -35,6 +35,7 @@
 		AA000026 /* SleepInsightService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100028 /* SleepInsightService.swift */; };
 		AA000027 /* CoreMotion.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = AA100029 /* CoreMotion.framework */; };
 		AA000028 /* CoreML.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = AA100030 /* CoreML.framework */; };
+		AA000049 /* CreateML.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = AA100049 /* CreateML.framework */; };
 		AA000029 /* UserNotifications.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = AA100031 /* UserNotifications.framework */; };
 		AA000030 /* ProfilView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100032 /* ProfilView.swift */; };
 		AA000031 /* EinstellungenView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100033 /* EinstellungenView.swift */; };
@@ -52,6 +53,7 @@
 		AA000045 /* StatistikView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100045 /* StatistikView.swift */; };
 		AA000046 /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100046 /* OnboardingView.swift */; };
 		AA000047 /* SchlafapnoeRisikoView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100047 /* SchlafapnoeRisikoView.swift */; };
+		AA000048 /* SleepModelTrainingService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100048 /* SleepModelTrainingService.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -85,6 +87,7 @@
 		AA100028 /* SleepInsightService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepInsightService.swift; sourceTree = "<group>"; };
 		AA100029 /* CoreMotion.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreMotion.framework; path = System/Library/Frameworks/CoreMotion.framework; sourceTree = SDKROOT; };
 		AA100030 /* CoreML.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreML.framework; path = System/Library/Frameworks/CoreML.framework; sourceTree = SDKROOT; };
+		AA100049 /* CreateML.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CreateML.framework; path = System/Library/Frameworks/CreateML.framework; sourceTree = SDKROOT; };
 		AA100031 /* UserNotifications.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UserNotifications.framework; path = System/Library/Frameworks/UserNotifications.framework; sourceTree = SDKROOT; };
 		AA100032 /* ProfilView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfilView.swift; sourceTree = "<group>"; };
 		AA100033 /* EinstellungenView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EinstellungenView.swift; sourceTree = "<group>"; };
@@ -102,6 +105,7 @@
 		AA100045 /* StatistikView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatistikView.swift; sourceTree = "<group>"; };
 		AA100046 /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
 		AA100047 /* SchlafapnoeRisikoView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SchlafapnoeRisikoView.swift; sourceTree = "<group>"; };
+		AA100048 /* SleepModelTrainingService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepModelTrainingService.swift; sourceTree = "<group>"; };
 		AA200001 /* SleepBuddy.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SleepBuddy.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -114,6 +118,7 @@
 				AA000019 /* AVFoundation.framework in Frameworks */,
 				AA000027 /* CoreMotion.framework in Frameworks */,
 				AA000028 /* CoreML.framework in Frameworks */,
+				AA000049 /* CreateML.framework in Frameworks */,
 				AA000029 /* UserNotifications.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -193,6 +198,7 @@
 				AA100025 /* SleepOnsetDetector.swift */,
 				AA100026 /* OnlineSleepClassifier.swift */,
 				AA100027 /* MLSleepClassifier.swift */,
+				AA100048 /* SleepModelTrainingService.swift */,
 				AA100028 /* SleepInsightService.swift */,
 				AA100038 /* SoundEventService.swift */,
 				AA100039 /* SampleDataService.swift */,
@@ -217,6 +223,7 @@
 				AA100019 /* AVFoundation.framework */,
 				AA100029 /* CoreMotion.framework */,
 				AA100030 /* CoreML.framework */,
+				AA100049 /* CreateML.framework */,
 				AA100031 /* UserNotifications.framework */,
 			);
 			name = Frameworks;
@@ -348,6 +355,7 @@
 				AA000045 /* StatistikView.swift in Sources */,
 				AA000046 /* OnboardingView.swift in Sources */,
 				AA000047 /* SchlafapnoeRisikoView.swift in Sources */,
+				AA000048 /* SleepModelTrainingService.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
