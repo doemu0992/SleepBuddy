@@ -71,6 +71,9 @@ enum SampleDataService {
         }
         session.noiseSamples = noise
         session.heartRateSamples = generateHRCurve(minutes: mins)
+        // Night 1: heavy back-sleeper — elevated apnea risk profile
+        session.positionSamples = generatePositionCurve(minutes: mins, backPercent: 0.65, stomachPercent: 0.05)
+        session.breathingPauseCount = 13
         insertTrainingSamples(from: start, arch: arch, into: context)
     }
 
@@ -116,6 +119,9 @@ enum SampleDataService {
         }
         session.noiseSamples = noise
         session.heartRateSamples = generateHRCurve(minutes: mins)
+        // Night 2: disturbed sleep — varied positions, low breathing pauses
+        session.positionSamples = generatePositionCurve(minutes: mins, backPercent: 0.35, stomachPercent: 0.10)
+        session.breathingPauseCount = 3
         insertTrainingSamples(from: start, arch: arch, into: context)
     }
 
@@ -159,6 +165,9 @@ enum SampleDataService {
         }
         session.noiseSamples = noise
         session.heartRateSamples = generateHRCurve(minutes: mins)
+        // Night 3: balanced positions including some stomach time
+        session.positionSamples = generatePositionCurve(minutes: mins, backPercent: 0.30, stomachPercent: 0.15)
+        session.breathingPauseCount = 5
         insertTrainingSamples(from: start, arch: arch, into: context)
     }
 
@@ -205,6 +214,11 @@ enum SampleDataService {
         let mins = totalMinutes(start, end)
         session.noiseSamples = generateNoiseCurve(minutes: mins, baseDB: Double.random(in: 24...34))
         session.heartRateSamples = generateHRCurve(minutes: mins)
+        session.positionSamples = generatePositionCurve(
+            minutes: mins,
+            backPercent: Double.random(in: 0.20...0.60),
+            stomachPercent: Double.random(in: 0.00...0.20))
+        session.breathingPauseCount = Int.random(in: 0...10)
         insertTrainingSamples(from: start, arch: arch, into: context)
     }
 
@@ -232,6 +246,25 @@ enum SampleDataService {
 
     private static func archTotal(_ arch: [(SleepPhaseType, Double)]) -> Double {
         arch.reduce(0) { $0 + $1.1 }
+    }
+
+    /// Generates one SleepPosition.rawValue per minute.
+    /// backPercent/stomachPercent as 0–1 fractions; remainder is side (2).
+    private static func generatePositionCurve(minutes: Int, backPercent: Double, stomachPercent: Double) -> [Int] {
+        var positions = [Int](repeating: 2, count: minutes)  // default: side
+        var i = 0
+        while i < minutes {
+            // Random run length 8–30 minutes per segment
+            let runLen = Int.random(in: 8...30)
+            let roll = Double.random(in: 0...1)
+            let pos: Int
+            if roll < backPercent { pos = 1 }           // back
+            else if roll < backPercent + stomachPercent { pos = 3 }  // stomach
+            else { pos = 2 }                              // side
+            for j in i..<min(i + runLen, minutes) { positions[j] = pos }
+            i += runLen
+        }
+        return positions
     }
 
     private static func makeSession(start: Date, end: Date, quality: Int, changes: Int,
@@ -351,14 +384,17 @@ enum SampleDataService {
             guard let p = profiles[type] else { cursor = phaseEnd; continue }
             let count = max(1, Int(minutes * 2))
             for i in 0..<count {
+                let sampleTime = cursor.addingTimeInterval(Double(i) * 30)
+                let elapsedMinutes = Float(sampleTime.timeIntervalSince(start) / 60)
                 context.insert(TrainingSample(
-                    timestamp: cursor.addingTimeInterval(Double(i) * 30),
+                    timestamp: sampleTime,
                     averageAmplitude: Float.random(in: p.amp),
                     amplitudeVariance: Float.random(in: p.ampVar),
                     breathingRateBPM: Float.random(in: p.bpm),
                     breathingRegularity: Float.random(in: p.reg),
                     movementIntensity: Float.random(in: p.mov),
                     snoringIntensity: Float.random(in: p.snor),
+                    elapsedMinutes: elapsedMinutes,
                     label: type, isUserCorrected: false))
             }
             cursor = phaseEnd
