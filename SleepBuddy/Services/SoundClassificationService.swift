@@ -64,36 +64,36 @@ extension SoundClassificationService: SNResultsObserving {
             ("cat",                  .cat,        0.40),
             ("meow",                 .cat,        0.40),
             ("cat_meowing",          .cat,        0.40),
-            // Music / TV
-            ("music",                .music,      0.45),
-            ("musical_instrument",   .music,      0.45),
-            ("singing",              .music,      0.50),
-            // Alarms
-            ("alarm_clock",          .alarm,      0.40),
-            ("alarm",                .alarm,      0.40),
-            ("smoke_detector",       .alarm,      0.40),
-            ("siren",                .alarm,      0.40),
-            ("fire_alarm",           .alarm,      0.40),
-            ("bell",                 .alarm,      0.50),
-            // Traffic
-            ("car_horn",             .traffic,    0.40),
-            ("honking",              .traffic,    0.40),
-            ("vehicle",              .traffic,    0.45),
-            ("engine",               .traffic,    0.50),
+            // Music / TV — higher threshold: AC/fan noise is often misclassified as music
+            ("music",                .music,      0.65),
+            ("musical_instrument",   .music,      0.65),
+            ("singing",              .music,      0.60),
+            // Alarms — distinct sounds, moderate threshold
+            ("alarm_clock",          .alarm,      0.50),
+            ("alarm",                .alarm,      0.50),
+            ("smoke_detector",       .alarm,      0.50),
+            ("siren",                .alarm,      0.50),
+            ("fire_alarm",           .alarm,      0.50),
+            ("bell",                 .alarm,      0.55),
+            // Traffic — ambient engines misclassify easily, keep threshold moderate
+            ("car_horn",             .traffic,    0.50),
+            ("honking",              .traffic,    0.50),
+            ("vehicle",              .traffic,    0.55),
+            ("engine",               .traffic,    0.60),
             // Baby
-            ("baby_cry",             .baby,       0.40),
-            ("crying",               .baby,       0.40),
-            ("infant_cry",           .baby,       0.40),
-            // Thunder / rain
-            ("thunder",              .thunder,    0.40),
-            ("thunderstorm",         .thunder,    0.40),
-            ("rain",                 .thunder,    0.50),
-            ("raindrop",             .thunder,    0.50),
-            // Knock / door
+            ("baby_cry",             .baby,       0.45),
+            ("crying",               .baby,       0.45),
+            ("infant_cry",           .baby,       0.45),
+            // Thunder / rain — rain on window can be confused with traffic
+            ("thunder",              .thunder,    0.50),
+            ("thunderstorm",         .thunder,    0.50),
+            ("rain",                 .thunder,    0.55),
+            ("raindrop",             .thunder,    0.55),
+            // Knock / door — ML-primary, keep low
             ("knock",                .knock,      0.40),
             ("door_knock",           .knock,      0.40),
             ("door",                 .knock,      0.50),
-            // Glass break
+            // Glass break — ML-primary, very distinct sound
             ("glass_breaking",       .glassBreak, 0.35),
             ("glass_break",          .glassBreak, 0.35),
             ("breaking",             .glassBreak, 0.45),

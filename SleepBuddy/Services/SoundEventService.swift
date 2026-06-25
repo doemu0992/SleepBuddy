@@ -76,9 +76,12 @@ final class SoundEventService {
         mlHintConfidence = confidence
         mlHintDate = Date()
 
-        // All types can bypass amplitude gate when ML is confident — external sounds (dog,
-        // music, alarm, cat, thunder, etc.) may be loud in the room but quiet at the mic.
-        let isMLPrimary = true
+        // Only truly quiet personal sounds bypass the amplitude gate — bruxism, coughing,
+        // sneezing never cross the threshold but are real events. External/ambient sounds
+        // (music, traffic, dog, thunder…) ARE loud and will cross the amplitude threshold
+        // naturally; bypassing it causes false positives from AC / fan noise misclassified as music.
+        let isMLPrimary = type == .bruxism || type == .coughing || type == .sneezing
+            || type == .knock || type == .glassBreak || type == .snoring
         if isMLPrimary && confidence >= 0.45 && eventStartDate == nil && !isInCooldown {
             eventStartDate = Date()
             pendingEventType = type
