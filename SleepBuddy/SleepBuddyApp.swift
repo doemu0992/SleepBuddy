@@ -46,10 +46,14 @@ struct SleepBuddyApp: App {
 
     nonisolated static func makeInMemoryContainer() -> ModelContainer {
         let config = ModelConfiguration(isStoredInMemoryOnly: true)
-        return (try? ModelContainer(
+        if let c = try? ModelContainer(
             for: SleepSession.self, SleepPhase.self, SleepSoundEvent.self, TrainingSample.self,
             configurations: config
-        )) ?? try! ModelContainer(for: SleepSession.self, configurations: config)
+        ) { return c }
+        return try! ModelContainer(
+            for: SleepSession.self, SleepPhase.self, SleepSoundEvent.self, TrainingSample.self,
+            configurations: ModelConfiguration(isStoredInMemoryOnly: true)
+        )
     }
 
     // MARK: - Persistent container with CloudKit (runs off main thread)
