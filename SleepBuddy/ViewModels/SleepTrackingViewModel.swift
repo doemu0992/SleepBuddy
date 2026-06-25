@@ -40,13 +40,9 @@ final class SleepTrackingViewModel {
     private var lastBCGSampleDate = Date.distantPast
 
     // Phase smoothing: commit after stability window.
-    // With Apple Watch HR available, 60 s is sufficient (HR confirms the phase).
-    // Without Watch, keep 90 s to avoid false transitions from audio noise.
-    private var pendingPhase: SleepPhaseType = .awake
-    private var pendingPhaseStartDate = Date()
-    private var minPhaseDuration: TimeInterval {
-        healthKit.hasHeartRateAccess ? 60 : 90
-    }
+    // 60 s is enough to catch genuine brief wake events (phone check, turning over)
+    // while still filtering 8 Hz audio noise spikes (which last < 5 s).
+    private let minPhaseDuration: TimeInterval = 60
 
     // Smart alarm state (surfaced to UI)
     var alarmFired: Bool { smartAlarm.alarmFired }
@@ -158,6 +154,15 @@ final class SleepTrackingViewModel {
         soundEventService.reset()
         healthKit.stopHeartRatePolling()
 
+        // If awake was pending (detected but < minPhaseDuration elapsed) when the user
+        // pressed "Aufwachen", honour it: close the sleep phase at pendingPhaseStartDate
+        // and add a short awake phase up to now. This captures both morning wakes and
+        // brief mid-night phone checks that ended at session stop.
+        if pendingPhase == .awake && pendingPhaseStartDate > currentPhaseStartDate {
+            finalizeCurrentPhase(endDate: pendingPhaseStartDate, session: session)
+            currentPhaseStartDate = pendingPhaseStartDate
+            currentPhase = .awake
+        }
         finalizeCurrentPhase(endDate: .now, session: session)
         session.endDate = .now
         // Use first non-awake phase as onset for display (most accurate).
