@@ -49,6 +49,9 @@ struct SleepDetailView: View {
                 if !session.noiseSamples.isEmpty {
                     ambientNoiseCard
                 }
+                if !session.heartRateSamples.filter({ $0 > 0 }).isEmpty {
+                    heartRateCard
+                }
                 aiInsightCard
                 let sleepEvents = session.soundEventsArray.filter { !$0.type.isExternal }
                 let externalEvents = session.soundEventsArray.filter { $0.type.isExternal }
@@ -522,6 +525,71 @@ struct SleepDetailView: View {
             Circle().fill(color).frame(width: 8, height: 8)
             Text(label).font(.caption2).foregroundStyle(.secondary)
         }
+    }
+
+    // MARK: - Heart Rate Chart
+
+    private struct HRSample: Identifiable {
+        let id: Int
+        let time: Date
+        let bpm: Double
+    }
+
+    private var heartRateData: [HRSample] {
+        session.heartRateSamples.enumerated().compactMap { i, bpm in
+            guard bpm > 0 else { return nil }
+            return HRSample(id: i, time: session.startDate.addingTimeInterval(Double(i) * 60), bpm: bpm)
+        }
+    }
+
+    private var heartRateCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label("Herzfrequenz", systemImage: "heart.fill").font(.headline).foregroundStyle(.pink)
+
+            let data = heartRateData
+            let minBPM = (data.map(\.bpm).min() ?? 40) - 5
+            let maxBPM = (data.map(\.bpm).max() ?? 100) + 5
+
+            Chart(data) { sample in
+                LineMark(
+                    x: .value("Zeit", sample.time),
+                    y: .value("BPM", sample.bpm)
+                )
+                .foregroundStyle(.pink)
+                .interpolationMethod(.catmullRom)
+                AreaMark(
+                    x: .value("Zeit", sample.time),
+                    yStart: .value("Boden", minBPM),
+                    yEnd: .value("BPM", sample.bpm)
+                )
+                .foregroundStyle(LinearGradient(
+                    colors: [.pink.opacity(0.25), .pink.opacity(0.05)],
+                    startPoint: .top, endPoint: .bottom
+                ))
+                .interpolationMethod(.catmullRom)
+            }
+            .chartYScale(domain: minBPM...maxBPM)
+            .chartXAxis {
+                AxisMarks(values: .stride(by: .hour)) { _ in
+                    AxisGridLine()
+                    AxisValueLabel(format: .dateTime.hour(.defaultDigits(amPM: .omitted)).minute())
+                }
+            }
+            .chartYAxis {
+                AxisMarks(values: .automatic(desiredCount: 4)) { val in
+                    AxisGridLine().foregroundStyle(Color.pink.opacity(0.2))
+                    AxisValueLabel { Text("\(val.as(Int.self) ?? 0)").font(.caption2) }
+                }
+            }
+            .frame(height: 100)
+
+            Text("Quelle: Ballistokardiographie (Beschleunigungssensor) oder Apple Watch")
+                .font(.caption2).foregroundStyle(.secondary)
+        }
+        .padding()
+        .background(Color(.secondarySystemGroupedBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .shadow(color: Color.primary.opacity(0.06), radius: 10, x: 0, y: 2)
     }
 
     // MARK: - Sound Events

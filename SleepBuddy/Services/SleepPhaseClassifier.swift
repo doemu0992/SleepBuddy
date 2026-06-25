@@ -182,9 +182,11 @@ final class SleepPhaseClassifier {
             return (.rem, min(0.48 + irregularity * 0.35 + remConfBoost + hrREMBoost, 0.92))
         }
 
-        // 5b. HR strongly indicates REM even when audio signal is weak (Watch only — BCG too noisy)
-        if hasHR && !usingBCG && hrREM && remWindow && amp <= sleepAmplitudeMax && !hrvHigh {
-            return (.rem, 0.70)
+        // 5b. HR strongly indicates REM even when audio signal is weak.
+        // Watch gives 0.70 confidence; BCG gives 0.58 (less reliable but still useful).
+        if hasHR && hrREM && remWindow && amp <= sleepAmplitudeMax && !hrvHigh {
+            let conf: Double = usingBCG ? 0.58 * hrConfidenceScale : 0.70
+            return (.rem, conf)
         }
 
         // 6. Deep sleep outside REM window (relaxed — catches cases missed above)

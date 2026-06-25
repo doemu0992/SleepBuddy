@@ -36,6 +36,9 @@ final class SleepTrackingViewModel {
     private var noiseAccumulator: [Float] = []
     private var lastNoiseSampleDate = Date.distantPast
 
+    // BCG heart rate sampling: last known BCG HR, written once per minute
+    private var lastBCGSampleDate = Date.distantPast
+
     // Phase smoothing: commit after stability window.
     // With Apple Watch HR available, 60 s is sufficient (HR confirms the phase).
     // Without Watch, keep 90 s to avoid false transitions from audio noise.
@@ -80,6 +83,7 @@ final class SleepTrackingViewModel {
         soundEventService.reset()
         noiseAccumulator.removeAll()
         lastNoiseSampleDate = .distantPast
+        lastBCGSampleDate = .distantPast
 
         motionService.onFeaturesUpdated = { [weak self] motion in
             self?.latestMotionFeatures = motion
@@ -210,15 +214,14 @@ final class SleepTrackingViewModel {
         // Classification first (onset confirmation needs it)
         let result = classifier.classify(audio: audio, motion: motion)
 
-        // Sleep onset: only confirm when detector AND classifier agree user is asleep
+        // Sleep onset: set as soon as detector fires.
+        // We no longer require classifier agreement — the onset detector already
+        // uses both audio silence and motion stillness windows, so it's reliable.
+        // Requiring classifier agreement caused a chicken-and-egg problem where
+        // sleepOnsetDate was never set, preventing inREMWindow() from ever returning true.
         if !isSleepOnsetDetected && onsetDetector.update(audio: audio, motion: motion) {
-            if result.phase != .awake {
-                isSleepOnsetDetected = true
-                classifier.sleepOnsetDate = onsetDetector.sleepOnset
-            } else {
-                // Classifier still shows awake — reset onset detector window
-                onsetDetector.reset()
-            }
+            isSleepOnsetDetected = true
+            classifier.sleepOnsetDate = onsetDetector.sleepOnset
         }
 
         // Snoring — count via confirmed SoundEvents in onEventCaptured (not raw feature ticks).
@@ -252,6 +255,14 @@ final class SleepTrackingViewModel {
             session.noiseSamples.append(db)
             noiseAccumulator.removeAll()
             lastNoiseSampleDate = Date()
+        }
+
+        // BCG heart rate: store one sample per minute (0 = no data this minute)
+        if Date().timeIntervalSince(lastBCGSampleDate) >= 60, let session = currentSession {
+            let hr = liveBCGHeartRateBPM > 0 ? Double(liveBCGHeartRateBPM)
+                   : liveHeartRateBPM > 0 ? liveHeartRateBPM : 0
+            session.heartRateSamples.append(hr)
+            lastBCGSampleDate = Date()
         }
     }
 

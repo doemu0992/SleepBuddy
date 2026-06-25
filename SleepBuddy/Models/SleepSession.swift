@@ -26,6 +26,9 @@ final class SleepSession {
     // Ambient noise samples: one dB value per minute throughout the night
     var noiseSamples: [Double] = []
 
+    // BCG heart rate samples: one value per minute (0 = no data for that minute)
+    var heartRateSamples: [Double] = []
+
     // Subjective morning rating: 0 = not rated yet, 1–5 (1=terrible … 5=great)
     var subjectiveQuality: Int = 0
 
