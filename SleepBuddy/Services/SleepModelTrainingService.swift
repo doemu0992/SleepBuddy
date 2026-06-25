@@ -2,6 +2,7 @@ import CreateML
 import CoreML
 import Foundation
 import SwiftData
+import TabularData
 
 /// Trains a personal CoreML BoostedTree classifier from the user's accumulated TrainingSamples.
 /// Called once per night after session ends. Model is saved to Application Support and loaded
@@ -55,15 +56,15 @@ actor SleepModelTrainingService {
             try csv.write(to: csvURL, atomically: true, encoding: .utf8)
             defer { try? FileManager.default.removeItem(at: csvURL) }
 
-            let table = try MLDataTable(contentsOf: csvURL)
-            guard table.size > 0 else { return }
+            let dataFrame = try DataFrame(contentsOfCSVFile: csvURL)
+            guard dataFrame.rows.count > 0 else { return }
 
             var params = MLBoostedTreeClassifier.ModelParameters()
             params.maxDepth = 5
             params.maxIterations = 80
 
             let classifier = try MLBoostedTreeClassifier(
-                trainingData: table,
+                trainingData: dataFrame,
                 targetColumn: "phase",
                 parameters: params
             )
@@ -74,7 +75,7 @@ actor SleepModelTrainingService {
             try classifier.write(to: mlmodelURL)
             defer { try? FileManager.default.removeItem(at: mlmodelURL) }
 
-            let compiledTempURL = try MLModel.compileModel(at: mlmodelURL)
+            let compiledTempURL = try await MLModel.compileModel(at: mlmodelURL)
 
             let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             try FileManager.default.createDirectory(at: appSupport, withIntermediateDirectories: true)
