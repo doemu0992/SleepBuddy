@@ -160,9 +160,12 @@ final class SleepTrackingViewModel {
 
         finalizeCurrentPhase(endDate: .now, session: session)
         session.endDate = .now
-        // Prefer onset from detector; fall back to first non-awake phase if detector never fired
-        session.sleepOnsetDate = onsetDetector.sleepOnset
-            ?? session.phasesArray.first(where: { $0.phaseType != .awake })?.startDate
+        // Use first non-awake phase as onset for display (most accurate).
+        // classifier.sleepOnsetDate (set by detector during the night) is kept for
+        // historical REM-window calculations; it must fire early so REM windows open
+        // in time — but that early value is wrong for the "Einschlafen" latency display.
+        session.sleepOnsetDate = session.phasesArray.first(where: { $0.phaseType != .awake })?.startDate
+            ?? onsetDetector.sleepOnset
         session.alarmFiredDate = smartAlarm.alarmFiredDate
         session.sleepQualityScore = Double(SchlafindexView.score(for: session))
 
