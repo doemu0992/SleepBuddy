@@ -304,11 +304,11 @@ struct SleepDetailView: View {
         )
     }
 
-    @ViewBuilder
     private var chartTimeFmt: DateFormatter {
         let f = DateFormatter(); f.dateFormat = "HH:mm"; return f
     }
 
+    @ViewBuilder
     private var trackerTimeRow: some View {
         HStack {
             Label(chartTimeFmt.string(from: session.startDate), systemImage: "play.fill")
@@ -324,6 +324,7 @@ struct SleepDetailView: View {
         }
     }
 
+    @ViewBuilder
     private var hypnogramCard: some View {
         if !session.phasesArray.isEmpty {
             VStack(alignment: .leading, spacing: 12) {
