@@ -7,6 +7,7 @@ struct HomeView: View {
     @Query(sort: \SleepSession.startDate, order: .reverse) private var sessions: [SleepSession]
 
     @State private var viewModel = HomeViewModel()
+    @Query private var trainingSamples: [TrainingSample]
     @State private var trackingViewModel = SleepTrackingViewModel()
     @State private var showAlarmSetup = false
 
@@ -33,7 +34,7 @@ struct HomeView: View {
                         if sessions.filter({ !$0.isActive }).count >= 3 {
                             WochenMusterKarte(sessions: Array(sessions.filter({ !$0.isActive }).prefix(14)))
                         }
-                        if trackingViewModel.classifier.sampleCount > 0 {
+                        if trainingSamples.count > 0 || trackingViewModel.classifier.sampleCount > 0 {
                             learningStatusCard
                         }
                     }
@@ -242,7 +243,7 @@ struct HomeView: View {
     // MARK: - Learning status
 
     private var learningStatusCard: some View {
-        let count = trackingViewModel.classifier.sampleCount
+        let count = max(trainingSamples.count, trackingViewModel.classifier.sampleCount)
         let knnActive = count >= 40
         let coreMLActive = SleepModelTrainingService.isTrainedModelAvailable
 
