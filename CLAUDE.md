@@ -178,12 +178,47 @@ NavigationStack (via NavigationLink aus StatistikView)
     ├── SchlafindexView    → Score-Badge + Erklärung
     ├── hypnogramSection   → Balken-Hypnogramm (identisch zu StatistikView)
     ├── verlaufChart       → Linechart mit AreaMark + Gradient
-    ├── soundEventsSection → Geräusch-Ereignisse mit Typ und Uhrzeit
+    ├── soundEventsSection → Geräusch-Ereignisse mit Play-Button + Korrektur-Button
     ├── noiseSection       → Umgebungslautstärke als Wellen-Chart (LineMark + AreaMark, Farbgradient)
     ├── heartRateCard      → Herzfrequenz-Verlauf (nur wenn heartRateSamples vorhanden)
     ├── phaseListSection   → Alle Phasen als Timeline-Liste
     └── morgenBewertung    → Subj. Qualitäts-Rating 1–5
 ```
+
+**Sound-Korrektur-System (`SoundCorrectionSheet`):**
+
+Jedes Sound-Event hat einen ✎-Button der `SoundCorrectionSheet` öffnet:
+- Play/Stop-Button für Audio-Vorschau
+- „Korrekt ✓"-Button (bestätigt Typ, grün)
+- Zwei Sektionen: „Als Schlafgeräusch zuordnen" + „Als Umgebungsgeräusch zuordnen"
+- Checkmark auf aktuellem Typ; Antippen setzt neuen Typ
+- Footer: „Korrekturen werden gespeichert und verbessern die Erkennung dauerhaft."
+- `.presentationDetents([.large])`
+
+```swift
+// Feedback wird inline in UserDefaults gespeichert (kein externer Service nötig):
+// soundFeedback.<rawValue>.confirmed / .rejected / .missed
+// → SoundClassificationService.adjustedThreshold() liest diese Keys
+// → Thresholds angepasst ±10% nach ≥ 5 Samples
+private func applySoundCorrection(event: SleepSoundEvent, confirmed: Bool, newType: SoundEventType?) {
+    let ud = UserDefaults.standard
+    if confirmed {
+        ud.set(ud.integer(forKey: "soundFeedback.\(event.type.rawValue).confirmed") + 1,
+               forKey: "soundFeedback.\(event.type.rawValue).confirmed")
+        event.isUserCorrected = true
+    } else if let newType {
+        // rejected für alten Typ, missed für neuen Typ
+        ud.set(..., forKey: "soundFeedback.\(orig.rawValue).rejected")
+        ud.set(..., forKey: "soundFeedback.\(newType.rawValue).missed")
+        if event.originalTypeRaw == nil { event.originalTypeRaw = event.typeRaw }
+        event.typeRaw = newType.rawValue
+        event.isUserCorrected = true
+    }
+    try? modelContext.save()
+}
+```
+
+> **Kein `SoundFeedbackService` als separater Service** — Feedback-Logik ist inline in `SleepDetailView` und `SoundClassificationService` um Xcode-Target-Abhängigkeiten zu vermeiden (neue Swift-Dateien müssen manuell zum Build-Target hinzugefügt werden).
 
 **Wichtige Funktionen:**
 
@@ -592,6 +627,45 @@ session.noiseSamples.append(db)
 > ], startPoint: .bottom, endPoint: .top)
 > ```
 
+### Geräuschkurve — Testdaten (`generateNoiseCurve`)
+
+**Datei:** `Services/SampleDataService.swift`
+
+`generateNoiseCurve(minutes:baseDB:)` erzeugt ein `[Double]`-Array mit einem dB-Wert pro Minute — entspricht dem Format von `SleepSession.noiseSamples`.
+
+```swift
+// Flache Basiskurve: baseDB ± 3 dB (zufälliges Rauschen)
+private func generateNoiseCurve(minutes: Int, baseDB: Double) -> [Double] {
+    (0..<minutes).map { _ in baseDB + Double.random(in: -3...3) }
+}
+```
+
+> **Kritisch:** `generateNoiseCurve` alleine erzeugt eine **flache Linie** ohne Ereignis-Peaks — sieht unrealistisch aus und zeigt keine Korrelation mit den Sound-Events.
+
+**Pflicht: Event-Spitzen überlagern (bindend für alle Testnächte):**
+
+Nach `generateNoiseCurve` immer einen Spike-Injection-Pass über alle Events fahren:
+
+```swift
+var noise = generateNoiseCurve(minutes: mins, baseDB: 27)
+for (_, offsetH, durSec, db, _) in events {
+    let center = Int(offsetH * 60)          // Minute des Events
+    let halfW  = max(1, Int(durSec / 60) + 1)  // halbe Fensterbreite in Minuten
+    for i in max(0, center - halfW)...min(mins - 1, center + halfW) {
+        noise[i] = min(90, max(noise[i], db - 4 + Double.random(in: -2...2)))
+    }
+}
+session.noiseSamples = noise
+```
+
+| Parameter | Formel | Bedeutung |
+|-----------|--------|-----------|
+| `center` | `offsetH * 60` | Minute an der das Event stattfindet |
+| `halfW` | `max(1, durSec/60 + 1)` | Breite des Peaks (mindestens 2 Minuten) |
+| Peak-Höhe | `db - 4 ± 2` | Leicht unter dem Event-dB-Wert + Zufallsvariation |
+
+**Resultat:** Noise-Chart zeigt deutliche Peaks genau dort, wo Sound-Events aufgezeichnet wurden — konsistent mit dem Geräusch-Events-Abschnitt in `SleepDetailView`.
+
 ---
 
 ### Sound Event Detection
@@ -626,9 +700,14 @@ AudioFeatures (8 Hz) → tick(amplitude:snoringScore:speechLikelihood:)
 
 | Typ | Mindestdauer |
 |-----|-------------|
-| Husten | 0.5s |
-| Zähneknirschen (Bruxismus) | 0.8s |
-| Alle anderen | 2.5s |
+| Husten, Keuchen | 0.5s |
+| Zähneknirschen (Bruxismus), Lachen | 0.8s |
+| Niesen, Klopfen, Glasbruch | 0.3s |
+| Türklingel, Telefon, Hundebellen, Katze, Vogel | 0.5s |
+| Alarm, Babyweinen | 0.8s |
+| Donner/Regen, Verkehr, Wind | 1.0s |
+| Stimmengewirr, Wasser | 1.5s |
+| Alle anderen | 2.0s |
 
 **Event-Klassifikation:**
 1. Aktiver ML-Hint vorhanden (< 5s alt) → ML-Typ übernehmen
@@ -647,28 +726,50 @@ Nutzt `SoundAnalysis.SNClassifySoundRequest` (iOS 15+) mit Apple's eingebautem `
 **Einstellungen:**
 ```swift
 request.windowDuration = CMTimeMakeWithSeconds(1.5, preferredTimescale: 44100)
-request.overlapFactor = 0.5
-// CPU-Schonung: nur jeden 4. Buffer analysieren (analyzeEveryN = 4)
+request.overlapFactor = 0.75  // mehr Overlap = häufigere Ergebnisse = weniger verpasste Events
+// Jeder Buffer wird analysiert (analyzeEveryN = 1) für maximale Nacht-Erkennungsrate
 ```
 
-**Erkannte Klassen und Mindest-Konfidenz:**
+**Erkannte Klassen und Mindest-Konfidenz (90+ ML-Identifier → 24 Typen, Best-Match-Logik):**
 
-| ML-Identifier | `SoundEventType` | Min. Konfidenz | Kategorie |
-|--------------|-----------------|----------------|-----------|
-| `snoring` | `.snoring` | 0.50 | Persönlich |
-| `speech` | `.talking` | 0.55 | Persönlich |
-| `cough` / `coughing` | `.coughing` | 0.50 | Persönlich |
-| `teeth_chattering` / `teeth_grinding` | `.bruxism` | 0.40 | Persönlich |
-| `dog` / `dog_barking` / `barking` | `.dogBarking` | 0.50–0.55 | Extern |
-| `music` / `musical_instrument` | `.music` | 0.60 | Extern |
-| `alarm_clock` / `alarm` / `smoke_detector` / `siren` | `.alarm` | 0.55 | Extern |
-| `car_horn` / `honking` / `vehicle` | `.traffic` | 0.50–0.60 | Extern |
-| `baby_cry` / `crying` / `infant_cry` | `.baby` | 0.55 | Extern |
+| ML-Identifier (Auswahl) | `SoundEventType` | Min. Konfidenz | Kategorie |
+|--------------------------|-----------------|----------------|-----------|
+| `snoring`, `snoring_breathing` | `.snoring` | 0.40 | Persönlich |
+| `speech` | `.talking` | 0.45 | Persönlich |
+| `cough`, `coughing` | `.coughing` | 0.40 | Persönlich |
+| `teeth_chattering`, `teeth_grinding` | `.bruxism` | 0.35 | Persönlich |
+| `sneezing`, `sneeze` | `.sneezing` | 0.45 | Persönlich |
+| `breathing_heavily`, `gasping`, `choking` | `.gasping` | 0.40–0.50 | Persönlich |
+| `laughing`, `laughter`, `giggling` | `.laughing` | 0.45–0.50 | Persönlich |
+| `dog`, `dog_barking`, `barking` | `.dogBarking` | 0.40 | Extern |
+| `cat`, `meow`, `purring` | `.cat` | 0.40–0.45 | Extern |
+| `bird`, `bird_song`, `chirping` | `.bird` | 0.45 | Extern |
+| `music`, `musical_instrument`, `singing` | `.music` | **0.65** (AC-Schutz) | Extern |
+| `alarm_clock`, `siren`, `smoke_detector` | `.alarm` | 0.50 | Extern |
+| `doorbell`, `chime` | `.doorbell` | 0.45–0.50 | Extern |
+| `telephone`, `phone_ringing`, `ringtone` | `.phone` | 0.50 | Extern |
+| `car_horn`, `honking`, `vehicle`, `engine` | `.traffic` | 0.50–0.60 | Extern |
+| `baby_cry`, `crying`, `infant_cry` | `.baby` | 0.45 | Extern |
+| `thunder`, `thunderstorm`, `rain` | `.thunder` | 0.50–0.55 | Extern |
+| `wind`, `wind_noise`, `gust_of_wind` | `.wind` | 0.50 | Extern |
+| `knock`, `door_knock`, `door` | `.knock` | 0.40–0.50 | Extern |
+| `glass_breaking`, `glass_break`, `shatter` | `.glassBreak` | 0.35–0.45 | Extern |
+| `crowd`, `applause`, `chatter` | `.crowd` | 0.50–0.55 | Extern |
+| `water`, `running_water`, `toilet_flush` | `.water` | 0.50 | Extern |
 
-**ML-Primär-Trigger** (für leise Sounds die Amplitude-Schwelle nie überschreiten):
+> **AC/Klimaanlage-Schutz:** Musik-Threshold auf 0.65 — verhindert Fehlklassifikation von Dauergeräuschen als Musik. Externe Umgebungsgeräusche müssen zusätzlich die Amplitude-Schwelle überschreiten (kein ML-Primary-Bypass für externe Typen).
+
+> **Best-Match-Logik:** Alle Identifier werden ausgewertet, der höchste Konfidenz-Treffer über Threshold gewinnt — kein First-Match.
+
+> **Adaptive Thresholds:** `adjustedThreshold(for:base:)` liest UserDefaults-Feedback (confirmed/rejected/missed) und passt Schwellen ±10% an (ab 5 Samples, min 0.20, max 0.90).
+
+**ML-Primär-Trigger** (leise Sounds die Amplitude-Schwelle nie überschreiten — nur persönliche Typen):
 ```swift
-// Bruxismus und Husten: hohe ML-Konfidenz → Event direkt starten (kein Tick-Counter)
-let isMLPrimary = type == .bruxism || type == .coughing
+// Nur quiet personal sounds dürfen Amplitude-Gating bypassen
+let isMLPrimary = type == .bruxism || type == .coughing || type == .sneezing
+    || type == .knock || type == .glassBreak || type == .snoring
+    || type == .gasping || type == .laughing
+// Externe Typen (music, traffic, etc.) müssen Amplitude-Schwelle selbst überschreiten
 if isMLPrimary && confidence >= 0.65 && eventStartDate == nil && !isInCooldown {
     eventStartDate = Date()
     pendingEventType = type
@@ -684,18 +785,33 @@ if isMLPrimary && confidence >= 0.65 && eventStartDate == nil && !isInCooldown {
 
 **Datei:** `Models/SleepSoundEvent.swift`
 
+24 Typen in zwei Kategorien:
+
 | Typ | Icon | Farbe | `isExternal` |
 |-----|------|-------|--------------|
 | `.snoring` | `waveform` | `.orange` | false |
 | `.talking` | `bubble.left.fill` | `.blue` | false |
 | `.coughing` | `lungs.fill` | `.teal` | false |
 | `.bruxism` | `mouth.fill` | `.pink` | false |
+| `.sneezing` | `allergens` | `.yellow` | false |
+| `.gasping` | `waveform.path.ecg` | `.purple` | false |
+| `.laughing` | `face.smiling.fill` | `.green` | false |
 | `.other` | `speaker.wave.2.fill` | `.secondary` | false |
 | `.dogBarking` | `pawprint.fill` | `.brown` | **true** |
+| `.cat` | `pawprint` | `.orange` | **true** |
+| `.bird` | `bird.fill` | `.teal` | **true** |
 | `.music` | `music.note` | `.indigo` | **true** |
 | `.alarm` | `bell.fill` | `.red` | **true** |
+| `.doorbell` | `bell.and.waves.left.and.right.fill` | `.yellow` | **true** |
+| `.phone` | `phone.fill` | `.green` | **true** |
 | `.traffic` | `car.fill` | `.gray` | **true** |
 | `.baby` | `figure.and.child.holdinghands` | `.mint` | **true** |
+| `.thunder` | `cloud.bolt.fill` | `.blue` | **true** |
+| `.wind` | `wind` | `.cyan` | **true** |
+| `.knock` | `hand.raised.fill` | `.brown` | **true** |
+| `.glassBreak` | `sparkles` | `.red` | **true** |
+| `.crowd` | `person.3.fill` | `.purple` | **true** |
+| `.water` | `drop.fill` | `.blue` | **true** |
 
 **SwiftData-Modell `SleepSoundEvent`:**
 
@@ -707,6 +823,8 @@ if isMLPrimary && confidence >= 0.65 && eventStartDate == nil && !isInCooldown {
 | `iCloudFileName` | `String?` | Dateiname in `SleepSounds/` (nil wenn deaktiviert) |
 | `decibelLevel` | `Double` | Mittlere dB-Lautstärke des Events (0–120) |
 | `confidenceScore` | `Double` | ML-Konfidenz (0.0 = regelbasiert) |
+| `isUserCorrected` | `Bool` | `true` nach manueller Korrektur durch Nutzer |
+| `originalTypeRaw` | `String?` | Ursprünglicher Typ vor Nutzer-Korrektur |
 | `session` | `SleepSession?` | Inverse Relation (cascade delete) |
 
 **iCloud-Fallback:** Wenn iCloud nicht verfügbar → lokal in `Documents/SleepSounds/`, Dateiname mit Präfix `local://`.
@@ -1052,9 +1170,16 @@ List
 
 ```
 List
-├── Section "Aufzeichnung"  → Schlafgeräusche Toggle, Partnermodus Toggle
+├── Section "Aufzeichnung"  → Schlafgeräusche Toggle, Partnermodus Toggle, Mikrofon testen, iCloud testen
 ├── Section "Partnermodus"  → Position-Picker (nur wenn aktiv)
-├── Section "Daten"         → Sync-Button, Alle Daten löschen (confirmationDialog)
+├── Section "Daten"
+│   ├── Mit PainDiary & Health synchronisieren
+│   ├── Schlafdaten als CSV exportieren
+│   ├── Beispielnacht hinzufügen          (cycles Night 1→2→3)
+│   ├── Alle 3 Beispielnächte hinzufügen
+│   ├── Langzeitverlauf-Testdaten (6 Monate)   ← ~60 Nächte für Filter-Tests
+│   ├── Alle Testdaten löschen            (confirmationDialog, trash.slash)
+│   └── Alle Schlafdaten löschen          (confirmationDialog, trash)
 └── Section "App"           → Versionsverlauf, Onboarding-Reset (.orange), Version
 ```
 
@@ -1428,6 +1553,24 @@ classifier.correctSamples(from: phase.startDate, to: phase.endDate,
 
 > Footer im Sheet: "Korrekturen werden gespeichert und verbessern die KI dauerhaft." — dieser Text muss immer sichtbar bleiben (erklärt dem Nutzer den Zweck).
 
+### SoundCorrectionSheet
+
+**Datei:** `Views/SleepDetailView.swift` (struct am Ende der Datei)
+
+Öffnet sich über den ✎-Button neben jedem Sound-Event in `soundEventsSection`. Dient dem Nutzer-Feedback für die ML-Geräuscherkennung.
+
+**Inhalt:**
+- Play/Stop-Button für Audio-Vorschau des Clips
+- „Korrekt ✓"-Button (grüne Capsule) — bestätigt aktuellen Typ
+- Section „Als Schlafgeräusch zuordnen" — alle `isExternal == false` Typen
+- Section „Als Umgebungsgeräusch zuordnen" — alle `isExternal == true` Typen
+- Checkmark auf aktuellem Typ; korrigierter Typ wird sofort gespeichert
+- `.presentationDetents([.large])`
+
+> Footer: „Korrekturen werden gespeichert und verbessern die Erkennung dauerhaft." — immer sichtbar lassen.
+
+**Feedback-Speicherung:** UserDefaults-Keys `soundFeedback.<rawValue>.confirmed/rejected/missed` — inline in `applySoundCorrection()`, kein separater Service.
+
 ---
 
 ### SharedProfil
@@ -1445,6 +1588,55 @@ Singleton — liest/schreibt Profil-Daten aus dem App Group UserDefaults (`group
 | `anzeigeName` | computed: `"\(vorname) \(nachname)"` |
 
 > `ICloudSettingsSync` synchronisiert diese Keys mit `ag_`-Präfix über iCloud. `SharedProfil` liest/schreibt immer direkt ohne Präfix.
+
+---
+
+## SampleDataService
+
+**Datei:** `Services/SampleDataService.swift`
+
+Erzeugt realistische Testdaten — ausschließlich für Debug/Entwicklung, nie in Production-Flows aufrufen.
+
+### Öffentliche Einstiegspunkte
+
+| Funktion | Beschreibung |
+|----------|-------------|
+| `insertSampleNight(into:)` | Fügt eine Nacht ein, cycling Night 1→2→3 nach existierender Session-Anzahl |
+| `insertSampleHistory(into:)` | ~60 Nächte über 6 Monate (`stride(from: 180, through: 1, by: -3)`) für 30T/3M/6M-Filter |
+
+### Drei Themed Nights
+
+| Nacht | Inhalt | offsetDays |
+|-------|--------|------------|
+| Night 1 | Persönliche Schlafgeräusche (Schnarchen ×6, Sprechen, Husten, Bruxismus, Keuchen, Niesen, Lachen) | -2 |
+| Night 2 | Externe Umgebungsgeräusche (alle externen Typen, Lautstärke-Spitzen im Noise-Chart) | -1 |
+| Night 3 | Alle 24 Typen je einmal, gleichmäßig verteilt | -3 |
+
+### Kritische Regeln (bindend)
+
+> **`endDate` immer aus `archTotal()` ableiten** — niemals hardcoden. Sonst entstehen Lücken oder Überläufe im Schlafverlauf-Chart.
+
+```swift
+let arch: [(SleepPhaseType, Double)] = [(.awake, 12), (.light, 35), ...]
+let start = makeDate(today: today, offsetDays: -2, hour: 23, minute: 0)
+let end   = start.addingTimeInterval(archTotal(arch) * 60)  // IMMER so
+```
+
+> **Noise-Spitzen aus Events ableiten** — `generateNoiseCurve` erzeugt eine flache Basiskurve. Alle drei Nächte fügen danach Peaks an den Event-Timestamps ein:
+
+```swift
+for (_, offsetH, durSec, db, _) in events {
+    let center = Int(offsetH * 60)
+    let halfW  = max(1, Int(durSec / 60) + 1)
+    for i in max(0, center - halfW)...min(mins - 1, center + halfW) {
+        noise[i] = min(90, max(noise[i], db - 4 + Double.random(in: -2...2)))
+    }
+}
+```
+
+### Audio-Clips (WAV-Synthese)
+
+Testdaten erzeugen echte WAV-Dateien mit typ-spezifischen Frequenzen/Harmonics für den Play-Button in `SleepDetailView`. History-Nächte haben keine Audio-Clips (`generateAudio: []`) — schnellere Insertion.
 
 ---
 
