@@ -28,9 +28,12 @@ struct SleepTrackingView: View {
         }
         .alert("Aufzeichnung beenden?", isPresented: $showStopConfirmation) {
             Button("Beenden", role: .destructive) {
-                Task { await viewModel.stopTracking(); dismiss() }
+                Task { await viewModel.stopTracking() }
             }
             Button("Weiter schlafen", role: .cancel) {}
+        }
+        .onChange(of: viewModel.isTracking) { _, isTracking in
+            if !isTracking { dismiss() }
         }
         .alert("Mikrofon-Zugriff verweigert", isPresented: $showMicDeniedAlert) {
             Button("Einstellungen öffnen") {
@@ -50,7 +53,6 @@ struct SleepTrackingView: View {
         } message: {
             Text(viewModel.errorMessage ?? "")
         }
-        .task { await viewModel.requestHealthKitAccess() }
     }
 
     // MARK: - Start screen
@@ -240,7 +242,7 @@ struct SleepTrackingView: View {
 
             VStack(spacing: 12) {
                 Button {
-                    Task { await viewModel.dismissAlarm(); dismiss() }
+                    Task { await viewModel.dismissAlarm() }
                 } label: {
                     Text("Aufwachen")
                         .font(.title2.bold()).foregroundStyle(.white)

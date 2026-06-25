@@ -195,49 +195,56 @@ final class SleepTrackingViewModel {
             classifier.flushSessionBuffer(to: context)
         }
 
-        // Feature 4: retroactive k-NN calibration via Apple Watch sleep phases
-        if healthKit.isAuthorized, let context = modelContext {
-            let watchPhases = await healthKit.readAppleWatchSleepPhases(
-                from: session.startDate, to: session.endDate ?? .now
-            )
-            if !watchPhases.isEmpty {
-                classifier.applyWatchCalibration(watchPhases, context: context)
-            }
-        }
-
         classifier.reset()
         try? modelContext?.save()
 
-        // Retrain CoreML model in background with session quality weighting
-        let samplesToTrain = classifier.onlineClassifier.allSamples
-        if samplesToTrain.count >= 40, let ctx = modelContext {
-            let descriptor = FetchDescriptor<SleepSession>(
-                predicate: #Predicate { $0.endDate != nil }
-            )
-            let allSessions = (try? ctx.fetch(descriptor)) ?? []
-            let qualityWindows: [SleepModelTrainingService.QualityWindow] = allSessions.compactMap { s in
-                guard let end = s.endDate else { return nil }
-                return SleepModelTrainingService.QualityWindow(
-                    start: s.startDate, end: end, quality: s.subjectiveQuality
-                )
-            }
-            Task.detached(priority: .background) {
-                await SleepModelTrainingService.shared.train(
-                    samples: samplesToTrain,
-                    qualityWindows: qualityWindows
-                )
-            }
-        }
-
-        if healthKit.isAuthorized {
-            try? await healthKit.saveSleepSession(session)
-        }
-
-        PainDiaryVerknuepfungView.exportiereSession(session)
-
+        // UI can dismiss immediately — set isTracking = false now
         isTracking = false
         SleepBuddyApp.isTrackingActive = false
-        await insights.generateInsights(for: session)
+
+        // Slow work (HealthKit, Watch calibration, CoreML retraining, insights)
+        // runs in a separate Task so the tracking screen closes without waiting.
+        Task { [weak self] in
+            guard let self else { return }
+
+            // Feature 4: retroactive k-NN calibration via Apple Watch sleep phases
+            if healthKit.isAuthorized, let context = modelContext {
+                let watchPhases = await healthKit.readAppleWatchSleepPhases(
+                    from: session.startDate, to: session.endDate ?? .now
+                )
+                if !watchPhases.isEmpty {
+                    classifier.applyWatchCalibration(watchPhases, context: context)
+                }
+            }
+
+            // Retrain CoreML model in background with session quality weighting
+            let samplesToTrain = classifier.onlineClassifier.allSamples
+            if samplesToTrain.count >= 40, let ctx = modelContext {
+                let descriptor = FetchDescriptor<SleepSession>(
+                    predicate: #Predicate { $0.endDate != nil }
+                )
+                let allSessions = (try? ctx.fetch(descriptor)) ?? []
+                let qualityWindows: [SleepModelTrainingService.QualityWindow] = allSessions.compactMap { s in
+                    guard let end = s.endDate else { return nil }
+                    return SleepModelTrainingService.QualityWindow(
+                        start: s.startDate, end: end, quality: s.subjectiveQuality
+                    )
+                }
+                Task.detached(priority: .background) {
+                    await SleepModelTrainingService.shared.train(
+                        samples: samplesToTrain,
+                        qualityWindows: qualityWindows
+                    )
+                }
+            }
+
+            if healthKit.isAuthorized {
+                try? await healthKit.saveSleepSession(session)
+            }
+
+            PainDiaryVerknuepfungView.exportiereSession(session)
+            await insights.generateInsights(for: session)
+        }
     }
 
     /// User taps "Aufwachen" when smart alarm is ringing.

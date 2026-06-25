@@ -16,7 +16,10 @@ final class MLSleepClassifier {
     private var retrainObserver: NSObjectProtocol?
 
     init() {
-        loadCoreMLModel()
+        // Load CoreML model on background thread — avoid blocking main thread at startup
+        Task.detached(priority: .utility) { [weak self] in
+            self?.loadCoreMLModel()
+        }
         // Reload model whenever SleepModelTrainingService finishes a new training run
         retrainObserver = NotificationCenter.default.addObserver(
             forName: .sleepModelRetrained,
