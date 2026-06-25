@@ -264,36 +264,34 @@ struct SleepDetailView: View {
         let depth: Double  // 0.15=wach, 1=leicht, 2=rem, 3=tief
     }
 
+    private func hypnoDepth(_ type: SleepPhaseType) -> Double {
+        switch type {
+        case .awake: return 0.5   // visible ~15% of chart height
+        case .light: return 1.0
+        case .rem:   return 2.0
+        case .deep:  return 3.0
+        }
+    }
+
     private var hypnoData: [HypnoPoint] {
         let sorted = session.phasesArray.sorted { $0.startDate < $1.startDate }
         var points: [HypnoPoint] = []
         for phase in sorted {
-            let depth: Double = switch phase.phaseType {
-            case .awake: 0.15
-            case .light: 1.0
-            case .rem:   2.0
-            case .deep:  3.0
-            }
-            points.append(HypnoPoint(id: phase.startDate, time: phase.startDate, depth: depth))
+            points.append(HypnoPoint(id: phase.startDate, time: phase.startDate, depth: hypnoDepth(phase.phaseType)))
         }
         if let last = sorted.last {
-            let depth: Double = switch last.phaseType {
-            case .awake: 0.15
-            case .light: 1.0
-            case .rem:   2.0
-            case .deep:  3.0
-            }
-            points.append(HypnoPoint(id: last.endDate, time: last.endDate, depth: depth))
+            points.append(HypnoPoint(id: last.endDate, time: last.endDate, depth: hypnoDepth(last.phaseType)))
         }
         return points
     }
 
-    // Gradient that colors the wave line/area by depth (bottom=orange/awake → top=purple/deep)
-    // Y domain is 0...3.3, threshold positions: awake≈0.15, light=1, rem=2, deep=3
+    // Gradient colors the wave line by Y position: orange(awake) → lightblue → pink → purple(deep)
+    // Y domain 0...3.3: awake=0.5 (15%), light=1.0 (30%), rem=2.0 (61%), deep=3.0 (91%)
     private var hypnoLineGradient: LinearGradient {
         LinearGradient(
             stops: [
                 .init(color: SleepPhaseType.awake.color.opacity(0.9), location: 0.0),
+                .init(color: SleepPhaseType.awake.color.opacity(0.9), location: 0.15),
                 .init(color: SleepPhaseType.light.color.opacity(0.9), location: 0.30),
                 .init(color: SleepPhaseType.rem.color.opacity(0.9),   location: 0.61),
                 .init(color: SleepPhaseType.deep.color.opacity(0.9),  location: 0.91),
@@ -335,12 +333,12 @@ struct SleepDetailView: View {
                 }
                 .chartYScale(domain: 0...3.3)
                 .chartYAxis {
-                    AxisMarks(values: [0.15, 1.0, 2.0, 3.0]) { val in
+                    AxisMarks(values: [0.5, 1.0, 2.0, 3.0]) { val in
                         AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5, dash: [4]))
                             .foregroundStyle(Color.secondary.opacity(0.3))
                         AxisValueLabel {
                             let v = val.as(Double.self) ?? 0
-                            if v < 0.5 {
+                            if v < 0.75 {
                                 Text("Wach").font(.caption2).foregroundStyle(SleepPhaseType.awake.color)
                             } else if v < 1.5 {
                                 Text("Leicht").font(.caption2).foregroundStyle(SleepPhaseType.light.color)
