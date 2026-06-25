@@ -28,11 +28,18 @@ actor SleepModelTrainingService {
         return FileManager.default.fileExists(atPath: url.path)
     }
 
+    struct QualityWindow {
+        let start: Date
+        let end: Date
+        let quality: Int  // 1–5, 0 = unrated
+    }
+
     // MARK: - Training
 
     /// Trains a BoostedTreeClassifier on the given samples and saves the compiled model.
-    /// Requires at least 40 samples with at least 2 distinct phase labels.
-    func train(samples: [TrainingSample]) async {
+    /// qualityWindows: session time ranges + subjective rating for sample weighting.
+    /// Weight table: 5★→3×, 4★→2×, 3★→1×, 2★→1×, 1★→excluded, 0→1×
+    func train(samples: [TrainingSample], qualityWindows: [QualityWindow] = []) async {
         guard !isTraining, samples.count >= 40 else { return }
         let labels = Set(samples.map(\.label))
         guard labels.count >= 2 else { return }
@@ -41,33 +48,28 @@ actor SleepModelTrainingService {
         defer { isTraining = false }
 
         do {
-            // 1. Write CSV
             let tempDir = FileManager.default.temporaryDirectory
             let csvURL = tempDir.appendingPathComponent("sleep_train_\(Int(Date().timeIntervalSince1970)).csv")
-            let csv = buildCSV(from: samples)
+            let csv = buildWeightedCSV(from: samples, qualityWindows: qualityWindows)
+            guard !csv.isEmpty else { return }
             try csv.write(to: csvURL, atomically: true, encoding: .utf8)
             defer { try? FileManager.default.removeItem(at: csvURL) }
 
-            // 2. Build MLDataTable
             let table = try MLDataTable(contentsOf: csvURL)
+            guard table.size > 0 else { return }
 
-            // 3. Train classifier — user-corrected samples are duplicated 3× to match k-NN weighting
-            let weightedTable = weightedTable(from: samples, baseTable: table)
             var params = MLBoostedTreeClassifier.ModelParameters()
             params.maxDepth = 5
             params.maxIterations = 80
 
             let classifier = try MLBoostedTreeClassifier(
-                trainingData: weightedTable,
+                trainingData: table,
                 targetColumn: "phase",
                 parameters: params
             )
 
-            // Capture training accuracy before actor isolation issues
-            let accuracy = classifier.trainingMetrics.classificationError
-            lastTrainingAccuracy = 1.0 - accuracy
+            lastTrainingAccuracy = 1.0 - classifier.trainingMetrics.classificationError
 
-            // 4. Write .mlmodel → compile → move to ApplicationSupport
             let mlmodelURL = tempDir.appendingPathComponent("SleepPhaseClassifier_\(Int(Date().timeIntervalSince1970)).mlmodel")
             try classifier.write(to: mlmodelURL)
             defer { try? FileManager.default.removeItem(at: mlmodelURL) }
@@ -85,53 +87,46 @@ actor SleepModelTrainingService {
 
             lastTrainingDate = Date()
 
-            // Notify MLSleepClassifier to reload on next session
             await MainActor.run {
                 NotificationCenter.default.post(name: .sleepModelRetrained, object: nil)
             }
 
         } catch {
-            // Training failure is non-critical — k-NN continues working
+            // Non-critical — k-NN continues working
         }
     }
 
-    // MARK: - CSV Builder
+    // MARK: - Weighted CSV Builder
 
-    private func buildCSV(from samples: [TrainingSample]) -> String {
-        var lines = ["averageAmplitude,amplitudeVariance,breathingRateBPM,breathingRegularity,movementIntensity,snoringIntensity,phase"]
+    /// Builds a CSV with rows duplicated according to both subjective quality and isUserCorrected.
+    /// Quality weights: 5★→3×, 4★→2×, 3★→1×, 2★→1×, 1★→excluded, 0→1×
+    /// User-corrected samples get an extra copy on top of quality weight.
+    private func buildWeightedCSV(from samples: [TrainingSample], qualityWindows: [QualityWindow]) -> String {
+        let header = "averageAmplitude,amplitudeVariance,breathingRateBPM,breathingRegularity,movementIntensity,snoringIntensity,phase"
+        var lines = [header]
+
         for s in samples {
+            let quality = qualityWindows.first(where: { s.timestamp >= $0.start && s.timestamp <= $0.end })?.quality ?? 0
+            // Exclude 1-star nights — classifier was probably wrong on these
+            if quality == 1 { continue }
+
+            let baseMultiplier: Int
+            switch quality {
+            case 5: baseMultiplier = 3
+            case 4: baseMultiplier = 2
+            default: baseMultiplier = 1
+            }
+            // User-manually-corrected samples get +1 extra copy on top
+            let copies = s.isUserCorrected ? baseMultiplier + 1 : baseMultiplier
+
             let row = "\(s.averageAmplitude),\(s.amplitudeVariance),\(s.breathingRateBPM),\(s.breathingRegularity),\(s.movementIntensity),\(s.snoringIntensity),\(s.label)"
-            lines.append(row)
+            for _ in 0..<copies { lines.append(row) }
         }
+
         return lines.joined(separator: "\n")
     }
-
-    /// Duplicates user-corrected samples 3× to match the k-NN correctedWeight of 3.0.
-    private func weightedTable(from samples: [TrainingSample], baseTable: MLDataTable) -> MLDataTable {
-        let correctedSamples = samples.filter(\.isUserCorrected)
-        guard !correctedSamples.isEmpty else { return baseTable }
-
-        // Build extra rows CSV for corrected samples (2 extra copies = 3× total)
-        var extras: [String] = []
-        for s in correctedSamples {
-            let row = "\(s.averageAmplitude),\(s.amplitudeVariance),\(s.breathingRateBPM),\(s.breathingRegularity),\(s.movementIntensity),\(s.snoringIntensity),\(s.label)"
-            extras.append(row)
-            extras.append(row)
-        }
-        guard !extras.isEmpty else { return baseTable }
-
-        let tempDir = FileManager.default.temporaryDirectory
-        let extraCSVURL = tempDir.appendingPathComponent("sleep_extra_\(Int(Date().timeIntervalSince1970)).csv")
-        let header = "averageAmplitude,amplitudeVariance,breathingRateBPM,breathingRegularity,movementIntensity,snoringIntensity,phase"
-        let csv = ([header] + extras).joined(separator: "\n")
-        guard (try? csv.write(to: extraCSVURL, atomically: true, encoding: .utf8)) != nil,
-              let extraTable = try? MLDataTable(contentsOf: extraCSVURL)
-        else { return baseTable }
-        defer { try? FileManager.default.removeItem(at: extraCSVURL) }
-
-        return (try? baseTable.appending(extraTable)) ?? baseTable
-    }
 }
+
 
 extension Notification.Name {
     static let sleepModelRetrained = Notification.Name("sleepbuddy.model.retrained")

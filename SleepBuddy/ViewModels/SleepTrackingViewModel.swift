@@ -205,11 +205,24 @@ final class SleepTrackingViewModel {
         classifier.reset()
         try? modelContext?.save()
 
-        // Retrain CoreML model in background after saving all samples
+        // Retrain CoreML model in background with session quality weighting
         let samplesToTrain = classifier.onlineClassifier.allSamples
-        if samplesToTrain.count >= 40 {
+        if samplesToTrain.count >= 40, let ctx = modelContext {
+            let descriptor = FetchDescriptor<SleepSession>(
+                predicate: #Predicate { $0.endDate != nil }
+            )
+            let allSessions = (try? ctx.fetch(descriptor)) ?? []
+            let qualityWindows: [SleepModelTrainingService.QualityWindow] = allSessions.compactMap { s in
+                guard let end = s.endDate else { return nil }
+                return SleepModelTrainingService.QualityWindow(
+                    start: s.startDate, end: end, quality: s.subjectiveQuality
+                )
+            }
             Task.detached(priority: .background) {
-                await SleepModelTrainingService.shared.train(samples: samplesToTrain)
+                await SleepModelTrainingService.shared.train(
+                    samples: samplesToTrain,
+                    qualityWindows: qualityWindows
+                )
             }
         }
 

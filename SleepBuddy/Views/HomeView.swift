@@ -195,8 +195,16 @@ struct HomeView: View {
 
     private func lastNightCard(_ session: SleepSession) -> some View {
         VStack(alignment: .leading, spacing: 16) {
-            Label("Letzte Nacht", systemImage: "moon.stars.fill")
-                .font(.headline).foregroundStyle(.indigo)
+            HStack {
+                Label("Letzte Nacht", systemImage: "moon.stars.fill")
+                    .font(.headline).foregroundStyle(.indigo)
+                Spacer()
+                if session.subjectiveQuality > 0 {
+                    let emojis = ["😴", "🙁", "😐", "🙂", "😄"]
+                    Text(emojis[session.subjectiveQuality - 1])
+                        .font(.title3)
+                }
+            }
 
             HStack(spacing: 20) {
                 statView(icon: "clock.fill", value: session.totalDuration.formattedDuration, label: "Schlafdauer", color: .indigo)
