@@ -360,6 +360,8 @@ struct SleepDetailView: View {
                             .font(.caption2)
                     }
                 }
+                .chartScrollableAxes(.horizontal)
+                .chartXVisibleDomain(length: 3 * 3600)
                 .frame(height: 130)
             }
             .padding()
@@ -568,6 +570,8 @@ struct SleepDetailView: View {
                     AxisValueLabel { Text("\(val.as(Int.self) ?? 0) dB").font(.caption2) }
                 }
             }
+            .chartScrollableAxes(.horizontal)
+            .chartXVisibleDomain(length: 3 * 3600)
             .frame(height: 110)
 
             // Legend
@@ -645,6 +649,8 @@ struct SleepDetailView: View {
                     AxisValueLabel { Text("\(val.as(Int.self) ?? 0)").font(.caption2) }
                 }
             }
+            .chartScrollableAxes(.horizontal)
+            .chartXVisibleDomain(length: 3 * 3600)
             .frame(height: 100)
 
             Text("Quelle: Ballistokardiographie (Beschleunigungssensor) oder Apple Watch")

@@ -190,18 +190,63 @@ NavigationStack (via NavigationLink aus StatistikView)
 | Funktion | Beschreibung |
 |----------|-------------|
 | `pct(_:)` | Prozentwert einer Phase an Gesamtdauer |
-| `hypnoData` | `[(time, depth)]` für Verlaufs-Chart |
+| `hypnoDepth(_:)` | Tiefenwert pro Phase: awake=0, light=1, rem=2, deep=3 |
+| `hypnoData` | Array von `HypnoPoint(id, time, depth)` — **zwei Punkte pro Phase** (Start + Ende) |
 | `statsGrid` | `LazyVGrid` mit 3 `statCard`-Views |
 | `statCard(_:value:icon:color:percent:)` | Karten-View mit Icon, Wert, Beschriftung, Prozentbalken |
-| `verlaufChart` | SwiftCharts `LineMark` + `AreaMark` mit Phasen-Gradient |
 
-**Verlaufs-Chart Gradient:**
+**Schlafverlauf-Chart — Regeln (bindend):**
+
 ```swift
+// Tiefenwerte: awake=0 (absoluter Boden), light=1, rem=2, deep=3
+// Y-Domain: -0.15...3.3 (Boden etwas tiefer als 0 für Wach-Sichtbarkeit)
+// AreaMark yStart: -0.15 (nicht 0 — damit Wach einen sichtbaren Streifen hat)
+// Interpolation: .stepStart (Stufenfunktion, kein Smooth zwischen Phasen)
+```
+
+> **Kritisch — zwei Punkte pro Phase:** Mit `.stepStart` hält ein Punkt seinen Wert bis zum nächsten Punkt. Ohne expliziten Endpunkt würde die Phase zu früh enden. Immer Start- UND Endpunkt für jede Phase emittieren:
+
+```swift
+private var hypnoData: [HypnoPoint] {
+    let sorted = session.phasesArray.sorted { $0.startDate < $1.startDate }
+    var points: [HypnoPoint] = []
+    for phase in sorted {
+        points.append(HypnoPoint(id: phase.startDate,                      time: phase.startDate, depth: hypnoDepth(phase.phaseType)))
+        points.append(HypnoPoint(id: phase.endDate.addingTimeInterval(-0.001), time: phase.endDate,   depth: hypnoDepth(phase.phaseType)))
+    }
+    return points
+}
+```
+
+**Liniengradient — nach Y-Position (nicht per Punkt):**
+
+> SwiftCharts unterstützt **kein** per-Punkt `foregroundStyle` auf einem einzelnen `LineMark` — die gesamte Serie bekommt eine Farbe (die letzte gewinnt). Lösung: `LinearGradient` mit Stops die exakt auf die Y-Domain-Schwellen gemappt sind.
+
+```swift
+// Y-Domain -0.15...3.3 (Span = 3.45). Wach bei 0 → 4% von unten.
 LinearGradient(
-    colors: [SleepPhaseType.deep.color.opacity(0.7), SleepPhaseType.rem.color.opacity(0.7)],
-    startPoint: .top, endPoint: .bottom
+    stops: [
+        .init(color: SleepPhaseType.awake.color.opacity(0.9), location: 0.0),
+        .init(color: SleepPhaseType.awake.color.opacity(0.9), location: 0.04),
+        .init(color: SleepPhaseType.light.color.opacity(0.9), location: 0.29),
+        .init(color: SleepPhaseType.rem.color.opacity(0.9),   location: 0.58),
+        .init(color: SleepPhaseType.deep.color.opacity(0.9),  location: 0.87),
+        .init(color: SleepPhaseType.deep.color.opacity(0.9),  location: 1.0),
+    ],
+    startPoint: .bottom, endPoint: .top
 )
 ```
+
+**Charts scrollbar (bindend für alle Zeitverlauf-Charts in SleepDetailView):**
+
+```swift
+// Alle Charts (Schlafverlauf, Umgebungslautstärke, Herzfrequenz) sind scrollbar.
+// X-Labels jede Stunde, sichtbares Fenster 3h — funktioniert für jede Schlafdauer.
+.chartScrollableAxes(.horizontal)
+.chartXVisibleDomain(length: 3 * 3600)
+```
+
+> Warum scrollbar: fixes Frame komprimiert eine 8h-Nacht auf ~360px → Labels überlappen, kurze Phasen unsichtbar. Mit 3h-Fenster sind Labels immer gut lesbar und Wach-Phasen am Anfang/Ende klar sichtbar.
 
 **Flächen-Gradient:**
 ```swift
@@ -463,10 +508,23 @@ session.noiseSamples.append(db)
 3. Accumulator leeren → nächste Minute
 
 **Darstellung in `SleepDetailView`:** `ambientNoiseCard` — **Wellen-Chart** (`LineMark` + `AreaMark`) mit Catmull-Rom-Interpolation. Farbkodierung:
-- Linie: grün < 35 dB / orange 35–50 dB / rot > 50 dB (via `noiseColor()`)
 - Fläche: drei überlagerte `AreaMark`-Schichten (grün/orange/rot) bis jeweiligem Schwellenwert
 - Y-Achse: 20–90 dB, Gitterlinien bei 35/50/70 dB in Schwellenwertfarbe
+- Chart scrollbar: `.chartScrollableAxes(.horizontal)` + `.chartXVisibleDomain(length: 3 * 3600)`
 - **Kein `BarMark` verwenden** — war durch Balken-Stil ersetzt worden (inzwischen revertiert).
+
+> **Linie Farbgradient:** SwiftCharts erlaubt kein per-Punkt `foregroundStyle` auf `LineMark`. Lösung: `LinearGradient` mit scharfen Stops exakt an den dB-Schwellen (Y-Domain 20…90 = 70 Einheiten):
+> ```swift
+> // 35 dB: (35-20)/70 = 0.21 — 50 dB: (50-20)/70 = 0.43
+> LinearGradient(stops: [
+>     .init(color: .green,  location: 0.0),
+>     .init(color: .green,  location: 0.21),
+>     .init(color: .orange, location: 0.21),
+>     .init(color: .orange, location: 0.43),
+>     .init(color: .red,    location: 0.43),
+>     .init(color: .red,    location: 1.0),
+> ], startPoint: .bottom, endPoint: .top)
+> ```
 
 ---
 
@@ -1278,6 +1336,12 @@ Horizontaler Phasen-Balken — proportionale Farbblöcke für alle Phasen.
 SleepPhaseBarView(phases: session.phasesArray, totalDuration: session.totalDuration)
 // Jede Phase: Rectangle().fill(phase.phaseType.color), Breite ∝ duration/total
 ```
+
+> **Sortierung bindend:** SwiftData liefert Beziehungen in **keiner** garantierten Reihenfolge. `SleepPhaseBarView` sortiert intern nach `startDate` — Wach-Phasen am Anfang/Ende erscheinen sonst an falscher Stelle:
+> ```swift
+> ForEach(phases.sorted { $0.startDate < $1.startDate }, id: \.startDate) { phase in ... }
+> ```
+> Gleiches gilt für alle Views die `phasesArray` iterieren ohne expliziten Sort.
 
 Wird in `SleepSessionRow` (SleepHistoryView) und `lastNightCard` (HomeView) verwendet.
 
