@@ -8,13 +8,18 @@ enum SoundEventType: String, Codable, CaseIterable {
     case talking   = "Sprechen"
     case coughing  = "Husten"
     case bruxism   = "Zähneknirschen"
+    case sneezing  = "Niesen"
     case other     = "Geräusch"
     // External / ambient disturbances
     case dogBarking = "Hundebellen"
+    case cat        = "Katze"
     case music      = "Musik/TV"
     case alarm      = "Alarm"
     case traffic    = "Verkehr"
     case baby       = "Babyweinen"
+    case thunder    = "Donner/Regen"
+    case knock      = "Klopfen"
+    case glassBreak = "Glasbruch"
 
     var icon: String {
         switch self {
@@ -23,11 +28,16 @@ enum SoundEventType: String, Codable, CaseIterable {
         case .other:      return "speaker.wave.2.fill"
         case .bruxism:    return "mouth.fill"
         case .coughing:   return "lungs.fill"
+        case .sneezing:   return "wind"
         case .dogBarking: return "pawprint.fill"
+        case .cat:        return "pawprint"
         case .music:      return "music.note"
         case .alarm:      return "bell.fill"
         case .traffic:    return "car.fill"
         case .baby:       return "figure.and.child.holdinghands"
+        case .thunder:    return "cloud.bolt.fill"
+        case .knock:      return "hand.raised.fill"
+        case .glassBreak: return "exclamationmark.triangle.fill"
         }
     }
 
@@ -38,19 +48,26 @@ enum SoundEventType: String, Codable, CaseIterable {
         case .other:      return .secondary
         case .bruxism:    return .pink
         case .coughing:   return .teal
+        case .sneezing:   return .teal
         case .dogBarking: return .brown
+        case .cat:        return .brown
         case .music:      return .indigo
         case .alarm:      return .red
         case .traffic:    return .gray
         case .baby:       return .mint
+        case .thunder:    return .cyan
+        case .knock:      return .secondary
+        case .glassBreak: return .red
         }
     }
 
     /// External disturbances (from the environment, not the sleeping person).
     var isExternal: Bool {
         switch self {
-        case .dogBarking, .music, .alarm, .traffic, .baby: return true
-        default: return false
+        case .dogBarking, .cat, .music, .alarm, .traffic, .baby, .thunder, .knock, .glassBreak:
+            return true
+        default:
+            return false
         }
     }
 }
