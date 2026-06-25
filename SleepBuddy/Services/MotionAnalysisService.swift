@@ -161,10 +161,13 @@ final class MotionAnalysisService {
         vDSP_meanv(gravZ, 1, &mz, vDSP_Length(gravZ.count))
         let mag = sqrt(mx*mx + my*my + mz*mz)
         guard mag > 0.3 else { return .unknown }
-        // If z dominates the gravity vector → phone is flat (back/stomach sleeping).
-        // If x or y component is significant → phone is tilted → side sleeping.
+        // Side sleeping: x or y component is significant (phone tilted on mattress).
+        // Flat: z dominates. Sign of mz tells which face is up:
+        //   mz < 0 → display facing up → Rückenlage
+        //   mz > 0 → display facing down → Bauchlage
         let zRatio = abs(mz) / mag
-        return zRatio > 0.75 ? .back : .side
+        if zRatio <= 0.75 { return .side }
+        return mz < 0 ? .back : .stomach
     }
 
     // MARK: - Breathing detection (10 Hz autocorrelation, 9–30 BPM)
@@ -294,8 +297,9 @@ final class MotionAnalysisService {
 
 enum SleepPosition: Int {
     case unknown = 0
-    case back    = 1   // phone flat → z-axis aligned with gravity → likely on back/stomach
-    case side    = 2   // phone tilted → x/y gravity component significant → likely side sleeping
+    case back    = 1   // phone flat, display up → z negative → Rückenlage
+    case side    = 2   // phone tilted, x/y dominant → Seitenlage
+    case stomach = 3   // phone flat, display down → z positive → Bauchlage
 }
 
 struct MotionFeatures {

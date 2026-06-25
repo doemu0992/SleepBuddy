@@ -69,10 +69,18 @@ struct SchlafapnoeRisikoView: View {
         return Double(backCount) / Double(allSamples.count) * 100
     }
 
+    private var stomachSleepPercent: Double {
+        let allSamples = qualifyingSessions.flatMap { $0.positionSamples }
+        guard !allSamples.isEmpty else { return 0 }
+        let stomachCount = allSamples.filter { $0 == SleepPosition.stomach.rawValue }.count
+        return Double(stomachCount) / Double(allSamples.count) * 100
+    }
+
     private var risiko: Risiko {
         var score = snoringPerHour
-        score += pausesPerHour * 3  // pauses weighted more heavily
-        if backSleepPercent > 60 { score += 10 }
+        score += pausesPerHour * 3         // pauses weighted more heavily
+        if backSleepPercent > 60 { score += 10 }   // back sleeping worsens apnea
+        score -= min(stomachSleepPercent * 0.1, 8) // stomach sleeping improves airway
         if score < 25 { return .niedrig }
         if score < 50 { return .mild }
         if score < 75 { return .mittel }
@@ -139,7 +147,7 @@ struct SchlafapnoeRisikoView: View {
                 }
 
                 // Additional detail rows
-                if pausesPerHour > 0 || backSleepPercent > 0 {
+                if pausesPerHour > 0 || backSleepPercent > 0 || stomachSleepPercent > 0 {
                     Divider()
                     VStack(spacing: 6) {
                         if pausesPerHour > 0 {
@@ -159,6 +167,15 @@ struct SchlafapnoeRisikoView: View {
                                       systemImage: "person.fill")
                                     .font(.caption)
                                     .foregroundStyle(backSleepPercent > 60 ? .orange : .secondary)
+                                Spacer()
+                            }
+                        }
+                        if stomachSleepPercent > 0 {
+                            HStack {
+                                Label(String(format: "%.0f %% Bauchlage", stomachSleepPercent),
+                                      systemImage: "person.fill.viewfinder")
+                                    .font(.caption)
+                                    .foregroundStyle(.green)
                                 Spacer()
                             }
                         }
