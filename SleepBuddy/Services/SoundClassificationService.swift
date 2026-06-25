@@ -144,11 +144,10 @@ extension SoundClassificationService: SNResultsObserving {
             ("water_tap",            .water,      0.50),
         ]
 
-        // Pick the highest-confidence match — threshold adjusted by user feedback history.
-        let feedback = SoundFeedbackService.shared
+        // Pick the highest-confidence match — threshold nudged by user feedback stored in UserDefaults.
         var best: (type: SoundEventType, confidence: Double)? = nil
         for (id, type, baseConf) in mappings {
-            let minConf = feedback.adjustedThreshold(for: type, base: baseConf)
+            let minConf = adjustedThreshold(for: type, base: baseConf)
             if let c = classifications.classification(forIdentifier: id),
                c.confidence >= minConf,
                c.confidence > (best?.confidence ?? 0) {
@@ -163,4 +162,19 @@ extension SoundClassificationService: SNResultsObserving {
     }
 
     func request(_ request: SNRequest, didFailWithError error: Error) {}
+
+    /// Adjusts the base confidence threshold using cumulative user feedback stored in UserDefaults.
+    /// False positives (rejections) raise the threshold; missed detections lower it.
+    private func adjustedThreshold(for type: SoundEventType, base: Double) -> Double {
+        let ud = UserDefaults.standard
+        let confirmed = ud.integer(forKey: "soundFeedback.\(type.rawValue).confirmed")
+        let rejected  = ud.integer(forKey: "soundFeedback.\(type.rawValue).rejected")
+        let missed    = ud.integer(forKey: "soundFeedback.\(type.rawValue).missed")
+        let total = confirmed + rejected + missed
+        guard total >= 5 else { return base }
+        let fpr = Double(rejected) / Double(max(1, confirmed + rejected))
+        let mr  = Double(missed)   / Double(max(1, confirmed + missed))
+        let adjustment = (fpr - mr) * 0.10
+        return min(0.90, max(0.20, base + adjustment))
+    }
 }
