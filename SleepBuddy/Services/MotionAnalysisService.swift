@@ -45,6 +45,11 @@ final class MotionAnalysisService {
     private var gravZ: [Float] = []
     private let gravWindowSize = 250   // 5 s × 50 Hz
 
+    // PLM detection: 1 Hz movement envelope (every 50th sample) over 3 min
+    private var plmBuffer: [Float] = []
+    private let plmWindowSize = 180    // 3 min × 1 Hz
+    private var plmDownsampleCounter = 0
+
     init() {
         isAvailable = CMMotionManager().isAccelerometerAvailable
     }
@@ -70,7 +75,9 @@ final class MotionAnalysisService {
         breathingSamples.removeAll()
         bcgZ.removeAll()
         gravX.removeAll(); gravY.removeAll(); gravZ.removeAll()
+        plmBuffer.removeAll()
         downsampleCounter = 0
+        plmDownsampleCounter = 0
         emitCounter = 0
         isRunning = false
     }
@@ -80,7 +87,9 @@ final class MotionAnalysisService {
         breathingSamples.removeAll()
         bcgZ.removeAll()
         gravX.removeAll(); gravY.removeAll(); gravZ.removeAll()
+        plmBuffer.removeAll()
         downsampleCounter = 0
+        plmDownsampleCounter = 0
         emitCounter = 0
     }
 
@@ -107,6 +116,14 @@ final class MotionAnalysisService {
             downsampleCounter = 0
             breathingSamples.append(mag)
             if breathingSamples.count > breathingWindowSize { breathingSamples.removeFirst() }
+        }
+
+        // PLM: 1 Hz movement envelope (every 50th sample) for periodicity detection
+        plmDownsampleCounter += 1
+        if plmDownsampleCounter >= 50 {
+            plmDownsampleCounter = 0
+            plmBuffer.append(mag)
+            if plmBuffer.count > plmWindowSize { plmBuffer.removeFirst() }
         }
 
         // Emit features every windowSize samples (30 s) — not on every sample after fill
@@ -140,6 +157,9 @@ final class MotionAnalysisService {
         // Sleep position from gravity vector (5 s low-pass average)
         let position = detectSleepPosition()
 
+        // PLM: periodic limb movements every 20–40 s
+        let plm = detectPLM(samples: plmBuffer)
+
         return MotionFeatures(
             movementIntensity: intensity,
             breathingRateBPM: breathBPM,
@@ -147,8 +167,48 @@ final class MotionAnalysisService {
             isOnMattress: onMattress,
             bcgHeartRateBPM: bcgHR,
             sleepPosition: position,
+            isPLMSuspected: plm,
             timestamp: Date()
         )
+    }
+
+    // MARK: - PLM detection (periodic limb movements, 20–40 s intervals)
+
+    private func detectPLM(samples: [Float]) -> Bool {
+        guard samples.count >= 60 else { return false }  // need at least 1 min
+        let n = samples.count
+
+        // Subtract mean (DC removal)
+        var mean: Float = 0
+        vDSP_meanv(samples, 1, &mean, vDSP_Length(n))
+        let demeaned = samples.map { $0 - mean }
+
+        // RMS — must have some movement to detect PLM
+        var rms: Float = 0
+        vDSP_measqv(demeaned, 1, &rms, vDSP_Length(n))
+        guard rms > 0.0005 else { return false }
+
+        // Autocorrelation at lags 20–40 s (20–40 samples at 1 Hz)
+        // PLM produces a clear peak in this range.
+        var bestPeak: Float = 0
+        let lagMin = 20, lagMax = 40
+        for lag in lagMin...lagMax {
+            guard lag < n else { break }
+            var corr: Float = 0
+            vDSP_dotpr(demeaned, 1, Array(demeaned.dropFirst(lag)), 1, &corr, vDSP_Length(n - lag))
+            corr /= Float(n - lag)
+            if corr > bestPeak { bestPeak = corr }
+        }
+
+        // Normalise by zero-lag power
+        var zeroPower: Float = 0
+        vDSP_dotpr(demeaned, 1, demeaned, 1, &zeroPower, vDSP_Length(n))
+        zeroPower /= Float(n)
+        guard zeroPower > 0 else { return false }
+
+        let normPeak = bestPeak / zeroPower
+        // Threshold: normalised ACF > 0.35 indicates clear periodicity
+        return normPeak > 0.35
     }
 
     // MARK: - Sleep position (gravity-based)
@@ -309,6 +369,7 @@ struct MotionFeatures {
     let isOnMattress: Bool             // true when breathing rhythm detected via accelerometer
     let bcgHeartRateBPM: Float         // BCG heart rate, 0 if unreliable or not on mattress
     let sleepPosition: SleepPosition   // estimated sleep position from gravity vector
+    let isPLMSuspected: Bool           // periodic limb movements detected (20–40 s intervals)
     let timestamp: Date
 
     var isSignificant: Bool { movementIntensity > 0.35 }
@@ -320,6 +381,7 @@ struct MotionFeatures {
         isOnMattress: false,
         bcgHeartRateBPM: 0,
         sleepPosition: .unknown,
+        isPLMSuspected: false,
         timestamp: Date()
     )
 }

@@ -100,23 +100,76 @@ final class SleepPhaseClassifier {
         return late - early
     }
 
+    // MARK: - Phase transition matrix
+    // Weights reflect physiological plausibility of transitions.
+    // Applied as a confidence multiplier to the raw classification result.
+    private let transitionMatrix: [SleepPhaseType: [SleepPhaseType: Double]] = [
+        .awake:  [.awake: 1.00, .light: 0.85, .deep: 0.40, .rem: 0.30],
+        .light:  [.awake: 0.90, .light: 1.00, .deep: 0.85, .rem: 0.70],
+        .deep:   [.awake: 0.60, .light: 0.90, .deep: 1.00, .rem: 0.25],
+        .rem:    [.awake: 0.85, .light: 0.90, .deep: 0.20, .rem: 1.00],
+    ]
+
     // MARK: - History smoothing
 
     private var history: [(phase: SleepPhaseType, confidence: Double)] = []
     private let historySize = 6
+    private var lastCommittedPhase: SleepPhaseType = .awake
 
     func reset() {
         history.removeAll()
         hrHistory.removeAll()
         hrvHistory.removeAll()
         sleepOnsetDate = nil
+        lastCommittedPhase = .awake
     }
 
     func classify(audio: AudioFeatures, motion: MotionFeatures) -> (phase: SleepPhaseType, confidence: Double) {
-        let raw = rawClassify(audio: audio, motion: motion)
+        var raw = rawClassify(audio: audio, motion: motion)
+
+        // Apply transition matrix: penalise physiologically unlikely jumps
+        let transWeight = transitionMatrix[lastCommittedPhase]?[raw.phase] ?? 1.0
+        raw = (raw.phase, raw.confidence * transWeight)
+
+        // Apply circadian prior: adjust confidence based on time since sleep onset
+        raw = applyCircadianPrior(to: raw)
+
+        // PLM: periodic limb movements suggest fragmented light sleep
+        if motion.isPLMSuspected && raw.phase == .deep {
+            raw = (.light, min(raw.confidence * 0.75, 0.65))
+        }
+
         history.append(raw)
         if history.count > historySize { history.removeFirst() }
-        return smoothed()
+        let result = smoothed()
+        lastCommittedPhase = result.phase
+        return result
+    }
+
+    // MARK: - Circadian prior
+    // Deep sleep peaks in first third of night; REM peaks in last third.
+    private func applyCircadianPrior(to result: (phase: SleepPhaseType, confidence: Double))
+        -> (phase: SleepPhaseType, confidence: Double)
+    {
+        guard let onset = sleepOnsetDate else { return result }
+        let elapsed = Date().timeIntervalSince(onset)
+        let expected: TimeInterval = 8 * 3600   // assume 8 h sleep
+        let progress = min(elapsed / expected, 1.0)  // 0 = just fell asleep, 1 = end of night
+
+        let multiplier: Double
+        switch result.phase {
+        case .deep:
+            // Deep most likely in first ~40% of night, fades toward morning
+            multiplier = progress < 0.40 ? 1.15 : (progress < 0.65 ? 1.0 : 0.80)
+        case .rem:
+            // REM barely present before 90 min; dominant in last third
+            multiplier = progress < 0.15 ? 0.70 : (progress < 0.50 ? 1.0 : 1.20)
+        case .light:
+            multiplier = 1.0   // light sleep distributed evenly
+        case .awake:
+            multiplier = 1.0   // waking is always plausible
+        }
+        return (result.phase, min(result.confidence * multiplier, 0.95))
     }
 
     // MARK: - Core logic

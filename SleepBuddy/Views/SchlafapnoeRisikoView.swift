@@ -69,6 +69,24 @@ struct SchlafapnoeRisikoView: View {
         return Double(backCount) / Double(allSamples.count) * 100
     }
 
+    /// Sessions where snoring events arrive in a regular 4–14 s pattern (OSA-like)
+    private var obstructiveNightCount: Int {
+        qualifyingSessions.filter { session in
+            let events = session.soundEventsArray
+                .filter { $0.type == .snoring }
+                .sorted { $0.timestamp < $1.timestamp }
+            guard events.count >= 6 else { return false }
+            let intervals = zip(events, events.dropFirst())
+                .map { $1.timestamp.timeIntervalSince($0.timestamp) }
+            let qualifying = intervals.filter { $0 >= 4 && $0 <= 14 }
+            guard qualifying.count >= 5 else { return false }
+            let mean = qualifying.reduce(0, +) / Double(qualifying.count)
+            guard mean > 0 else { return false }
+            let variance = qualifying.map { ($0 - mean) * ($0 - mean) }.reduce(0, +) / Double(qualifying.count)
+            return sqrt(variance) / mean < 0.35
+        }.count
+    }
+
     private var stomachSleepPercent: Double {
         let allSamples = qualifyingSessions.flatMap { $0.positionSamples }
         guard !allSamples.isEmpty else { return 0 }
@@ -78,9 +96,11 @@ struct SchlafapnoeRisikoView: View {
 
     private var risiko: Risiko {
         var score = snoringPerHour
-        score += pausesPerHour * 3         // pauses weighted more heavily
-        if backSleepPercent > 60 { score += 10 }   // back sleeping worsens apnea
-        score -= min(stomachSleepPercent * 0.1, 8) // stomach sleeping improves airway
+        score += pausesPerHour * 3                           // pauses weighted more heavily
+        if backSleepPercent > 60 { score += 10 }             // back sleeping worsens apnea
+        score -= min(stomachSleepPercent * 0.1, 8)           // stomach sleeping helps
+        let obstrFraction = Double(obstructiveNightCount) / max(Double(qualifyingSessions.count), 1)
+        score += obstrFraction * 20                          // periodic snoring = strong OSA signal
         if score < 25 { return .niedrig }
         if score < 50 { return .mild }
         if score < 75 { return .mittel }
@@ -147,7 +167,7 @@ struct SchlafapnoeRisikoView: View {
                 }
 
                 // Additional detail rows
-                if pausesPerHour > 0 || backSleepPercent > 0 || stomachSleepPercent > 0 {
+                if pausesPerHour > 0 || backSleepPercent > 0 || stomachSleepPercent > 0 || obstructiveNightCount > 0 {
                     Divider()
                     VStack(spacing: 6) {
                         if pausesPerHour > 0 {
@@ -176,6 +196,15 @@ struct SchlafapnoeRisikoView: View {
                                       systemImage: "person.fill.viewfinder")
                                     .font(.caption)
                                     .foregroundStyle(.green)
+                                Spacer()
+                            }
+                        }
+                        if obstructiveNightCount > 0 {
+                            HStack {
+                                Label("\(obstructiveNightCount) Nacht/Nächte mit periodischem Schnarchen",
+                                      systemImage: "waveform.badge.exclamationmark")
+                                    .font(.caption)
+                                    .foregroundStyle(.red)
                                 Spacer()
                             }
                         }

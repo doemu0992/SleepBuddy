@@ -54,6 +54,10 @@ final class SleepTrackingViewModel {
     private let pauseCooldown: TimeInterval = 15
     private var pauseCooldownUntil: Date = .distantPast
 
+    // Snoring pattern analysis: rolling timestamps of last 12 snoring events
+    private var snoringTimestamps: [Date] = []
+    private(set) var snoringIsObstructive: Bool = false  // periodic pattern = OSA-like
+
     // Turn detection: track consecutive still periods so a movement spike counts as a turn
     private var stillSince: Date? = nil
     private var lastTurnDate: Date = .distantPast
@@ -107,6 +111,8 @@ final class SleepTrackingViewModel {
         lastSnoringEventEndDate = .distantPast
         pauseQuietTicks = 0
         pauseCooldownUntil = .distantPast
+        snoringTimestamps.removeAll()
+        snoringIsObstructive = false
         stillSince = nil
         lastTurnDate = .distantPast
 
@@ -147,6 +153,9 @@ final class SleepTrackingViewModel {
             if type == .snoring {
                 self.lastSnoringEventEndDate = timestamp.addingTimeInterval(duration)
                 self.pauseQuietTicks = 0
+                self.snoringTimestamps.append(timestamp)
+                if self.snoringTimestamps.count > 12 { self.snoringTimestamps.removeFirst() }
+                self.snoringIsObstructive = self.analyzeSnoringSnoringPattern()
             }
         }
 
@@ -399,6 +408,20 @@ final class SleepTrackingViewModel {
                 pauseQuietTicks = 0
             }
         }
+    }
+
+    /// Returns true when snoring events arrive at regular 4–12 s intervals
+    /// (coefficient of variation < 0.35) — characteristic of obstructive apnea cycling.
+    private func analyzeSnoringSnoringPattern() -> Bool {
+        guard snoringTimestamps.count >= 6 else { return false }
+        let intervals = zip(snoringTimestamps, snoringTimestamps.dropFirst())
+            .map { $1.timeIntervalSince($0) }
+        let qualifying = intervals.filter { $0 >= 4 && $0 <= 14 }
+        guard qualifying.count >= 5 else { return false }
+        let mean = qualifying.reduce(0, +) / Double(qualifying.count)
+        let variance = qualifying.map { ($0 - mean) * ($0 - mean) }.reduce(0, +) / Double(qualifying.count)
+        let cv = sqrt(variance) / mean   // coefficient of variation
+        return cv < 0.35
     }
 
     private func finalizeCurrentPhase(endDate: Date, session: SleepSession) {
