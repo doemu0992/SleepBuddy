@@ -360,6 +360,7 @@ struct SleepDetailView: View {
                             .font(.caption2)
                     }
                 }
+                .chartXScale(domain: session.startDate...(session.endDate ?? Date()))
                 .chartScrollableAxes(.horizontal)
                 .chartXVisibleDomain(length: 3 * 3600)
                 .frame(height: 130)
@@ -570,6 +571,7 @@ struct SleepDetailView: View {
                     AxisValueLabel { Text("\(val.as(Int.self) ?? 0) dB").font(.caption2) }
                 }
             }
+            .chartXScale(domain: session.startDate...(session.endDate ?? Date()))
             .chartScrollableAxes(.horizontal)
             .chartXVisibleDomain(length: 3 * 3600)
             .frame(height: 110)
@@ -649,6 +651,7 @@ struct SleepDetailView: View {
                     AxisValueLabel { Text("\(val.as(Int.self) ?? 0)").font(.caption2) }
                 }
             }
+            .chartXScale(domain: session.startDate...(session.endDate ?? Date()))
             .chartScrollableAxes(.horizontal)
             .chartXVisibleDomain(length: 3 * 3600)
             .frame(height: 100)
