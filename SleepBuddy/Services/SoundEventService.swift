@@ -76,9 +76,10 @@ final class SoundEventService {
         mlHintConfidence = confidence
         mlHintDate = Date()
 
-        // Snoring added: ML can also bypass amplitude gate for quiet snoring
-        let isMLPrimary = type == .bruxism || type == .coughing || type == .snoring
-        if isMLPrimary && confidence >= 0.50 && eventStartDate == nil && !isInCooldown {
+        // All types can bypass amplitude gate when ML is confident — external sounds (dog,
+        // music, alarm, cat, thunder, etc.) may be loud in the room but quiet at the mic.
+        let isMLPrimary = true
+        if isMLPrimary && confidence >= 0.45 && eventStartDate == nil && !isInCooldown {
             eventStartDate = Date()
             pendingEventType = type
             consecutiveLoudTicks = loudTicksToStart  // bypass tick counter
@@ -187,9 +188,14 @@ final class SoundEventService {
     /// Coughs (0.5–1.5 s) and bruxism bursts (< 1 s) were previously filtered out by the 2.5 s floor.
     private func minDuration(for type: SoundEventType) -> TimeInterval {
         switch type {
-        case .coughing: return 0.5
-        case .bruxism:  return 0.8
-        default:        return 2.5
+        case .coughing:               return 0.5
+        case .bruxism:                return 0.8
+        case .sneezing:               return 0.3
+        case .knock, .glassBreak:     return 0.3
+        case .dogBarking, .cat:       return 0.5
+        case .alarm, .baby:           return 0.8
+        case .thunder, .traffic:      return 1.0
+        default:                      return 2.0
         }
     }
 

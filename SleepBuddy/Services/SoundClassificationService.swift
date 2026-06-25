@@ -47,28 +47,56 @@ extension SoundClassificationService: SNResultsObserving {
 
         let mappings: [(id: String, type: SoundEventType, minConf: Double)] = [
             // Personal sleep sounds
-            ("snoring",          .snoring,    0.50),
-            ("speech",           .talking,    0.55),
-            ("cough",            .coughing,   0.50),
-            ("coughing",         .coughing,   0.50),
-            ("teeth_chattering", .bruxism,    0.40),
-            ("teeth_grinding",   .bruxism,    0.40),
-            // External disturbances
-            ("dog",              .dogBarking, 0.55),
-            ("dog_barking",      .dogBarking, 0.55),
-            ("barking",          .dogBarking, 0.50),
-            ("music",            .music,      0.60),
-            ("musical_instrument", .music,    0.60),
-            ("alarm_clock",      .alarm,      0.55),
-            ("alarm",            .alarm,      0.55),
-            ("smoke_detector",   .alarm,      0.55),
-            ("siren",            .alarm,      0.55),
-            ("car_horn",         .traffic,    0.55),
-            ("honking",          .traffic,    0.50),
-            ("vehicle",          .traffic,    0.60),
-            ("baby_cry",         .baby,       0.55),
-            ("crying",           .baby,       0.55),
-            ("infant_cry",       .baby,       0.55),
+            ("snoring",              .snoring,    0.40),
+            ("snoring_breathing",    .snoring,    0.40),
+            ("speech",               .talking,    0.45),
+            ("cough",                .coughing,   0.40),
+            ("coughing",             .coughing,   0.40),
+            ("sneezing",             .sneezing,   0.45),
+            ("sneeze",               .sneezing,   0.45),
+            ("teeth_chattering",     .bruxism,    0.35),
+            ("teeth_grinding",       .bruxism,    0.35),
+            // External disturbances — dog
+            ("dog",                  .dogBarking, 0.40),
+            ("dog_barking",          .dogBarking, 0.40),
+            ("barking",              .dogBarking, 0.40),
+            // Cat
+            ("cat",                  .cat,        0.40),
+            ("meow",                 .cat,        0.40),
+            ("cat_meowing",          .cat,        0.40),
+            // Music / TV
+            ("music",                .music,      0.45),
+            ("musical_instrument",   .music,      0.45),
+            ("singing",              .music,      0.50),
+            // Alarms
+            ("alarm_clock",          .alarm,      0.40),
+            ("alarm",                .alarm,      0.40),
+            ("smoke_detector",       .alarm,      0.40),
+            ("siren",                .alarm,      0.40),
+            ("fire_alarm",           .alarm,      0.40),
+            ("bell",                 .alarm,      0.50),
+            // Traffic
+            ("car_horn",             .traffic,    0.40),
+            ("honking",              .traffic,    0.40),
+            ("vehicle",              .traffic,    0.45),
+            ("engine",               .traffic,    0.50),
+            // Baby
+            ("baby_cry",             .baby,       0.40),
+            ("crying",               .baby,       0.40),
+            ("infant_cry",           .baby,       0.40),
+            // Thunder / rain
+            ("thunder",              .thunder,    0.40),
+            ("thunderstorm",         .thunder,    0.40),
+            ("rain",                 .thunder,    0.50),
+            ("raindrop",             .thunder,    0.50),
+            // Knock / door
+            ("knock",                .knock,      0.40),
+            ("door_knock",           .knock,      0.40),
+            ("door",                 .knock,      0.50),
+            // Glass break
+            ("glass_breaking",       .glassBreak, 0.35),
+            ("glass_break",          .glassBreak, 0.35),
+            ("breaking",             .glassBreak, 0.45),
         ]
 
         for (id, type, minConf) in mappings {
