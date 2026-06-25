@@ -115,8 +115,7 @@ final class SleepTrackingViewModel {
             let event = SleepSoundEvent(timestamp: timestamp, type: type, durationSeconds: duration, iCloudFileName: fileName, decibelLevel: decibelLevel, confidenceScore: confidenceScore)
             ctx.insert(event)
             session.soundEvents?.append(event)
-            // Count confirmed snoring events here — avoids 8 Hz false positives from raw feature
-            if type == .snoring { session.snoringEventCount += 1 }
+            // snoringEventCount ist computed aus soundEventsArray — kein manuelles Increment nötig
         }
 
         do {

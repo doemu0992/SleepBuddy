@@ -14,9 +14,6 @@ final class SleepSession {
     // Sleep onset (auto-detected)
     var sleepOnsetDate: Date?
 
-    // Snoring
-    var snoringEventCount: Int = 0
-
     // Smart alarm
     var alarmEarliestTime: Date?
     var alarmLatestTime: Date?
@@ -57,6 +54,7 @@ final class SleepSession {
     var phasesArray: [SleepPhase] { phases ?? [] }
     var soundEventsArray: [SleepSoundEvent] { soundEvents ?? [] }
 
+    var snoringEventCount: Int { soundEventsArray.filter { $0.type == .snoring }.count }
     var bruxismEventCount: Int { soundEventsArray.filter { $0.type == .bruxism }.count }
     var coughingEventCount: Int { soundEventsArray.filter { $0.type == .coughing }.count }
 

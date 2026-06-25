@@ -14,7 +14,6 @@ enum SampleDataService {
         let session = SleepSession(startDate: start)
         session.endDate = end
         session.sleepOnsetDate = start.addingTimeInterval(18 * 60)
-        session.snoringEventCount = 3
         context.insert(session)
 
         // Realistic sleep architecture (sum = 495 min)
