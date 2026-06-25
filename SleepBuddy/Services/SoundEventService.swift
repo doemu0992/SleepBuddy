@@ -51,14 +51,14 @@ final class SoundEventService {
         }
     }
 
-    private let cooldownAfterEventSeconds: TimeInterval = 4.0
+    private let cooldownAfterEventSeconds: TimeInterval = 2.0  // was 4s — shorter to catch consecutive events
 
     private var eventStartDate: Date?
     private var pendingEventType: SoundEventType = .other
     private var consecutiveLoudTicks = 0
     private var consecutiveQuietTicks = 0
     private let quietTicksToEnd = 8     // 1 s of quiet ends the event
-    private let loudTicksToStart = 4    // 0.5 s of noise starts an event
+    private let loudTicksToStart = 3    // 0.375 s of noise starts an event (was 4 = 0.5s)
     private var lastEventEndDate: Date?
 
     // MARK: - ML hint (from SoundClassificationService)
@@ -66,7 +66,7 @@ final class SoundEventService {
     private var mlHintType: SoundEventType?
     private var mlHintConfidence: Double = 0
     private var mlHintDate: Date?
-    private let mlHintMaxAge: TimeInterval = 5.0   // extended from 2 s
+    private let mlHintMaxAge: TimeInterval = 3.0   // tight window — old hints can misclassify
 
     /// Called by SoundClassificationService when Apple's ML fires.
     /// For bruxism and coughing (often quiet), a high-confidence hit directly starts an event
@@ -76,8 +76,9 @@ final class SoundEventService {
         mlHintConfidence = confidence
         mlHintDate = Date()
 
-        let isMLPrimary = type == .bruxism || type == .coughing
-        if isMLPrimary && confidence >= 0.55 && eventStartDate == nil && !isInCooldown {
+        // Snoring added: ML can also bypass amplitude gate for quiet snoring
+        let isMLPrimary = type == .bruxism || type == .coughing || type == .snoring
+        if isMLPrimary && confidence >= 0.50 && eventStartDate == nil && !isInCooldown {
             eventStartDate = Date()
             pendingEventType = type
             consecutiveLoudTicks = loudTicksToStart  // bypass tick counter
@@ -198,8 +199,8 @@ final class SoundEventService {
            let hint = mlHintType {
             return hint
         }
-        if snoringScore > 0.45 { return .snoring }
-        if speechLikelihood > 0.4 { return .talking }
+        if snoringScore > 0.30 { return .snoring }   // was 0.45 — catch quieter snoring
+        if speechLikelihood > 0.30 { return .talking } // was 0.4
         return .other
     }
 

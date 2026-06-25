@@ -235,13 +235,13 @@ final class AudioAnalysisService {
 
         guard totalEnergy > 1e-10 else { return 0 }
 
-        // Snoring: high band ratio + sufficient amplitude (avoids false positives from ambient noise)
+        // Snoring: high band ratio + sufficient amplitude
         let ratio = bandEnergy / totalEnergy
         let rmsAll = sqrt(totalEnergy / Float(fftSize / 2))
-        guard rmsAll > 0.005 else { return 0 }   // minimum volume floor
+        guard rmsAll > 0.002 else { return 0 }   // was 0.005 — catch quieter snoring
 
-        // Snoring band ratio typically > 0.4 during real snoring
-        return min(max((ratio - 0.3) / 0.4, 0), 1.0)
+        // Snoring band ratio typically > 0.35 during real snoring (was 0.3 threshold)
+        return min(max((ratio - 0.25) / 0.4, 0), 1.0)
     }
 
     // MARK: - Speech detection (300–3500 Hz band with high amplitude variation)

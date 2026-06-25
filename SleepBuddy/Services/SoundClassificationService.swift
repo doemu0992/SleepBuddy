@@ -10,7 +10,7 @@ final class SoundClassificationService: NSObject {
     private var analyzer: SNAudioStreamAnalyzer?
     private let analysisQueue = DispatchQueue(label: "com.sleepbuddy.soundanalysis", qos: .utility)
     private var bufferCounter = 0
-    private let analyzeEveryN = 2  // run ML every 2nd buffer — balance CPU vs. short-sound coverage
+    private let analyzeEveryN = 1  // analyze every buffer for maximum night detection accuracy
 
     func start(format: AVAudioFormat) {
         guard #available(iOS 15, *) else { return }
@@ -18,7 +18,7 @@ final class SoundClassificationService: NSObject {
             analyzer = SNAudioStreamAnalyzer(format: format)
             let request = try SNClassifySoundRequest(classifierIdentifier: .version1)
             request.windowDuration = CMTimeMakeWithSeconds(1.5, preferredTimescale: 44100)
-            request.overlapFactor = 0.5
+            request.overlapFactor = 0.75  // more overlap = more frequent results = less missed events
             try analyzer?.add(request, withObserver: self)
         } catch {
             analyzer = nil
