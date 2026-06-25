@@ -82,6 +82,7 @@ final class SoundEventService {
         // naturally; bypassing it causes false positives from AC / fan noise misclassified as music.
         let isMLPrimary = type == .bruxism || type == .coughing || type == .sneezing
             || type == .knock || type == .glassBreak || type == .snoring
+            || type == .gasping || type == .laughing
         if isMLPrimary && confidence >= 0.45 && eventStartDate == nil && !isInCooldown {
             eventStartDate = Date()
             pendingEventType = type
@@ -191,14 +192,18 @@ final class SoundEventService {
     /// Coughs (0.5–1.5 s) and bruxism bursts (< 1 s) were previously filtered out by the 2.5 s floor.
     private func minDuration(for type: SoundEventType) -> TimeInterval {
         switch type {
-        case .coughing:               return 0.5
-        case .bruxism:                return 0.8
-        case .sneezing:               return 0.3
-        case .knock, .glassBreak:     return 0.3
-        case .dogBarking, .cat:       return 0.5
-        case .alarm, .baby:           return 0.8
-        case .thunder, .traffic:      return 1.0
-        default:                      return 2.0
+        case .coughing:                   return 0.5
+        case .bruxism:                    return 0.8
+        case .sneezing:                   return 0.3
+        case .gasping:                    return 0.5
+        case .laughing:                   return 0.8
+        case .knock, .glassBreak:         return 0.3
+        case .doorbell, .phone:           return 0.5
+        case .dogBarking, .cat, .bird:    return 0.5
+        case .alarm, .baby:               return 0.8
+        case .thunder, .traffic, .wind:   return 1.0
+        case .crowd, .water:              return 1.5
+        default:                          return 2.0
         }
     }
 

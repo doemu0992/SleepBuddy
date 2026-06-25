@@ -56,18 +56,36 @@ extension SoundClassificationService: SNResultsObserving {
             ("sneeze",               .sneezing,   0.45),
             ("teeth_chattering",     .bruxism,    0.35),
             ("teeth_grinding",       .bruxism,    0.35),
+            // Gasping / heavy breathing
+            ("breathing",            .gasping,    0.50),
+            ("breathing_heavily",    .gasping,    0.45),
+            ("gasping",              .gasping,    0.40),
+            ("choking",              .gasping,    0.40),
+            // Laughing / giggling
+            ("laughing",             .laughing,   0.50),
+            ("laughter",             .laughing,   0.50),
+            ("giggling",             .laughing,   0.45),
             // External disturbances — dog
             ("dog",                  .dogBarking, 0.40),
             ("dog_barking",          .dogBarking, 0.40),
             ("barking",              .dogBarking, 0.40),
+            ("growling",             .dogBarking, 0.45),
             // Cat
             ("cat",                  .cat,        0.40),
             ("meow",                 .cat,        0.40),
             ("cat_meowing",          .cat,        0.40),
+            ("purring",              .cat,        0.45),
+            // Bird
+            ("bird",                 .bird,       0.45),
+            ("bird_song",            .bird,       0.45),
+            ("bird_vocalization",    .bird,       0.45),
+            ("chirping",             .bird,       0.45),
+            ("crow",                 .bird,       0.50),
             // Music / TV — higher threshold: AC/fan noise is often misclassified as music
             ("music",                .music,      0.65),
             ("musical_instrument",   .music,      0.65),
             ("singing",              .music,      0.60),
+            ("television",           .music,      0.60),
             // Alarms — distinct sounds, moderate threshold
             ("alarm_clock",          .alarm,      0.50),
             ("alarm",                .alarm,      0.50),
@@ -75,11 +93,22 @@ extension SoundClassificationService: SNResultsObserving {
             ("siren",                .alarm,      0.50),
             ("fire_alarm",           .alarm,      0.50),
             ("bell",                 .alarm,      0.55),
+            // Doorbell
+            ("doorbell",             .doorbell,   0.45),
+            ("door_bell",            .doorbell,   0.45),
+            ("chime",                .doorbell,   0.50),
+            // Phone
+            ("telephone",            .phone,      0.50),
+            ("phone_ringing",        .phone,      0.50),
+            ("ringtone",             .phone,      0.50),
+            ("cell_phone",           .phone,      0.50),
             // Traffic — ambient engines misclassify easily, keep threshold moderate
             ("car_horn",             .traffic,    0.50),
             ("honking",              .traffic,    0.50),
             ("vehicle",              .traffic,    0.55),
             ("engine",               .traffic,    0.60),
+            ("motorcycle",           .traffic,    0.55),
+            ("train",                .traffic,    0.55),
             // Baby
             ("baby_cry",             .baby,       0.45),
             ("crying",               .baby,       0.45),
@@ -89,6 +118,10 @@ extension SoundClassificationService: SNResultsObserving {
             ("thunderstorm",         .thunder,    0.50),
             ("rain",                 .thunder,    0.55),
             ("raindrop",             .thunder,    0.55),
+            // Wind
+            ("wind",                 .wind,       0.50),
+            ("wind_noise",           .wind,       0.50),
+            ("gust_of_wind",         .wind,       0.50),
             // Knock / door — ML-primary, keep low
             ("knock",                .knock,      0.40),
             ("door_knock",           .knock,      0.40),
@@ -97,6 +130,18 @@ extension SoundClassificationService: SNResultsObserving {
             ("glass_breaking",       .glassBreak, 0.35),
             ("glass_break",          .glassBreak, 0.35),
             ("breaking",             .glassBreak, 0.45),
+            ("shatter",              .glassBreak, 0.40),
+            // Crowd / voices
+            ("crowd",                .crowd,      0.55),
+            ("applause",             .crowd,      0.55),
+            ("cheering",             .crowd,      0.55),
+            ("chatter",              .crowd,      0.50),
+            // Water
+            ("water",                .water,      0.50),
+            ("running_water",        .water,      0.50),
+            ("dripping",             .water,      0.50),
+            ("toilet_flush",         .water,      0.50),
+            ("water_tap",            .water,      0.50),
         ]
 
         // Pick the highest-confidence match across all mappings — not the first one that
