@@ -1,5 +1,6 @@
 import CoreML
 import Foundation
+import HealthKit
 import SwiftData
 
 /// Entry point for classification. Priority:
@@ -58,6 +59,10 @@ final class MLSleepClassifier {
     }
 
     var sampleCount: Int { onlineClassifier.sampleCount }
+
+    func applyWatchCalibration(_ segments: [HealthKitService.WatchSleepSegment], context: ModelContext) {
+        onlineClassifier.applyWatchCalibration(segments, context: context)
+    }
 
     // MARK: - CoreML inference
 

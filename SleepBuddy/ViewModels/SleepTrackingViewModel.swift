@@ -43,6 +43,14 @@ final class SleepTrackingViewModel {
     // BCG heart rate sampling: last known BCG HR, written once per minute
     private var lastBCGSampleDate = Date.distantPast
 
+    // Turn detection: track consecutive still periods so a movement spike counts as a turn
+    private var stillSince: Date? = nil
+    private var lastTurnDate: Date = .distantPast
+    private let turnMovementThreshold: Double = 0.5
+    private let stillMovementThreshold: Double = 0.08
+    private let minStillBeforeTurn: TimeInterval = 120  // 2 min still before a spike counts
+    private let turnCooldown: TimeInterval = 30          // min gap between two turns
+
     // Phase smoothing: commit after stability window.
     // 60 s is enough to catch genuine brief wake events (phone check, turning over)
     // while still filtering 8 Hz audio noise spikes (which last < 5 s).
@@ -84,6 +92,8 @@ final class SleepTrackingViewModel {
         noiseAccumulator.removeAll()
         lastNoiseSampleDate = .distantPast
         lastBCGSampleDate = .distantPast
+        stillSince = nil
+        lastTurnDate = .distantPast
 
         motionService.onFeaturesUpdated = { [weak self] motion in
             self?.latestMotionFeatures = motion
@@ -182,6 +192,16 @@ final class SleepTrackingViewModel {
             classifier.flushSessionBuffer(to: context)
         }
 
+        // Feature 4: retroactive k-NN calibration via Apple Watch sleep phases
+        if healthKit.isAuthorized, let context = modelContext {
+            let watchPhases = await healthKit.readAppleWatchSleepPhases(
+                from: session.startDate, to: session.endDate ?? .now
+            )
+            if !watchPhases.isEmpty {
+                classifier.applyWatchCalibration(watchPhases, context: context)
+            }
+        }
+
         classifier.reset()
         try? modelContext?.save()
 
@@ -267,6 +287,24 @@ final class SleepTrackingViewModel {
             session.noiseSamples.append(db)
             noiseAccumulator.removeAll()
             lastNoiseSampleDate = Date()
+        }
+
+        // Turn detection: movement spike after ≥2 min of stillness = body turn
+        if isSleepOnsetDetected, let session = currentSession {
+            let intensity = Double(motion.movementIntensity)
+            let now = Date()
+            if intensity < stillMovementThreshold {
+                if stillSince == nil { stillSince = now }
+            } else if intensity > turnMovementThreshold,
+                      let since = stillSince,
+                      now.timeIntervalSince(since) >= minStillBeforeTurn,
+                      now.timeIntervalSince(lastTurnDate) >= turnCooldown {
+                session.positionChanges += 1
+                lastTurnDate = now
+                stillSince = nil
+            } else if intensity > stillMovementThreshold {
+                stillSince = nil
+            }
         }
 
         // BCG heart rate: store one sample per minute (0 = no data this minute)

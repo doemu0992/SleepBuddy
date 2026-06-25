@@ -1,5 +1,6 @@
 import SwiftUI
 import SwiftData
+import FoundationModels
 
 struct HomeView: View {
     @Environment(\.modelContext) private var modelContext
@@ -28,6 +29,9 @@ struct HomeView: View {
                         smartAlarmCard
                         if let session = lastSession {
                             lastNightCard(session)
+                        }
+                        if sessions.filter({ !$0.isActive }).count >= 3 {
+                            WochenMusterKarte(sessions: Array(sessions.filter({ !$0.isActive }).prefix(14)))
                         }
                         if trackingViewModel.classifier.sampleCount > 0 {
                             learningStatusCard
@@ -303,6 +307,134 @@ struct HomeView: View {
     private func isMorgenBerichtRelevant(_ session: SleepSession) -> Bool {
         Calendar.current.isDateInToday(session.endDate ?? .distantPast) ||
         Calendar.current.isDateInYesterday(session.endDate ?? .distantPast)
+    }
+}
+
+// MARK: - WochenMusterKarte
+
+struct WochenMusterKarte: View {
+    let sessions: [SleepSession]
+
+    @State private var showContent = false
+    @State private var generatedText: String?
+    @State private var isGenerating = false
+    @State private var genError: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Label("Schlafmuster KI-Analyse", systemImage: "sparkles")
+                    .font(.headline).foregroundStyle(.indigo)
+                Spacer()
+                if #available(iOS 26.0, *) {
+                    if isGenerating {
+                        ProgressView().scaleEffect(0.8)
+                    } else if generatedText != nil {
+                        Button {
+                            generatedText = nil
+                        } label: {
+                            Image(systemName: "arrow.clockwise")
+                                .font(.caption).foregroundStyle(.indigo)
+                        }
+                    }
+                }
+            }
+
+            if #available(iOS 26.0, *) {
+                if let text = generatedText {
+                    Text(text)
+                        .font(.subheadline)
+                        .foregroundStyle(.primary)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else if let err = genError {
+                    Text(err).font(.caption).foregroundStyle(.secondary)
+                } else if isGenerating {
+                    VStack(alignment: .leading, spacing: 6) {
+                        ForEach(0..<3, id: \.self) { _ in
+                            RoundedRectangle(cornerRadius: 4)
+                                .fill(Color.secondary.opacity(0.15))
+                                .frame(height: 14)
+                        }
+                    }
+                } else {
+                    Button {
+                        Task { await runAnalysis() }
+                    } label: {
+                        Label("Muster der letzten \(sessions.count) Nächte analysieren", systemImage: "waveform")
+                            .font(.subheadline.bold())
+                            .foregroundStyle(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 10)
+                            .background(Color.indigo, in: RoundedRectangle(cornerRadius: 10))
+                    }
+                    .buttonStyle(.plain)
+                }
+            } else {
+                Text("Apple Intelligence-Analyse erfordert iOS 26.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .padding()
+        .background(Color(.secondarySystemGroupedBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .shadow(color: Color.primary.opacity(0.06), radius: 10, x: 0, y: 2)
+    }
+
+    @available(iOS 26.0, *)
+    private func runAnalysis() async {
+        guard SystemLanguageModel.default.isAvailable else {
+            genError = "Apple Intelligence ist auf diesem Gerät nicht verfügbar."
+            return
+        }
+        isGenerating = true
+        genError = nil
+        generatedText = nil
+
+        let prompt = buildPrompt()
+        let session = LanguageModelSession()
+        do {
+            var result = ""
+            let stream = session.streamResponse(to: prompt)
+            for try await partial in stream { result = partial }
+            generatedText = result.trimmingCharacters(in: .whitespacesAndNewlines)
+        } catch {
+            genError = error.localizedDescription
+        }
+        isGenerating = false
+    }
+
+    private func buildPrompt() -> String {
+        let fmt = DateFormatter()
+        fmt.dateStyle = .short
+        fmt.timeStyle = .none
+
+        var lines = sessions.map { s -> String in
+            let dur = Int(s.totalDuration / 60)
+            let deep = Int(s.deepSleepDuration / s.totalDuration * 100)
+            let rem = Int(s.remSleepDuration / s.totalDuration * 100)
+            let score = SchlafindexView.score(for: s)
+            let snoring = s.snoringEventCount
+            let turns = s.positionChanges
+            return "\(fmt.string(from: s.startDate)): \(dur)min, Qualität \(score)%, Tief \(deep)%, REM \(rem)%, Schnarchen \(snoring)×, Lageänderungen \(turns)×"
+        }.joined(separator: "\n")
+
+        // PainDiary correlation (if available)
+        let painData = SleepNightSummary.laden()
+        let cutoff = Date().addingTimeInterval(-14 * 86400)
+        let recentPain = painData.filter { Date(timeIntervalSince1970: $0.datum) >= cutoff }
+        if !recentPain.isEmpty {
+            let avgSnore = recentPain.map { Double($0.schnarchenAnzahl) }.reduce(0, +) / Double(recentPain.count)
+            lines += "\n\nPainDiary-Anbindung: Ø \(String(format: "%.1f", avgSnore)) Schnarch-Events/Nacht laut PainDiary-Export."
+        }
+
+        return """
+        Du bist ein freundlicher Schlaf-Assistent. Analysiere die folgenden Schlafdaten der letzten \(sessions.count) Nächte auf Deutsch.
+        Gib 3–4 Sätze: erkenne Muster (z.B. wochentags vs. Wochenende, Trends bei Tiefschlaf/REM, Schnarchen-Häufigkeit, Lageänderungen).
+        Keine Diagnosen. Keine Aufzählungslisten. Fließtext. Schließe mit einem konkreten Tipp.
+
+        Daten:
+        \(lines)
+        """
     }
 }
 

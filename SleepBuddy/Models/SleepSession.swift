@@ -32,6 +32,9 @@ final class SleepSession {
     // Subjective morning rating: 0 = not rated yet, 1–5 (1=terrible … 5=great)
     var subjectiveQuality: Int = 0
 
+    // Number of detected body turns during the night
+    var positionChanges: Int = 0
+
     init(startDate: Date = .now) {
         self.startDate = startDate
         self.phases = []

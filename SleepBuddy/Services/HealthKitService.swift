@@ -29,8 +29,52 @@ final class HealthKitService {
         guard HKHealthStore.isHealthDataAvailable() else { return }
         try? await store.requestAuthorization(
             toShare: [sleepType],
-            read: [hrType, hrvType, spo2Type]
+            read: [hrType, hrvType, spo2Type, sleepType]
         )
+    }
+
+    // MARK: - Apple Watch sleep phases (for retroactive k-NN calibration)
+
+    struct WatchSleepSegment {
+        let start: Date
+        let end: Date
+        let phase: SleepPhaseType
+    }
+
+    func readAppleWatchSleepPhases(from start: Date, to end: Date) async -> [WatchSleepSegment] {
+        guard HKHealthStore.isHealthDataAvailable() else { return [] }
+
+        return await withCheckedContinuation { continuation in
+            let timePred = HKQuery.predicateForSamples(withStart: start, end: end)
+            // Exclude our own app's exports — only keep external sources (Watch, third-party)
+            let selfPred = HKQuery.predicateForObjects(from: HKSource.default())
+            let notSelfPred = NSCompoundPredicate(notPredicateWithSubpredicate: selfPred)
+            let fullPred = NSCompoundPredicate(andPredicateWithSubpredicates: [timePred, notSelfPred])
+
+            let query = HKSampleQuery(
+                sampleType: sleepType,
+                predicate: fullPred,
+                limit: HKObjectQueryNoLimit,
+                sortDescriptors: [NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: true)]
+            ) { _, samples, _ in
+                let segments = (samples as? [HKCategorySample] ?? []).compactMap { s -> WatchSleepSegment? in
+                    guard let phase = self.sleepPhase(from: s.value) else { return nil }
+                    return WatchSleepSegment(start: s.startDate, end: s.endDate, phase: phase)
+                }
+                continuation.resume(returning: segments)
+            }
+            store.execute(query)
+        }
+    }
+
+    private func sleepPhase(from hkValue: Int) -> SleepPhaseType? {
+        switch hkValue {
+        case HKCategoryValueSleepAnalysis.asleepDeep.rawValue:  return .deep
+        case HKCategoryValueSleepAnalysis.asleepREM.rawValue:   return .rem
+        case HKCategoryValueSleepAnalysis.asleepCore.rawValue:  return .light
+        case HKCategoryValueSleepAnalysis.awake.rawValue:       return .awake
+        default: return nil
+        }
     }
 
     // MARK: - Heart Rate for a time window

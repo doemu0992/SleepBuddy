@@ -1,5 +1,6 @@
 import Foundation
 import SwiftData
+import HealthKit
 
 /// Weighted k-NN classifier that learns from every recorded night.
 /// Feature space: amplitude, variance, breathingRate, regularity, movement, snoring (6D).
@@ -112,6 +113,23 @@ final class OnlineSleepClassifier {
     }
 
     var sampleCount: Int { samples.count }
+
+    /// Soft-corrects TrainingSamples whose classifier label disagrees with Apple Watch for the same time window.
+    /// Only updates samples not already manually corrected by the user.
+    func applyWatchCalibration(_ segments: [HealthKitService.WatchSleepSegment], context: ModelContext) {
+        var changed = false
+        for seg in segments {
+            for sample in samples
+            where !sample.isUserCorrected
+               && sample.timestamp >= seg.start
+               && sample.timestamp <= seg.end
+               && sample.phase != seg.phase {
+                sample.label = seg.phase.rawValue
+                changed = true
+            }
+        }
+        if changed { try? context.save() }
+    }
 
     // MARK: - k-NN
 
