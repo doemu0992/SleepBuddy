@@ -37,6 +37,7 @@ final class MotionAnalysisService {
     private var breathingSamples: [Float] = []     // downsampled 10 Hz, breathing
     private var bcgZ: [Float] = []                 // 50 Hz z-axis only, BCG
     private var downsampleCounter = 0
+    private var emitCounter = 0                    // emit features every windowSize samples (30 s)
 
     init() {
         isAvailable = CMMotionManager().isAccelerometerAvailable
@@ -63,6 +64,7 @@ final class MotionAnalysisService {
         breathingSamples.removeAll()
         bcgZ.removeAll()
         downsampleCounter = 0
+        emitCounter = 0
         isRunning = false
     }
 
@@ -71,6 +73,7 @@ final class MotionAnalysisService {
         breathingSamples.removeAll()
         bcgZ.removeAll()
         downsampleCounter = 0
+        emitCounter = 0
     }
 
     // MARK: - Processing
@@ -92,8 +95,10 @@ final class MotionAnalysisService {
             if breathingSamples.count > breathingWindowSize { breathingSamples.removeFirst() }
         }
 
-        // Emit features every full window
-        if rawSamples.count == windowSize {
+        // Emit features every windowSize samples (30 s) — not on every sample after fill
+        emitCounter += 1
+        if emitCounter >= windowSize {
+            emitCounter = 0
             let features = extract()
             DispatchQueue.main.async { [weak self] in
                 self?.onFeaturesUpdated?(features)
@@ -141,7 +146,7 @@ final class MotionAnalysisService {
 
         var rms: Float = 0
         vDSP_rmsqv(signal, 1, &rms, vDSP_Length(n))
-        guard rms > 0.0008 else { return (0, 0, false) }
+        guard rms > 0.0003 else { return (0, 0, false) }
 
         var acf = [Float](repeating: 0, count: n)
         vDSP_conv(signal, 1, signal, 1, &acf, 1, vDSP_Length(n), vDSP_Length(n))
@@ -191,8 +196,8 @@ final class MotionAnalysisService {
         let n = smoothed.count
         var rms: Float = 0
         vDSP_rmsqv(smoothed, 1, &rms, vDSP_Length(n))
-        // BCG signal is very weak; typical threshold ~0.0001–0.0005 g
-        guard rms > 0.00008 else { return 0 }
+        // BCG signal is very weak; typical threshold ~0.00003–0.0005 g
+        guard rms > 0.00003 else { return 0 }
 
         // Autocorrelation
         var acf = [Float](repeating: 0, count: n)
@@ -213,7 +218,7 @@ final class MotionAnalysisService {
         let strength = peakVal / zeroLag
 
         // BCG requires stronger peak than breathing (more noise)
-        guard strength > 0.35 else { return 0 }
+        guard strength > 0.28 else { return 0 }
 
         let periodSamples = Float(Int(peakIdx) + lagMin)
         let bpm = Float(sampleRate * 60.0) / periodSamples
