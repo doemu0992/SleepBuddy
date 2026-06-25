@@ -305,15 +305,32 @@ struct SleepDetailView: View {
     }
 
     @ViewBuilder
+    private var chartTimeFmt: DateFormatter {
+        let f = DateFormatter(); f.dateFormat = "HH:mm"; return f
+    }
+
+    private var trackerTimeRow: some View {
+        HStack {
+            Label(chartTimeFmt.string(from: session.startDate), systemImage: "play.fill")
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.indigo)
+            Spacer()
+            if let end = session.endDate {
+                Label(chartTimeFmt.string(from: end), systemImage: "stop.fill")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.indigo)
+                    .environment(\.layoutDirection, .rightToLeft)
+            }
+        }
+    }
+
     private var hypnogramCard: some View {
         if !session.phasesArray.isEmpty {
             VStack(alignment: .leading, spacing: 12) {
                 Label("Schlafverlauf", systemImage: "waveform.path.ecg")
                     .font(.headline)
 
-                let timeFmt: DateFormatter = {
-                    let f = DateFormatter(); f.dateFormat = "HH:mm"; return f
-                }()
+                trackerTimeRow
 
                 Chart(hypnoData) { point in
                     AreaMark(
@@ -337,30 +354,14 @@ struct SleepDetailView: View {
                     .foregroundStyle(hypnoLineGradient)
                     .lineStyle(StrokeStyle(lineWidth: 2))
 
-                    // Tracker Start
                     RuleMark(x: .value("Start", session.startDate))
-                        .foregroundStyle(Color.indigo.opacity(0.7))
+                        .foregroundStyle(Color.indigo.opacity(0.5))
                         .lineStyle(StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
-                        .annotation(position: .top, alignment: .leading, spacing: 4) {
-                            Text("▶ \(timeFmt.string(from: session.startDate))")
-                                .font(.system(size: 9, weight: .semibold))
-                                .foregroundStyle(Color.indigo)
-                                .padding(.horizontal, 4).padding(.vertical, 2)
-                                .background(Color.indigo.opacity(0.1), in: RoundedRectangle(cornerRadius: 4))
-                        }
 
-                    // Tracker Ende
                     if let end = session.endDate {
                         RuleMark(x: .value("Ende", end))
-                            .foregroundStyle(Color.indigo.opacity(0.7))
+                            .foregroundStyle(Color.indigo.opacity(0.5))
                             .lineStyle(StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
-                            .annotation(position: .top, alignment: .trailing, spacing: 4) {
-                                Text("\(timeFmt.string(from: end)) ■")
-                                    .font(.system(size: 9, weight: .semibold))
-                                    .foregroundStyle(Color.indigo)
-                                    .padding(.horizontal, 4).padding(.vertical, 2)
-                                    .background(Color.indigo.opacity(0.1), in: RoundedRectangle(cornerRadius: 4))
-                            }
                     }
                 }
                 .chartYScale(domain: -0.15...3.3)
@@ -537,6 +538,8 @@ struct SleepDetailView: View {
         VStack(alignment: .leading, spacing: 12) {
             Label("Umgebungslautstärke", systemImage: "waveform.and.mic").font(.headline)
 
+            trackerTimeRow
+
             Chart(noiseData) { sample in
                 // Colored area fill: three stacked areas for thresholds
                 AreaMark(
@@ -583,6 +586,16 @@ struct SleepDetailView: View {
                 ))
                 .lineStyle(StrokeStyle(lineWidth: 2))
                 .interpolationMethod(.catmullRom)
+
+                RuleMark(x: .value("Start", session.startDate))
+                    .foregroundStyle(Color.indigo.opacity(0.5))
+                    .lineStyle(StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
+
+                if let end = session.endDate {
+                    RuleMark(x: .value("Ende", end))
+                        .foregroundStyle(Color.indigo.opacity(0.5))
+                        .lineStyle(StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
+                }
             }
             .chartYScale(domain: 20...90)
             .chartXAxis {
@@ -646,6 +659,8 @@ struct SleepDetailView: View {
         VStack(alignment: .leading, spacing: 12) {
             Label("Herzfrequenz", systemImage: "heart.fill").font(.headline).foregroundStyle(.pink)
 
+            trackerTimeRow
+
             let data = heartRateData
             let minBPM = (data.map(\.bpm).min() ?? 40) - 5
             let maxBPM = (data.map(\.bpm).max() ?? 100) + 5
@@ -667,6 +682,16 @@ struct SleepDetailView: View {
                     startPoint: .top, endPoint: .bottom
                 ))
                 .interpolationMethod(.catmullRom)
+
+                RuleMark(x: .value("Start", session.startDate))
+                    .foregroundStyle(Color.indigo.opacity(0.5))
+                    .lineStyle(StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
+
+                if let end = session.endDate {
+                    RuleMark(x: .value("Ende", end))
+                        .foregroundStyle(Color.indigo.opacity(0.5))
+                        .lineStyle(StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
+                }
             }
             .chartYScale(domain: minBPM...maxBPM)
             .chartXAxis {
