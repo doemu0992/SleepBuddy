@@ -205,6 +205,14 @@ final class SleepTrackingViewModel {
         classifier.reset()
         try? modelContext?.save()
 
+        // Retrain CoreML model in background after saving all samples
+        let samplesToTrain = classifier.onlineClassifier.allSamples
+        if samplesToTrain.count >= 40 {
+            Task.detached(priority: .background) {
+                await SleepModelTrainingService.shared.train(samples: samplesToTrain)
+            }
+        }
+
         if healthKit.isAuthorized {
             try? await healthKit.saveSleepSession(session)
         }

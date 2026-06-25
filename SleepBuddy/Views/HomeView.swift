@@ -235,47 +235,57 @@ struct HomeView: View {
 
     private var learningStatusCard: some View {
         let count = trackingViewModel.classifier.sampleCount
-        let isML = count >= 40
+        let knnActive = count >= 40
+        let coreMLActive = SleepModelTrainingService.isTrainedModelAvailable
+
         return VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 12) {
                 ZStack {
                     Circle()
-                        .fill(isML ? Color.indigo.opacity(0.12) : Color.secondary.opacity(0.1))
+                        .fill(coreMLActive ? Color.green.opacity(0.12) : knnActive ? Color.indigo.opacity(0.12) : Color.secondary.opacity(0.1))
                         .frame(width: 40, height: 40)
-                    Image(systemName: isML ? "brain.fill" : "brain")
-                        .foregroundStyle(isML ? .indigo : .secondary)
+                    Image(systemName: coreMLActive ? "cpu.fill" : knnActive ? "brain.fill" : "brain")
+                        .foregroundStyle(coreMLActive ? .green : knnActive ? .indigo : .secondary)
                         .font(.body)
                 }
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(isML ? "Persönliche KI aktiv" : "KI lernt dich kennen")
+                    Text(coreMLActive ? "Persönliches CoreML-Modell aktiv"
+                         : knnActive ? "Persönliche KI aktiv"
+                         : "KI lernt dich kennen")
                         .font(.subheadline.bold())
-                        .foregroundStyle(isML ? .indigo : .primary)
-                    Text(isML
-                         ? "\(count) Messwerte gesammelt"
+                        .foregroundStyle(coreMLActive ? .green : knnActive ? .indigo : .primary)
+                    Text(coreMLActive
+                         ? "\(count) Messwerte · Modell wird jede Nacht neu trainiert"
+                         : knnActive ? "\(count) Messwerte gesammelt"
                          : "\(count) von 40 Messwerten")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
-                if isML {
+                if coreMLActive {
+                    Image(systemName: "checkmark.seal.fill")
+                        .foregroundStyle(.green)
+                        .font(.title3)
+                } else if knnActive {
                     Image(systemName: "checkmark.circle.fill")
                         .foregroundStyle(.indigo)
                         .font(.title3)
                 }
             }
 
-            if !isML {
+            if !knnActive {
                 ProgressView(value: Double(count), total: 40)
                     .tint(.indigo)
-
-                Text("Nach \(40 - count) weiteren Nächten schaltet SleepBuddy auf deinen persönlichen KI-Klassifikator um — Schlafphasen werden dann noch genauer erkannt.")
+                Text("Nach \(40 - count) weiteren Nächten schaltet SleepBuddy auf deinen persönlichen KI-Klassifikator um.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             } else {
                 HStack(spacing: 6) {
-                    Image(systemName: "sparkles").foregroundStyle(.indigo).font(.caption)
-                    Text("Dein persönlicher Schlafklassifikator ist aktiv. Bewertungen nach dem Aufwachen verbessern ihn weiter.")
+                    Image(systemName: "sparkles").foregroundStyle(coreMLActive ? .green : .indigo).font(.caption)
+                    Text(coreMLActive
+                         ? "SleepBuddy trainiert nach jeder Nacht automatisch ein neues CoreML-Modell — deine Schlafphasen werden immer präziser."
+                         : "Persönlicher k-NN-Klassifikator aktiv. Nach der ersten Nacht wird automatisch ein CoreML-Modell trainiert.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)

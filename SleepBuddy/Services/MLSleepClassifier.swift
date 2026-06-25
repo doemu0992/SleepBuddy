@@ -4,7 +4,7 @@ import HealthKit
 import SwiftData
 
 /// Entry point for classification. Priority:
-///   1. CoreML trained model (if bundled)
+///   1. CoreML trained model (ApplicationSupport — retrained nightly, or bundled fallback)
 ///   2. Online k-NN (learns from every night)
 ///   3. Rule-based fallback (Nacht 1)
 final class MLSleepClassifier {
@@ -13,17 +13,48 @@ final class MLSleepClassifier {
     private var coreMLModel: MLModel?
     private(set) var isCoreMLAvailable = false
 
-    init() { loadCoreMLModel() }
+    private var retrainObserver: NSObjectProtocol?
+
+    init() {
+        loadCoreMLModel()
+        // Reload model whenever SleepModelTrainingService finishes a new training run
+        retrainObserver = NotificationCenter.default.addObserver(
+            forName: .sleepModelRetrained,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.loadCoreMLModel()
+        }
+    }
+
+    deinit {
+        if let obs = retrainObserver { NotificationCenter.default.removeObserver(obs) }
+    }
 
     func loadSamples(from context: ModelContext) {
         onlineClassifier.loadSamples(from: context)
     }
 
-    private func loadCoreMLModel() {
-        guard let url = Bundle.main.url(forResource: "SleepPhaseClassifier", withExtension: "mlmodelc"),
-              let model = try? MLModel(contentsOf: url) else { return }
-        coreMLModel = model
-        isCoreMLAvailable = true
+    // MARK: - Model Loading (ApplicationSupport → Bundle)
+
+    func loadCoreMLModel() {
+        // 1. Prefer nightly-trained model in ApplicationSupport
+        if let trainedURL = SleepModelTrainingService.trainedModelURL,
+           FileManager.default.fileExists(atPath: trainedURL.path),
+           let model = try? MLModel(contentsOf: trainedURL) {
+            coreMLModel = model
+            isCoreMLAvailable = true
+            return
+        }
+        // 2. Fall back to bundled model (if shipped)
+        if let bundleURL = Bundle.main.url(forResource: "SleepPhaseClassifier", withExtension: "mlmodelc"),
+           let model = try? MLModel(contentsOf: bundleURL) {
+            coreMLModel = model
+            isCoreMLAvailable = true
+            return
+        }
+        coreMLModel = nil
+        isCoreMLAvailable = false
     }
 
     // MARK: - Classification
@@ -69,12 +100,12 @@ final class MLSleepClassifier {
     private func coreMLClassify(audio: AudioFeatures, motion: MotionFeatures) -> (phase: SleepPhaseType, confidence: Double)? {
         guard let model = coreMLModel else { return nil }
         let input: [String: Any] = [
-            "averageAmplitude":   Double(audio.averageAmplitude),
-            "amplitudeVariance":  Double(audio.amplitudeVariance),
-            "breathingRateBPM":   Double(audio.breathingRateBPM),
-            "breathingRegularity":Double(audio.breathingRegularity),
-            "movementIntensity":  Double(motion.movementIntensity),
-            "snoringIntensity":   Double(audio.snoringIntensity)
+            "averageAmplitude":    Double(audio.averageAmplitude),
+            "amplitudeVariance":   Double(audio.amplitudeVariance),
+            "breathingRateBPM":    Double(audio.breathingRateBPM),
+            "breathingRegularity": Double(audio.breathingRegularity),
+            "movementIntensity":   Double(motion.movementIntensity),
+            "snoringIntensity":    Double(audio.snoringIntensity)
         ]
         guard let provider = try? MLDictionaryFeatureProvider(dictionary: input),
               let output = try? model.prediction(from: provider),

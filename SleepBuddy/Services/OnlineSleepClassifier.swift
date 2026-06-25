@@ -113,6 +113,7 @@ final class OnlineSleepClassifier {
     }
 
     var sampleCount: Int { samples.count }
+    var allSamples: [TrainingSample] { samples }
 
     /// Soft-corrects TrainingSamples whose classifier label disagrees with Apple Watch for the same time window.
     /// Only updates samples not already manually corrected by the user.
