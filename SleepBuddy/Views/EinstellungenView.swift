@@ -2,6 +2,8 @@ import SwiftUI
 import SwiftData
 import AVFoundation
 import Accelerate
+import SoundAnalysis
+import CoreMedia
 
 struct EinstellungenView: View {
     @Environment(\.modelContext) private var modelContext
@@ -14,6 +16,7 @@ struct EinstellungenView: View {
     @AppStorage("partnerModus_stufe") private var partnerModusStufe = 0
 
     @State private var zeigeMikrofonTest = false
+    @State private var zeigeICloudTest = false
     @State private var exportLaeuft = false
     @State private var exportErgebnis: String?
     @State private var zeigeLoeschenBestaetigung = false
@@ -63,6 +66,16 @@ struct EinstellungenView: View {
             }
             .sheet(isPresented: $zeigeMikrofonTest) {
                 MikrofonTestView()
+            }
+
+            Button {
+                zeigeICloudTest = true
+            } label: {
+                Label("iCloud-Speicher testen", systemImage: "icloud.and.arrow.up")
+                    .foregroundStyle(.indigo)
+            }
+            .sheet(isPresented: $zeigeICloudTest) {
+                ICloudAudioTestView()
             }
         } header: {
             Text("Aufzeichnung")
@@ -645,5 +658,247 @@ struct MikrofonTestView: View {
         barHeights = Array(repeating: 0.05, count: barCount)
         db = 0
         topErkennungen = []
+    }
+}
+
+// MARK: - ICloudAudioTestView
+
+struct ICloudAudioTestView: View {
+    @Environment(\.dismiss) private var dismiss
+
+    enum TestStatus {
+        case bereit, aufnahme, speichern, erfolg(String), fehler(String)
+
+        var beschreibung: String {
+            switch self {
+            case .bereit:           return "Bereit zum Testen"
+            case .aufnahme:         return "Nimmt 3 Sekunden auf…"
+            case .speichern:        return "Speichert in iCloud…"
+            case .erfolg(let pfad): return "✅ Gespeichert:\n\(pfad)"
+            case .fehler(let msg):  return "❌ Fehler:\n\(msg)"
+            }
+        }
+
+        var farbe: Color {
+            switch self {
+            case .erfolg: return .green
+            case .fehler: return .red
+            default:      return .secondary
+            }
+        }
+    }
+
+    @State private var status: TestStatus = .bereit
+    @State private var countdown = 3
+    @State private var laeuft = false
+    private let engine = AVAudioEngine()
+    private static let iCloudID = "iCloud.DG-Software-Solution.PainDiary"
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 32) {
+                Spacer()
+
+                Image(systemName: iconName)
+                    .font(.system(size: 56))
+                    .foregroundStyle(status.farbe)
+                    .symbolEffect(.pulse, isActive: laeuft)
+
+                VStack(spacing: 8) {
+                    if case .aufnahme = status {
+                        Text("\(countdown)")
+                            .font(.system(size: 48, weight: .bold, design: .rounded))
+                            .foregroundStyle(.indigo)
+                    }
+                    Text(status.beschreibung)
+                        .font(.subheadline)
+                        .foregroundStyle(status.farbe)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal)
+                }
+
+                iCloudStatusRow
+
+                Button {
+                    startTest()
+                } label: {
+                    Label("Test starten", systemImage: "play.fill")
+                        .font(.headline)
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(laeuft ? Color.secondary : Color.indigo,
+                                    in: RoundedRectangle(cornerRadius: 14))
+                }
+                .padding(.horizontal, 32)
+                .disabled(laeuft)
+
+                Spacer()
+            }
+            .navigationTitle("iCloud-Test")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Fertig") { dismiss() }
+                }
+            }
+        }
+    }
+
+    private var iconName: String {
+        switch status {
+        case .bereit:    return "icloud.and.arrow.up"
+        case .aufnahme:  return "mic.fill"
+        case .speichern: return "arrow.up.to.line.circle"
+        case .erfolg:    return "checkmark.icloud.fill"
+        case .fehler:    return "exclamationmark.icloud.fill"
+        }
+    }
+
+    @ViewBuilder
+    private var iCloudStatusRow: some View {
+        let url = FileManager.default.url(
+            forUbiquityContainerIdentifier: Self.iCloudID)
+        VStack(spacing: 4) {
+            if let url {
+                Label("iCloud verfügbar", systemImage: "icloud.fill")
+                    .font(.caption).foregroundStyle(.green)
+                Text(url.path)
+                    .font(.caption2).foregroundStyle(.secondary)
+                    .lineLimit(2).multilineTextAlignment(.center)
+                    .padding(.horizontal)
+            } else {
+                Label("iCloud nicht erreichbar", systemImage: "icloud.slash")
+                    .font(.caption).foregroundStyle(.orange)
+                Text("Lokal gespeichert (Documents/SleepSounds/)")
+                    .font(.caption2).foregroundStyle(.secondary)
+            }
+        }
+        .padding()
+        .background(Color(.secondarySystemGroupedBackground),
+                    in: RoundedRectangle(cornerRadius: 12))
+        .padding(.horizontal, 24)
+    }
+
+    private func startTest() {
+        AVAudioApplication.requestRecordPermission { granted in
+            DispatchQueue.main.async {
+                guard granted else {
+                    status = .fehler("Mikrofon-Berechtigung fehlt")
+                    return
+                }
+                aufnehmenUndSpeichern()
+            }
+        }
+    }
+
+    private func aufnehmenUndSpeichern() {
+        laeuft = true
+        status = .aufnahme
+        countdown = 3
+
+        let session = AVAudioSession.sharedInstance()
+        try? session.setCategory(.record, mode: .measurement,
+                                  options: [.mixWithOthers, .allowBluetoothHFP])
+        try? session.setActive(true)
+
+        let input = engine.inputNode
+        let format = input.inputFormat(forBus: 0)
+        let sampleRate = format.sampleRate
+        var samples: [Float] = []
+
+        input.installTap(onBus: 0, bufferSize: 4096, format: format) { buf, _ in
+            guard let data = buf.floatChannelData?[0] else { return }
+            samples.append(contentsOf: Array(UnsafeBufferPointer(start: data, count: Int(buf.frameLength))))
+        }
+
+        try? engine.start()
+
+        // Countdown
+        var tick = 0
+        Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { timer in
+            tick += 1
+            countdown = 3 - tick
+            if tick >= 3 {
+                timer.invalidate()
+                engine.inputNode.removeTap(onBus: 0)
+                engine.stop()
+                DispatchQueue.main.async {
+                    status = .speichern
+                    speichern(samples: samples, sampleRate: sampleRate)
+                }
+            }
+        }
+    }
+
+    private func speichern(samples: [Float], sampleRate: Double) {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd_HH-mm-ss"
+        let fileName = "icloudtest_\(formatter.string(from: Date())).m4a"
+
+        guard let pcmFormat = AVAudioFormat(commonFormat: .pcmFormatFloat32,
+                                             sampleRate: sampleRate,
+                                             channels: 1, interleaved: false) else {
+            status = .fehler("Audio-Format konnte nicht erstellt werden")
+            laeuft = false
+            return
+        }
+
+        let tmpURL = FileManager.default.temporaryDirectory.appendingPathComponent(fileName)
+        do {
+            let settings: [String: Any] = [
+                AVFormatIDKey: kAudioFormatMPEG4AAC,
+                AVSampleRateKey: sampleRate,
+                AVNumberOfChannelsKey: 1,
+                AVEncoderAudioQualityKey: AVAudioQuality.medium.rawValue
+            ]
+            let file = try AVAudioFile(forWriting: tmpURL, settings: settings)
+            let count = AVAudioFrameCount(samples.count)
+            guard let buf = AVAudioPCMBuffer(pcmFormat: pcmFormat, frameCapacity: count) else {
+                throw NSError(domain: "ICloudTest", code: 1)
+            }
+            buf.frameLength = count
+            samples.withUnsafeBufferPointer { ptr in
+                buf.floatChannelData?[0].update(from: ptr.baseAddress!, count: samples.count)
+            }
+            try file.write(from: buf)
+        } catch {
+            DispatchQueue.main.async {
+                status = .fehler("Aufnahme fehlgeschlagen: \(error.localizedDescription)")
+                laeuft = false
+            }
+            return
+        }
+
+        // iCloud versuchen, lokal als Fallback
+        let destURL: URL
+        var ziel = "iCloud"
+
+        if let icloudBase = FileManager.default.url(
+            forUbiquityContainerIdentifier: Self.iCloudID)?
+            .appendingPathComponent("Documents/SleepSounds/") {
+            try? FileManager.default.createDirectory(at: icloudBase, withIntermediateDirectories: true)
+            destURL = icloudBase.appendingPathComponent(fileName)
+        } else {
+            let local = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+                .appendingPathComponent("SleepSounds/")
+            try? FileManager.default.createDirectory(at: local, withIntermediateDirectories: true)
+            destURL = local.appendingPathComponent(fileName)
+            ziel = "Lokal (kein iCloud)"
+        }
+
+        do {
+            try FileManager.default.copyItem(at: tmpURL, to: destURL)
+            try? FileManager.default.removeItem(at: tmpURL)
+            DispatchQueue.main.async {
+                status = .erfolg("\(ziel)\n\(destURL.lastPathComponent)\n\(Int(samples.count / Int(sampleRate)))s · \(Int(sampleRate/1000))kHz")
+                laeuft = false
+            }
+        } catch {
+            DispatchQueue.main.async {
+                status = .fehler("Speichern fehlgeschlagen: \(error.localizedDescription)")
+                laeuft = false
+            }
+        }
     }
 }
