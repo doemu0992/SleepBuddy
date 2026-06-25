@@ -291,7 +291,8 @@ final class SleepTrackingViewModel {
             pendingPhase = result.phase
             pendingPhaseStartDate = now
         } else if result.phase != currentPhase,
-                  now.timeIntervalSince(pendingPhaseStartDate) >= minPhaseDuration {
+                  now.timeIntervalSince(pendingPhaseStartDate) >= minPhaseDuration,
+                  isSleepOnsetDetected || result.phase == .awake {
             guard let session = currentSession else { return }
             finalizeCurrentPhase(endDate: now, session: session)
             currentPhaseStartDate = now

@@ -538,11 +538,12 @@ struct SleepDetailView: View {
             .frame(height: 110)
 
             // Legend
-            HStack(spacing: 16) {
-                legendDot(.green,  "< 35 dB  Sehr ruhig")
-                legendDot(.orange, "35–50 dB  Normal")
-                legendDot(.red,    "> 50 dB  Laut")
+            HStack(spacing: 12) {
+                legendDot(.green,  "< 35 dB Ruhig")
+                legendDot(.orange, "35–50 dB Normal")
+                legendDot(.red,    "> 50 dB Laut")
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding()
         .background(Color(.secondarySystemGroupedBackground))

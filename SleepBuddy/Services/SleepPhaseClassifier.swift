@@ -149,7 +149,7 @@ final class SleepPhaseClassifier {
             }
             if amp > sleepAmplitudeMax { return (.awake, 0.6) }
             // In a REM window with no breathing signal: prefer REM over light
-            if remWindow { return (.rem, 0.42) }
+            if remWindow { return (.rem, 0.55) }
             return (.light, 0.4)
         }
 
@@ -168,7 +168,7 @@ final class SleepPhaseClassifier {
         // 5. REM: irregular breathing, quiet.
         //    In a REM window the thresholds are relaxed — less regularity required.
         //    HR-based REM boost: slightly elevated HR + low HRV is classic REM.
-        let remRegMax: Float = remWindow ? 0.82 : remMaxRegularity
+        let remRegMax: Float = remWindow ? 0.94 : remMaxRegularity
         let remVarMin: Float = remWindow ? 0.000002 : 0.000008
         let remConfBoost: Double = remWindow ? 0.20 : 0.0
         let hrREMBoost: Double  = hasHR && hrREM && !hrvHigh ? 0.12 * hrConfidenceScale : 0.0
