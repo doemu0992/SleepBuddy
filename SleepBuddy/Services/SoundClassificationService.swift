@@ -99,13 +99,19 @@ extension SoundClassificationService: SNResultsObserving {
             ("breaking",             .glassBreak, 0.45),
         ]
 
+        // Pick the highest-confidence match across all mappings — not the first one that
+        // passes the threshold, since multiple identifiers can match the same event.
+        var best: (type: SoundEventType, confidence: Double)? = nil
         for (id, type, minConf) in mappings {
-            if let c = classifications.classification(forIdentifier: id), c.confidence >= minConf {
-                let confidence = c.confidence
-                DispatchQueue.main.async { [weak self] in
-                    self?.onSoundDetected?(type, confidence)
-                }
-                return
+            if let c = classifications.classification(forIdentifier: id),
+               c.confidence >= minConf,
+               c.confidence > (best?.confidence ?? 0) {
+                best = (type, c.confidence)
+            }
+        }
+        if let best {
+            DispatchQueue.main.async { [weak self] in
+                self?.onSoundDetected?(best.type, best.confidence)
             }
         }
     }
