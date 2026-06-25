@@ -2,9 +2,9 @@ import SwiftUI
 import SwiftData
 import AVFoundation
 
-// Starts building the container the moment the module loads — before any SwiftUI body runs.
-private let _earlyContainerTask = Task.detached(priority: .userInitiated) {
-    SleepBuddyApp.makeContainer()
+// Starts building the persistent container at module-load time — maximum head start.
+private let _persistentContainerTask = Task.detached(priority: .userInitiated) {
+    SleepBuddyApp.makePersistentContainer()
 }
 
 @main
@@ -12,26 +12,27 @@ struct SleepBuddyApp: App {
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage("onboarding_complete") private var onboardingComplete = false
 
-    @State private var modelContainer: ModelContainer?
+    // Starts as a fast in-memory container so the UI renders at T=0.
+    // Replaced with the real persistent container once it's ready.
+    @State private var modelContainer: ModelContainer = SleepBuddyApp.makeInMemoryContainer()
+    @State private var isReady = false
 
     var body: some Scene {
         WindowGroup {
-            if let container = modelContainer {
-                Group {
-                    if onboardingComplete {
-                        ContentView()
-                            .onAppear { ICloudSettingsSync.shared.start() }
-                    } else {
-                        OnboardingView { onboardingComplete = true }
-                    }
+            Group {
+                if onboardingComplete {
+                    ContentView()
+                } else {
+                    OnboardingView { onboardingComplete = true }
                 }
-                .modelContainer(container)
-            } else {
-                Color(.systemBackground)
-                    .ignoresSafeArea()
-                    .task {
-                        modelContainer = await _earlyContainerTask.value
-                    }
+            }
+            .modelContainer(modelContainer)
+            .opacity(isReady ? 1 : 0)
+            .task {
+                let persistent = await _persistentContainerTask.value
+                modelContainer = persistent
+                withAnimation(.easeIn(duration: 0.15)) { isReady = true }
+                ICloudSettingsSync.shared.start()
             }
         }
         .onChange(of: scenePhase) { _, phase in
@@ -41,12 +42,19 @@ struct SleepBuddyApp: App {
         }
     }
 
-    // MARK: - Container build
+    // MARK: - In-memory container (instant, ~1 ms)
 
-    nonisolated static func makeContainer() -> ModelContainer {
-        // .automatic → uses the single iCloud container from entitlements
-        // (iCloud.DG-Software-Solution.PainDiary) — same as iOS already has cached,
-        // so init is near-instant on warm launches just like PainDiary.
+    nonisolated static func makeInMemoryContainer() -> ModelContainer {
+        let config = ModelConfiguration(isStoredInMemoryOnly: true)
+        return (try? ModelContainer(
+            for: SleepSession.self, SleepPhase.self, SleepSoundEvent.self, TrainingSample.self,
+            configurations: config
+        )) ?? try! ModelContainer(for: SleepSession.self, configurations: config)
+    }
+
+    // MARK: - Persistent container with CloudKit (runs off main thread)
+
+    nonisolated static func makePersistentContainer() -> ModelContainer {
         let cloudConfig = ModelConfiguration(
             "SleepData",
             schema: Schema([SleepSession.self, SleepPhase.self, SleepSoundEvent.self]),
@@ -63,7 +71,6 @@ struct SleepBuddyApp: App {
             configurations: cloudConfig, localConfig
         ) { return container }
 
-        // Fallback without CloudKit — data stays accessible, sync resumes on next success
         let sleepFallback = ModelConfiguration(
             "SleepData",
             schema: Schema([SleepSession.self, SleepPhase.self, SleepSoundEvent.self]),
