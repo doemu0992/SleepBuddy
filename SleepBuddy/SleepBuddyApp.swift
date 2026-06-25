@@ -2,12 +2,16 @@ import SwiftUI
 import SwiftData
 import AVFoundation
 
+// Starts building the container the moment the module loads — before any SwiftUI body runs.
+private let _earlyContainerTask = Task.detached(priority: .userInitiated) {
+    SleepBuddyApp.makeContainer()
+}
+
 @main
 struct SleepBuddyApp: App {
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage("onboarding_complete") private var onboardingComplete = false
 
-    // Container starts nil — built async so main thread is never blocked at launch.
     @State private var modelContainer: ModelContainer?
 
     private static let containerID = "iCloud.DG-Software-Solution.PainDiary"
@@ -25,9 +29,11 @@ struct SleepBuddyApp: App {
                 }
                 .modelContainer(container)
             } else {
-                // Splash while container initialises in background (~0.3–2 s)
-                splashView
-                    .task { await buildContainer() }
+                Color(.systemBackground)
+                    .ignoresSafeArea()
+                    .task {
+                        modelContainer = await _earlyContainerTask.value
+                    }
             }
         }
         .onChange(of: scenePhase) { _, phase in
@@ -37,32 +43,9 @@ struct SleepBuddyApp: App {
         }
     }
 
-    // MARK: - Splash
+    // MARK: - Container build (nonisolated so Task.detached can call it)
 
-    private var splashView: some View {
-        ZStack {
-            Color(red: 0.04, green: 0.06, blue: 0.16).ignoresSafeArea()
-            VStack(spacing: 20) {
-                Image(systemName: "moon.stars.fill")
-                    .font(.system(size: 64))
-                    .foregroundStyle(.indigo)
-                ProgressView()
-                    .tint(.indigo.opacity(0.6))
-            }
-        }
-    }
-
-    // MARK: - Async container build (background thread, never blocks main)
-
-    @MainActor
-    private func buildContainer() async {
-        let container = await Task.detached(priority: .userInitiated) {
-            Self.makeContainer()
-        }.value
-        modelContainer = container
-    }
-
-    private static func makeContainer() -> ModelContainer {
+    nonisolated static func makeContainer() -> ModelContainer {
         let cloudConfig = ModelConfiguration(
             "SleepData",
             schema: Schema([SleepSession.self, SleepPhase.self, SleepSoundEvent.self]),

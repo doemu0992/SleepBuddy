@@ -170,8 +170,6 @@ enum SampleDataService {
         let remMin   = Double.random(in: 40...90)
         let lightMin = Double.random(in: 60...130)
         let awakeMin = Double.random(in: 10...35)
-        let total    = deepMin + remMin + lightMin + awakeMin
-
         // Build a realistic 4-cycle arch that sums to `total`
         let arch: [(SleepPhaseType, Double)] = buildRandomArch(
             deep: deepMin, rem: remMin, light: lightMin, awakeEnd: awakeMin)
