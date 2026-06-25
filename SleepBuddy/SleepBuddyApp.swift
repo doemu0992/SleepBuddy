@@ -44,10 +44,6 @@ struct SleepBuddyApp: App {
     // MARK: - Persistent container with CloudKit (runs off main thread)
 
     nonisolated static func makePersistentContainer() -> ModelContainer {
-        let allModels: [any PersistentModel.Type] = [
-            SleepSession.self, SleepPhase.self, SleepSoundEvent.self, TrainingSample.self
-        ]
-
         // Attempt 1: CloudKit sync
         let cloudConfig = ModelConfiguration(
             "SleepData",
