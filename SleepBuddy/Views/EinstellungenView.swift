@@ -166,6 +166,13 @@ struct EinstellungenView: View {
                     .foregroundStyle(.indigo)
             }
 
+            Button {
+                SampleDataService.insertSampleHistory(into: modelContext)
+            } label: {
+                Label("Langzeitverlauf-Testdaten (6 Monate)", systemImage: "calendar")
+                    .foregroundStyle(.indigo)
+            }
+
             Button(role: .destructive) {
                 zeigeLoeschenBestaetigung = true
             } label: {
