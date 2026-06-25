@@ -20,6 +20,7 @@ struct EinstellungenView: View {
     @State private var exportLaeuft = false
     @State private var exportErgebnis: String?
     @State private var zeigeLoeschenBestaetigung = false
+    @State private var zeigeTestdatenLoeschenBestaetigung = false
     @State private var csvShareItem: URL?
     @State private var zeigeCSVShare = false
 
@@ -171,6 +172,22 @@ struct EinstellungenView: View {
             } label: {
                 Label("Langzeitverlauf-Testdaten (6 Monate)", systemImage: "calendar")
                     .foregroundStyle(.indigo)
+            }
+
+            Button(role: .destructive) {
+                zeigeTestdatenLoeschenBestaetigung = true
+            } label: {
+                Label("Alle Testdaten löschen", systemImage: "trash.slash")
+            }
+            .confirmationDialog(
+                "Alle Testdaten löschen?",
+                isPresented: $zeigeTestdatenLoeschenBestaetigung,
+                titleVisibility: .visible
+            ) {
+                Button("Löschen", role: .destructive) { alleDatenLoeschen() }
+                Button("Abbrechen", role: .cancel) {}
+            } message: {
+                Text("Alle Schlafnächte werden gelöscht. Dieser Vorgang kann nicht rückgängig gemacht werden.")
             }
 
             Button(role: .destructive) {
