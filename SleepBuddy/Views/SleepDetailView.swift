@@ -259,24 +259,49 @@ struct SleepDetailView: View {
     // MARK: - Hypnogram
 
     private struct HypnoPoint: Identifiable {
-        let id = UUID()
-        let startDate: Date
-        let endDate: Date
-        let depth: Double  // 0=wach, 1=leicht, 2=rem, 3=tief
-        let phase: SleepPhaseType
+        let id: Date
+        let time: Date
+        let depth: Double  // 0.15=wach, 1=leicht, 2=rem, 3=tief
     }
 
     private var hypnoData: [HypnoPoint] {
-        session.phasesArray.sorted { $0.startDate < $1.startDate }.map { phase in
+        let sorted = session.phasesArray.sorted { $0.startDate < $1.startDate }
+        var points: [HypnoPoint] = []
+        for phase in sorted {
             let depth: Double = switch phase.phaseType {
-            case .awake: 0
-            case .light: 1
-            case .rem:   2
-            case .deep:  3
+            case .awake: 0.15
+            case .light: 1.0
+            case .rem:   2.0
+            case .deep:  3.0
             }
-            return HypnoPoint(startDate: phase.startDate, endDate: phase.endDate,
-                              depth: depth, phase: phase.phaseType)
+            points.append(HypnoPoint(id: phase.startDate, time: phase.startDate, depth: depth))
         }
+        if let last = sorted.last {
+            let depth: Double = switch last.phaseType {
+            case .awake: 0.15
+            case .light: 1.0
+            case .rem:   2.0
+            case .deep:  3.0
+            }
+            points.append(HypnoPoint(id: last.endDate, time: last.endDate, depth: depth))
+        }
+        return points
+    }
+
+    // Gradient that colors the wave line/area by depth (bottom=orange/awake → top=purple/deep)
+    // Y domain is 0...3.3, threshold positions: awake≈0.15, light=1, rem=2, deep=3
+    private var hypnoLineGradient: LinearGradient {
+        LinearGradient(
+            stops: [
+                .init(color: SleepPhaseType.awake.color.opacity(0.9), location: 0.0),
+                .init(color: SleepPhaseType.light.color.opacity(0.9), location: 0.30),
+                .init(color: SleepPhaseType.rem.color.opacity(0.9),   location: 0.61),
+                .init(color: SleepPhaseType.deep.color.opacity(0.9),  location: 0.91),
+                .init(color: SleepPhaseType.deep.color.opacity(0.9),  location: 1.0),
+            ],
+            startPoint: .bottom,
+            endPoint: .top
+        )
     }
 
     @ViewBuilder
@@ -287,26 +312,42 @@ struct SleepDetailView: View {
                     .font(.headline)
 
                 Chart(hypnoData) { point in
-                    RectangleMark(
-                        xStart: .value("Start", point.startDate),
-                        xEnd:   .value("Ende",  point.endDate),
-                        yStart: .value("Boden", -0.1),
-                        yEnd:   .value("Tiefe", point.depth)
+                    AreaMark(
+                        x: .value("Zeit", point.time),
+                        yStart: .value("Boden", 0.0),
+                        yEnd: .value("Tiefe", point.depth)
                     )
-                    .foregroundStyle(point.phase.color.opacity(0.75))
+                    .interpolationMethod(.stepStart)
+                    .foregroundStyle(
+                        LinearGradient(
+                            colors: [SleepPhaseType.deep.color.opacity(0.25), SleepPhaseType.deep.color.opacity(0.05)],
+                            startPoint: .top, endPoint: .bottom
+                        )
+                    )
+
+                    LineMark(
+                        x: .value("Zeit", point.time),
+                        y: .value("Tiefe", point.depth)
+                    )
+                    .interpolationMethod(.stepStart)
+                    .foregroundStyle(hypnoLineGradient)
+                    .lineStyle(StrokeStyle(lineWidth: 2))
                 }
-                .chartYScale(domain: -0.1...3.3)
+                .chartYScale(domain: 0...3.3)
                 .chartYAxis {
-                    AxisMarks(values: [0, 1, 2, 3]) { val in
+                    AxisMarks(values: [0.15, 1.0, 2.0, 3.0]) { val in
                         AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5, dash: [4]))
                             .foregroundStyle(Color.secondary.opacity(0.3))
                         AxisValueLabel {
-                            switch val.as(Int.self) {
-                            case 0: Text("Wach").font(.caption2).foregroundStyle(SleepPhaseType.awake.color)
-                            case 1: Text("Leicht").font(.caption2).foregroundStyle(SleepPhaseType.light.color)
-                            case 2: Text("REM").font(.caption2).foregroundStyle(SleepPhaseType.rem.color)
-                            case 3: Text("Tief").font(.caption2).foregroundStyle(SleepPhaseType.deep.color)
-                            default: EmptyView()
+                            let v = val.as(Double.self) ?? 0
+                            if v < 0.5 {
+                                Text("Wach").font(.caption2).foregroundStyle(SleepPhaseType.awake.color)
+                            } else if v < 1.5 {
+                                Text("Leicht").font(.caption2).foregroundStyle(SleepPhaseType.light.color)
+                            } else if v < 2.5 {
+                                Text("REM").font(.caption2).foregroundStyle(SleepPhaseType.rem.color)
+                            } else {
+                                Text("Tief").font(.caption2).foregroundStyle(SleepPhaseType.deep.color)
                             }
                         }
                     }
@@ -489,12 +530,24 @@ struct SleepDetailView: View {
                 .foregroundStyle(Color.red.opacity(0.22))
                 .interpolationMethod(.catmullRom)
 
-                // Wave line colored by current dB level
+                // Wave line — gradient by Y position: green(20dB) → orange(35dB) → red(50dB+)
+                // Y domain 20...90 (70 range); thresholds: 35=(15/70)≈0.21, 50=(30/70)≈0.43
                 LineMark(
                     x: .value("Zeit", sample.time),
                     y: .value("dB", sample.db)
                 )
-                .foregroundStyle(noiseColor(sample.db))
+                .foregroundStyle(LinearGradient(
+                    stops: [
+                        .init(color: .green,  location: 0.0),
+                        .init(color: .green,  location: 0.21),
+                        .init(color: .orange, location: 0.21),
+                        .init(color: .orange, location: 0.43),
+                        .init(color: .red,    location: 0.43),
+                        .init(color: .red,    location: 1.0),
+                    ],
+                    startPoint: .bottom,
+                    endPoint: .top
+                ))
                 .lineStyle(StrokeStyle(lineWidth: 2))
                 .interpolationMethod(.catmullRom)
             }
