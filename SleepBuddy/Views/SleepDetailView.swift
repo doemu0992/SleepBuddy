@@ -311,6 +311,10 @@ struct SleepDetailView: View {
                 Label("Schlafverlauf", systemImage: "waveform.path.ecg")
                     .font(.headline)
 
+                let timeFmt: DateFormatter = {
+                    let f = DateFormatter(); f.dateFormat = "HH:mm"; return f
+                }()
+
                 Chart(hypnoData) { point in
                     AreaMark(
                         x: .value("Zeit", point.time),
@@ -332,6 +336,32 @@ struct SleepDetailView: View {
                     .interpolationMethod(.stepStart)
                     .foregroundStyle(hypnoLineGradient)
                     .lineStyle(StrokeStyle(lineWidth: 2))
+
+                    // Tracker Start
+                    RuleMark(x: .value("Start", session.startDate))
+                        .foregroundStyle(Color.indigo.opacity(0.7))
+                        .lineStyle(StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
+                        .annotation(position: .top, alignment: .leading, spacing: 4) {
+                            Text("▶ \(timeFmt.string(from: session.startDate))")
+                                .font(.system(size: 9, weight: .semibold))
+                                .foregroundStyle(Color.indigo)
+                                .padding(.horizontal, 4).padding(.vertical, 2)
+                                .background(Color.indigo.opacity(0.1), in: RoundedRectangle(cornerRadius: 4))
+                        }
+
+                    // Tracker Ende
+                    if let end = session.endDate {
+                        RuleMark(x: .value("Ende", end))
+                            .foregroundStyle(Color.indigo.opacity(0.7))
+                            .lineStyle(StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
+                            .annotation(position: .top, alignment: .trailing, spacing: 4) {
+                                Text("\(timeFmt.string(from: end)) ■")
+                                    .font(.system(size: 9, weight: .semibold))
+                                    .foregroundStyle(Color.indigo)
+                                    .padding(.horizontal, 4).padding(.vertical, 2)
+                                    .background(Color.indigo.opacity(0.1), in: RoundedRectangle(cornerRadius: 4))
+                            }
+                    }
                 }
                 .chartYScale(domain: -0.15...3.3)
                 .chartYAxis {
