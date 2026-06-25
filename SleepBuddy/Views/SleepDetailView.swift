@@ -277,10 +277,12 @@ struct SleepDetailView: View {
         let sorted = session.phasesArray.sorted { $0.startDate < $1.startDate }
         var points: [HypnoPoint] = []
         for phase in sorted {
+            // Start of phase
             points.append(HypnoPoint(id: phase.startDate, time: phase.startDate, depth: hypnoDepth(phase.phaseType)))
-        }
-        if let last = sorted.last {
-            points.append(HypnoPoint(id: last.endDate, time: last.endDate, depth: hypnoDepth(last.phaseType)))
+            // End of phase — needed so SwiftCharts draws the full segment width
+            // Use a UUID-based id offset so it doesn't collide with the next phase's startDate
+            let endID = phase.endDate.addingTimeInterval(-0.001)
+            points.append(HypnoPoint(id: endID, time: phase.endDate, depth: hypnoDepth(phase.phaseType)))
         }
         return points
     }
