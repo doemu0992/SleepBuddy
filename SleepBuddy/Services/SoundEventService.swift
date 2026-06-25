@@ -77,7 +77,7 @@ final class SoundEventService {
         mlHintDate = Date()
 
         let isMLPrimary = type == .bruxism || type == .coughing
-        if isMLPrimary && confidence >= 0.65 && eventStartDate == nil && !isInCooldown {
+        if isMLPrimary && confidence >= 0.55 && eventStartDate == nil && !isInCooldown {
             eventStartDate = Date()
             pendingEventType = type
             consecutiveLoudTicks = loudTicksToStart  // bypass tick counter
