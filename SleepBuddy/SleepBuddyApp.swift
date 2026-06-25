@@ -14,8 +14,6 @@ struct SleepBuddyApp: App {
 
     @State private var modelContainer: ModelContainer?
 
-    private static let containerID = "iCloud.DG-Software-Solution.PainDiary"
-
     var body: some Scene {
         WindowGroup {
             if let container = modelContainer {
@@ -43,13 +41,16 @@ struct SleepBuddyApp: App {
         }
     }
 
-    // MARK: - Container build (nonisolated so Task.detached can call it)
+    // MARK: - Container build
 
     nonisolated static func makeContainer() -> ModelContainer {
+        // .automatic → uses the single iCloud container from entitlements
+        // (iCloud.DG-Software-Solution.PainDiary) — same as iOS already has cached,
+        // so init is near-instant on warm launches just like PainDiary.
         let cloudConfig = ModelConfiguration(
             "SleepData",
             schema: Schema([SleepSession.self, SleepPhase.self, SleepSoundEvent.self]),
-            cloudKitDatabase: .private(containerID)
+            cloudKitDatabase: .automatic
         )
         let localConfig = ModelConfiguration(
             "MLData",
