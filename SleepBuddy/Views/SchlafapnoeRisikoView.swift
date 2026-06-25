@@ -40,22 +40,42 @@ struct SchlafapnoeRisikoView: View {
         }
     }
 
+    private var qualifyingSessions: [SleepSession] {
+        Array(sessions.filter { !$0.isActive && $0.totalDuration >= 3600 }.prefix(7))
+    }
+
     private var snoringPerHour: Double {
-        let qualifying = sessions.filter { !$0.isActive && $0.totalDuration >= 3600 }
-            .prefix(7)
-        guard !qualifying.isEmpty else { return 0 }
-        let rates = qualifying.map { s -> Double in
+        guard !qualifyingSessions.isEmpty else { return 0 }
+        let rates = qualifyingSessions.map { s -> Double in
             let hours = s.totalDuration / 3600
             return hours > 0 ? Double(s.snoringEventCount) / hours : 0
         }
         return rates.reduce(0, +) / Double(rates.count)
     }
 
+    private var pausesPerHour: Double {
+        guard !qualifyingSessions.isEmpty else { return 0 }
+        let rates = qualifyingSessions.map { s -> Double in
+            let hours = s.totalDuration / 3600
+            return hours > 0 ? Double(s.breathingPauseCount) / hours : 0
+        }
+        return rates.reduce(0, +) / Double(rates.count)
+    }
+
+    private var backSleepPercent: Double {
+        let allSamples = qualifyingSessions.flatMap { $0.positionSamples }
+        guard !allSamples.isEmpty else { return 0 }
+        let backCount = allSamples.filter { $0 == SleepPosition.back.rawValue }.count
+        return Double(backCount) / Double(allSamples.count) * 100
+    }
+
     private var risiko: Risiko {
-        let r = snoringPerHour
-        if r < 25 { return .niedrig }
-        if r < 50 { return .mild }
-        if r < 75 { return .mittel }
+        var score = snoringPerHour
+        score += pausesPerHour * 3  // pauses weighted more heavily
+        if backSleepPercent > 60 { score += 10 }
+        if score < 25 { return .niedrig }
+        if score < 50 { return .mild }
+        if score < 75 { return .mittel }
         return .erhoeht
     }
 
@@ -117,6 +137,33 @@ struct SchlafapnoeRisikoView: View {
                     Spacer()
                     Text("Erhöht").font(.caption2).foregroundStyle(.red)
                 }
+
+                // Additional detail rows
+                if pausesPerHour > 0 || backSleepPercent > 0 {
+                    Divider()
+                    VStack(spacing: 6) {
+                        if pausesPerHour > 0 {
+                            HStack {
+                                Label(String(format: "%.1f Atempausen/h", pausesPerHour),
+                                      systemImage: "waveform.path.ecg")
+                                    .font(.caption)
+                                    .foregroundStyle(pausesPerHour > 5 ? .orange : .secondary)
+                                Spacer()
+                                Text("Ø letzte \(qualifyingSessions.count) Nächte")
+                                    .font(.caption2).foregroundStyle(.secondary)
+                            }
+                        }
+                        if backSleepPercent > 0 {
+                            HStack {
+                                Label(String(format: "%.0f %% Rückenlage", backSleepPercent),
+                                      systemImage: "person.fill")
+                                    .font(.caption)
+                                    .foregroundStyle(backSleepPercent > 60 ? .orange : .secondary)
+                                Spacer()
+                            }
+                        }
+                    }
+                }
             } else {
                 HStack(spacing: 16) {
                     Image(systemName: "moon.zzz.fill")
@@ -149,10 +196,11 @@ struct SchlafapnoeRisikoView: View {
     }
 
     private var infoText: String {
-        let n = min(sessions.filter { !$0.isActive && $0.totalDuration >= 3600 }.count, 7)
+        let n = qualifyingSessions.count
         if n == 0 { return "Kein Ersatz für eine ärztliche Diagnose." }
         let rate = String(format: "%.0f", snoringPerHour)
-        return "Ø \(rate) Schnarch-Ereignisse/h (letzte \(n) Nächte). Kein medizinischer Befund."
+        let pauses = String(format: "%.1f", pausesPerHour)
+        return "Ø \(rate) Schnarch-Ereignisse/h, \(pauses) Atempausen/h (letzte \(n) Nächte). Kein medizinischer Befund."
     }
 }
 

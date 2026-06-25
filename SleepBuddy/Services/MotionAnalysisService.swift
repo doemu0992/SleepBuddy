@@ -39,6 +39,12 @@ final class MotionAnalysisService {
     private var downsampleCounter = 0
     private var emitCounter = 0                    // emit features every windowSize samples (30 s)
 
+    // Sleep position: 5 s low-pass (250 samples @ 50 Hz) isolates gravity from each axis
+    private var gravX: [Float] = []
+    private var gravY: [Float] = []
+    private var gravZ: [Float] = []
+    private let gravWindowSize = 250   // 5 s × 50 Hz
+
     init() {
         isAvailable = CMMotionManager().isAccelerometerAvailable
     }
@@ -53,7 +59,7 @@ final class MotionAnalysisService {
             let y = Float(data.acceleration.y)
             let z = Float(data.acceleration.z)
             let mag = sqrt(x*x + y*y + z*z)
-            self.append(mag: mag, z: z)
+            self.append(x: x, y: y, z: z, mag: mag)
         }
         isRunning = true
     }
@@ -63,6 +69,7 @@ final class MotionAnalysisService {
         rawSamples.removeAll()
         breathingSamples.removeAll()
         bcgZ.removeAll()
+        gravX.removeAll(); gravY.removeAll(); gravZ.removeAll()
         downsampleCounter = 0
         emitCounter = 0
         isRunning = false
@@ -72,13 +79,14 @@ final class MotionAnalysisService {
         rawSamples.removeAll()
         breathingSamples.removeAll()
         bcgZ.removeAll()
+        gravX.removeAll(); gravY.removeAll(); gravZ.removeAll()
         downsampleCounter = 0
         emitCounter = 0
     }
 
     // MARK: - Processing
 
-    private func append(mag: Float, z: Float) {
+    private func append(x: Float, y: Float, z: Float, mag: Float) {
         // Full-rate magnitude buffer for movement detection
         rawSamples.append(mag)
         if rawSamples.count > windowSize { rawSamples.removeFirst() }
@@ -86,6 +94,12 @@ final class MotionAnalysisService {
         // BCG: z-axis at full 50 Hz
         bcgZ.append(z)
         if bcgZ.count > bcgWindowSize { bcgZ.removeFirst() }
+
+        // Gravity: 5 s low-pass on each axis (DC component = gravity vector)
+        gravX.append(x); gravY.append(y); gravZ.append(z)
+        if gravX.count > gravWindowSize { gravX.removeFirst() }
+        if gravY.count > gravWindowSize { gravY.removeFirst() }
+        if gravZ.count > gravWindowSize { gravZ.removeFirst() }
 
         // Breathing: downsample to 10 Hz (every 5th sample)
         downsampleCounter += 1
@@ -123,14 +137,34 @@ final class MotionAnalysisService {
         // BCG heart rate — only attempt when phone is on mattress
         let bcgHR: Float = onMattress ? detectHeartRate(zSamples: bcgZ) : 0
 
+        // Sleep position from gravity vector (5 s low-pass average)
+        let position = detectSleepPosition()
+
         return MotionFeatures(
             movementIntensity: intensity,
             breathingRateBPM: breathBPM,
             breathingRegularity: breathReg,
             isOnMattress: onMattress,
             bcgHeartRateBPM: bcgHR,
+            sleepPosition: position,
             timestamp: Date()
         )
+    }
+
+    // MARK: - Sleep position (gravity-based)
+
+    private func detectSleepPosition() -> SleepPosition {
+        guard gravX.count >= gravWindowSize / 2 else { return .unknown }
+        var mx: Float = 0, my: Float = 0, mz: Float = 0
+        vDSP_meanv(gravX, 1, &mx, vDSP_Length(gravX.count))
+        vDSP_meanv(gravY, 1, &my, vDSP_Length(gravY.count))
+        vDSP_meanv(gravZ, 1, &mz, vDSP_Length(gravZ.count))
+        let mag = sqrt(mx*mx + my*my + mz*mz)
+        guard mag > 0.3 else { return .unknown }
+        // If z dominates the gravity vector → phone is flat (back/stomach sleeping).
+        // If x or y component is significant → phone is tilted → side sleeping.
+        let zRatio = abs(mz) / mag
+        return zRatio > 0.75 ? .back : .side
     }
 
     // MARK: - Breathing detection (10 Hz autocorrelation, 9–30 BPM)
@@ -258,12 +292,19 @@ final class MotionAnalysisService {
     }
 }
 
+enum SleepPosition: Int {
+    case unknown = 0
+    case back    = 1   // phone flat → z-axis aligned with gravity → likely on back/stomach
+    case side    = 2   // phone tilted → x/y gravity component significant → likely side sleeping
+}
+
 struct MotionFeatures {
     let movementIntensity: Float       // 0 = still, 1 = awake/moving
     let breathingRateBPM: Float        // >0 when phone is on mattress
     let breathingRegularity: Float     // 0–1, from accelerometer
     let isOnMattress: Bool             // true when breathing rhythm detected via accelerometer
     let bcgHeartRateBPM: Float         // BCG heart rate, 0 if unreliable or not on mattress
+    let sleepPosition: SleepPosition   // estimated sleep position from gravity vector
     let timestamp: Date
 
     var isSignificant: Bool { movementIntensity > 0.35 }
@@ -274,6 +315,7 @@ struct MotionFeatures {
         breathingRegularity: 0,
         isOnMattress: false,
         bcgHeartRateBPM: 0,
+        sleepPosition: .unknown,
         timestamp: Date()
     )
 }

@@ -35,6 +35,14 @@ final class SleepSession {
     // Number of detected body turns during the night
     var positionChanges: Int = 0
 
+    // Sleep position samples: one value per minute (SleepPosition.rawValue)
+    // 0 = unknown, 1 = back/stomach, 2 = side
+    var positionSamples: [Int] = []
+
+    // Detected breathing pauses: short silences immediately after a snoring event
+    // that suggest a momentary apnea. Not a medical diagnosis.
+    var breathingPauseCount: Int = 0
+
     init(startDate: Date = .now) {
         self.startDate = startDate
         self.phases = []

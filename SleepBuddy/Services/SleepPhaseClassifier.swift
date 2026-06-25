@@ -14,7 +14,7 @@ final class SleepPhaseClassifier {
         default: return 0.035
         }
     }
-    private let sleepAmplitudeMax: Float = 0.028
+    private var sleepAmplitudeMax: Float { PersonalCalibrationService.shared.sleepAmplitudeMax }
     private let snoringThreshold: Float = 0.3
 
     // Motion threshold: raised in partner mode because partner movements
@@ -28,12 +28,12 @@ final class SleepPhaseClassifier {
         }
     }
 
-    private let deepBreathMin: Float = 9
-    private let deepBreathMax: Float = 15
-    private let lightBreathMin: Float = 14
-    private let lightBreathMax: Float = 19
-    private let remBreathMin: Float = 11
-    private let remBreathMax: Float = 24
+    private var deepBreathMin: Float  { PersonalCalibrationService.shared.deepBreathMin }
+    private var deepBreathMax: Float  { PersonalCalibrationService.shared.deepBreathMax }
+    private var lightBreathMin: Float { PersonalCalibrationService.shared.lightBreathMin }
+    private var lightBreathMax: Float { PersonalCalibrationService.shared.lightBreathMax }
+    private var remBreathMin: Float   { PersonalCalibrationService.shared.remBreathMin }
+    private var remBreathMax: Float   { PersonalCalibrationService.shared.remBreathMax }
     private let remMaxRegularity: Float = 0.68
 
     // Two overlapping breathing rhythms reduce regularity — lower the bar in partner mode.

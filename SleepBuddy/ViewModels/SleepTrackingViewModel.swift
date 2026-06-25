@@ -43,6 +43,17 @@ final class SleepTrackingViewModel {
     // BCG heart rate sampling: last known BCG HR, written once per minute
     private var lastBCGSampleDate = Date.distantPast
 
+    // Sleep position sampling: one SleepPosition value per minute
+    private var lastPositionSampleDate = Date.distantPast
+
+    // Breathing pause detection: silence immediately after snoring → potential apnea
+    private var lastSnoringEventEndDate: Date = .distantPast
+    private var pauseQuietTicks: Int = 0
+    private let pauseQuietTicksRequired = 24  // 3 s at 8 Hz
+    private let pauseWindowAfterSnoring: TimeInterval = 20
+    private let pauseCooldown: TimeInterval = 15
+    private var pauseCooldownUntil: Date = .distantPast
+
     // Turn detection: track consecutive still periods so a movement spike counts as a turn
     private var stillSince: Date? = nil
     private var lastTurnDate: Date = .distantPast
@@ -92,6 +103,10 @@ final class SleepTrackingViewModel {
         noiseAccumulator.removeAll()
         lastNoiseSampleDate = .distantPast
         lastBCGSampleDate = .distantPast
+        lastPositionSampleDate = .distantPast
+        lastSnoringEventEndDate = .distantPast
+        pauseQuietTicks = 0
+        pauseCooldownUntil = .distantPast
         stillSince = nil
         lastTurnDate = .distantPast
 
@@ -129,7 +144,10 @@ final class SleepTrackingViewModel {
             let event = SleepSoundEvent(timestamp: timestamp, type: type, durationSeconds: duration, iCloudFileName: fileName, decibelLevel: decibelLevel, confidenceScore: confidenceScore)
             ctx.insert(event)
             session.soundEvents?.append(event)
-            // snoringEventCount ist computed aus soundEventsArray — kein manuelles Increment nötig
+            if type == .snoring {
+                self.lastSnoringEventEndDate = timestamp.addingTimeInterval(duration)
+                self.pauseQuietTicks = 0
+            }
         }
 
         do {
@@ -236,6 +254,12 @@ final class SleepTrackingViewModel {
                         qualityWindows: qualityWindows
                     )
                 }
+            }
+
+            // Personal calibration: learn user's breathing baselines after 7+ nights
+            let samplesForCal = classifier.onlineClassifier.allSamples
+            if !samplesForCal.isEmpty {
+                PersonalCalibrationService.shared.updateCalibration(samples: samplesForCal)
             }
 
             if healthKit.isAuthorized {
@@ -345,6 +369,35 @@ final class SleepTrackingViewModel {
                    : liveHeartRateBPM > 0 ? liveHeartRateBPM : 0
             session.heartRateSamples.append(hr)
             lastBCGSampleDate = Date()
+        }
+
+        // Sleep position: store one sample per minute (gravity-based)
+        if Date().timeIntervalSince(lastPositionSampleDate) >= 60, let session = currentSession {
+            session.positionSamples.append(motion.sleepPosition.rawValue)
+            lastPositionSampleDate = Date()
+        }
+
+        // Breathing pause detection: near-silence right after snoring → potential apnea
+        if isSleepOnsetDetected, let session = currentSession {
+            let now2 = Date()
+            let inPauseWindow = now2.timeIntervalSince(lastSnoringEventEndDate) < pauseWindowAfterSnoring
+            let notInCooldown = now2 >= pauseCooldownUntil
+            if inPauseWindow && notInCooldown {
+                let isQuiet = audio.averageAmplitude < 0.010 && audio.snoringIntensity < 0.15
+                if isQuiet {
+                    pauseQuietTicks += 1
+                    if pauseQuietTicks >= pauseQuietTicksRequired {
+                        session.breathingPauseCount += 1
+                        pauseQuietTicks = 0
+                        pauseCooldownUntil = now2.addingTimeInterval(pauseCooldown)
+                        lastSnoringEventEndDate = .distantPast
+                    }
+                } else {
+                    pauseQuietTicks = 0
+                }
+            } else if !inPauseWindow {
+                pauseQuietTicks = 0
+            }
         }
     }
 
