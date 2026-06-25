@@ -327,75 +327,154 @@ struct ShareSheet: UIViewControllerRepresentable {
 
 struct MikrofonTestView: View {
     @Environment(\.dismiss) private var dismiss
-    @State private var amplitude: Float = 0
     @State private var db: Double = 0
     @State private var isRunning = false
     @State private var keineBerechtigung = false
     @State private var barHeights: [CGFloat] = Array(repeating: 0.05, count: 30)
+    @State private var erkannterTyp: SoundEventType? = nil
+    @State private var erkannteKonfidenz: Double = 0
+    @State private var letzteErkennungen: [(type: SoundEventType, konfidenz: Double, zeit: Date)] = []
 
     private let engine = AVAudioEngine()
+    private let classifier = SoundClassificationService()
     private let barCount = 30
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 32) {
-                Spacer()
+            ScrollView {
+                VStack(spacing: 24) {
 
-                // Visualizer
-                VStack(spacing: 16) {
-                    HStack(alignment: .bottom, spacing: 4) {
-                        ForEach(0..<barCount, id: \.self) { i in
-                            RoundedRectangle(cornerRadius: 3)
-                                .fill(barColor)
-                                .frame(width: 6, height: max(4, barHeights[i] * 160))
-                                .animation(.easeOut(duration: 0.08), value: barHeights[i])
+                    // Visualizer
+                    VStack(spacing: 12) {
+                        HStack(alignment: .bottom, spacing: 4) {
+                            ForEach(0..<barCount, id: \.self) { i in
+                                RoundedRectangle(cornerRadius: 3)
+                                    .fill(barColor)
+                                    .frame(width: 7, height: max(4, barHeights[i] * 140))
+                                    .animation(.easeOut(duration: 0.08), value: barHeights[i])
+                            }
+                        }
+                        .frame(height: 140)
+
+                        HStack(spacing: 4) {
+                            Text(isRunning ? "\(Int(db)) dB" : "–")
+                                .font(.system(size: 44, weight: .thin, design: .rounded))
+                                .foregroundStyle(barColor)
+                                .contentTransition(.numericText())
+                                .animation(.easeOut(duration: 0.1), value: db)
+                            Spacer()
+                            VStack(alignment: .trailing, spacing: 2) {
+                                Text(pegelLabel)
+                                    .font(.subheadline.weight(.semibold))
+                                    .foregroundStyle(barColor)
+                                Text("Lautstärke")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
                         }
                     }
-                    .frame(height: 160)
-                    .padding(.horizontal)
+                    .padding()
+                    .background(Color(.secondarySystemGroupedBackground))
+                    .clipShape(RoundedRectangle(cornerRadius: 16))
+                    .shadow(color: Color.primary.opacity(0.06), radius: 10, x: 0, y: 2)
 
-                    Text(isRunning ? "\(Int(db)) dB" : "–")
-                        .font(.system(size: 48, weight: .thin, design: .rounded))
-                        .foregroundStyle(barColor)
-                        .contentTransition(.numericText())
-                        .animation(.easeOut(duration: 0.1), value: db)
+                    // ML-Erkennung: aktuelle Erkennung
+                    VStack(alignment: .leading, spacing: 12) {
+                        Label("Geräuscherkennung (ML)", systemImage: "waveform.badge.magnifyingglass")
+                            .font(.headline)
 
-                    Text(pegelLabel)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
+                        if let typ = erkannterTyp {
+                            HStack(spacing: 12) {
+                                Image(systemName: typ.icon)
+                                    .font(.title2)
+                                    .foregroundStyle(typ.color)
+                                    .frame(width: 36)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(typ.rawValue)
+                                        .font(.subheadline.weight(.semibold))
+                                    Text("Konfidenz: \(Int(erkannteKonfidenz * 100))%")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                Circle()
+                                    .fill(typ.color.opacity(0.2))
+                                    .frame(width: 10, height: 10)
+                                    .overlay(Circle().fill(typ.color).frame(width: 6, height: 6))
+                            }
+                            .padding()
+                            .background(erkannterTyp?.color.opacity(0.08) ?? Color.clear)
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                            .transition(.scale(scale: 0.95).combined(with: .opacity))
+                        } else {
+                            HStack {
+                                Image(systemName: "waveform")
+                                    .foregroundStyle(.secondary)
+                                Text(isRunning ? "Kein Geräusch erkannt — mach ein Geräusch!" : "Test starten um ML-Erkennung zu prüfen")
+                                    .font(.subheadline)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .padding()
+                        }
 
-                if keineBerechtigung {
-                    Label("Kein Mikrofonzugriff — Bitte in den iOS-Einstellungen erlauben.", systemImage: "mic.slash.fill")
+                        // Letzte Erkennungen
+                        if !letzteErkennungen.isEmpty {
+                            Divider()
+                            Text("Letzte Erkennungen")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                            ForEach(letzteErkennungen.suffix(5).reversed(), id: \.zeit) { e in
+                                HStack(spacing: 10) {
+                                    Image(systemName: e.type.icon)
+                                        .foregroundStyle(e.type.color)
+                                        .frame(width: 20)
+                                    Text(e.type.rawValue)
+                                        .font(.caption)
+                                    Spacer()
+                                    Text("\(Int(e.konfidenz * 100))%")
+                                        .font(.caption.monospacedDigit())
+                                        .foregroundStyle(.secondary)
+                                    Text(e.zeit, style: .time)
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+                    }
+                    .padding()
+                    .background(Color(.secondarySystemGroupedBackground))
+                    .clipShape(RoundedRectangle(cornerRadius: 16))
+                    .shadow(color: Color.primary.opacity(0.06), radius: 10, x: 0, y: 2)
+                    .animation(.spring(response: 0.4, dampingFraction: 0.7), value: erkannterTyp?.rawValue)
+
+                    if keineBerechtigung {
+                        Label("Kein Mikrofonzugriff — Bitte in den iOS-Einstellungen erlauben.", systemImage: "mic.slash.fill")
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                            .multilineTextAlignment(.center)
+                    }
+
+                    // Start / Stop
+                    Button {
+                        if isRunning { stoppen() } else { starten() }
+                    } label: {
+                        Label(isRunning ? "Stoppen" : "Test starten", systemImage: isRunning ? "stop.circle.fill" : "mic.fill")
+                            .font(.headline)
+                            .foregroundStyle(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 16)
+                            .background(isRunning ? Color.red : Color.indigo, in: RoundedRectangle(cornerRadius: 16))
+                    }
+
+                    Text("Schnarche, sprich, huste oder klatsche — SleepBuddy zeigt genau was erkannt wird. So siehst du ob die Geräuscherkennung für die Nacht bereit ist.")
                         .font(.caption)
-                        .foregroundStyle(.red)
+                        .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
-                        .padding(.horizontal)
                 }
-
-                // Start / Stop
-                Button {
-                    if isRunning { stoppen() } else { starten() }
-                } label: {
-                    Label(isRunning ? "Stoppen" : "Test starten", systemImage: isRunning ? "stop.circle.fill" : "mic.fill")
-                        .font(.headline)
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 16)
-                        .background(isRunning ? Color.red : Color.indigo, in: RoundedRectangle(cornerRadius: 16))
-                }
-                .padding(.horizontal)
-
-                Spacer()
-
-                Text("Sprich oder klatsche — du siehst sofort ob das Mikrofon reagiert.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal)
-                    .padding(.bottom)
+                .padding()
             }
-            .navigationTitle("Mikrofon testen")
+            .background(Color(.systemGroupedBackground))
+            .navigationTitle("Mikrofon & Erkennung testen")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
@@ -404,7 +483,7 @@ struct MikrofonTestView: View {
             }
             .onDisappear { stoppen() }
         }
-        .presentationDetents([.medium, .large])
+        .presentationDetents([.large])
     }
 
     private var barColor: Color {
@@ -414,8 +493,8 @@ struct MikrofonTestView: View {
     }
 
     private var pegelLabel: String {
-        guard isRunning else { return "Tippe auf «Test starten»" }
-        if db < 35 { return "Still / Ruhig" }
+        guard isRunning else { return "Gestoppt" }
+        if db < 35 { return "Still" }
         if db < 55 { return "Normal" }
         if db < 70 { return "Laut" }
         return "Sehr laut"
@@ -433,23 +512,40 @@ struct MikrofonTestView: View {
 
                     let input = engine.inputNode
                     let format = input.outputFormat(forBus: 0)
-                    input.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in
-                        guard let data = buffer.floatChannelData?[0] else { return }
-                        let count = Int(buffer.frameLength)
-                        var rms: Float = 0
-                        vDSP_rmsqv(data, 1, &rms, vDSP_Length(count))
-                        let dbVal = max(0, min(120, Double(20 * log10(max(rms, 1e-6))) + 90))
-                        let norm = CGFloat(max(0.05, min(1.0, (dbVal - 20) / 80)))
 
+                    classifier.onSoundDetected = { type, confidence in
                         DispatchQueue.main.async {
-                            amplitude = rms
-                            db = dbVal
-                            // Shift bars left, append new value
-                            var newBars = barHeights
-                            newBars.removeFirst()
-                            newBars.append(norm)
-                            barHeights = newBars
+                            withAnimation {
+                                erkannterTyp = type
+                                erkannteKonfidenz = confidence
+                            }
+                            letzteErkennungen.append((type: type, konfidenz: confidence, zeit: Date()))
+                            // Auto-clear nach 3s
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                                if erkannterTyp == type { withAnimation { erkannterTyp = nil } }
+                            }
                         }
+                    }
+                    classifier.start(format: format)
+
+                    input.installTap(onBus: 0, bufferSize: 1024, format: format) { [self] buffer, time in
+                        // Amplitude für Balken
+                        if let data = buffer.floatChannelData?[0] {
+                            let count = Int(buffer.frameLength)
+                            var rms: Float = 0
+                            vDSP_rmsqv(data, 1, &rms, vDSP_Length(count))
+                            let dbVal = max(0, min(120, Double(20 * log10(max(rms, 1e-6))) + 90))
+                            let norm = CGFloat(max(0.05, min(1.0, (dbVal - 20) / 80)))
+                            DispatchQueue.main.async {
+                                db = dbVal
+                                var newBars = barHeights
+                                newBars.removeFirst()
+                                newBars.append(norm)
+                                barHeights = newBars
+                            }
+                        }
+                        // ML-Klassifikation
+                        classifier.analyze(buffer: buffer, time: time)
                     }
                     try engine.start()
                     isRunning = true
@@ -464,9 +560,11 @@ struct MikrofonTestView: View {
         guard isRunning else { return }
         engine.inputNode.removeTap(onBus: 0)
         engine.stop()
+        classifier.stop()
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
         isRunning = false
         barHeights = Array(repeating: 0.05, count: barCount)
         db = 0
+        erkannterTyp = nil
     }
 }
