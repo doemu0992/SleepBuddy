@@ -60,7 +60,16 @@ enum SampleDataService {
                      generateAudio: [.snoring, .talking, .coughing, .bruxism, .gasping, .sneezing, .laughing])
 
         let mins = totalMinutes(start, end)
-        session.noiseSamples = generateNoiseCurve(minutes: mins, baseDB: 27)
+        var noise = generateNoiseCurve(minutes: mins, baseDB: 27)
+        // Add noise spikes at event timestamps
+        for (_, offsetH, durSec, db, _) in events {
+            let center = Int(offsetH * 60)
+            let halfW  = max(1, Int(durSec / 60) + 1)
+            for i in max(0, center - halfW)...min(mins - 1, center + halfW) {
+                noise[i] = min(90, max(noise[i], db - 4 + Double.random(in: -2...2)))
+            }
+        }
+        session.noiseSamples = noise
         session.heartRateSamples = generateHRCurve(minutes: mins)
         insertTrainingSamples(from: start, arch: arch, into: context)
     }
@@ -140,7 +149,15 @@ enum SampleDataService {
                      generateAudio: SoundEventType.allCases)
 
         let mins = totalMinutes(start, end)
-        session.noiseSamples = generateNoiseCurve(minutes: mins, baseDB: 30)
+        var noise = generateNoiseCurve(minutes: mins, baseDB: 30)
+        for (_, offsetH, durSec, db, _) in events {
+            let center = Int(offsetH * 60)
+            let halfW  = max(1, Int(durSec / 60) + 1)
+            for i in max(0, center - halfW)...min(mins - 1, center + halfW) {
+                noise[i] = min(90, max(noise[i], db - 4 + Double.random(in: -2...2)))
+            }
+        }
+        session.noiseSamples = noise
         session.heartRateSamples = generateHRCurve(minutes: mins)
         insertTrainingSamples(from: start, arch: arch, into: context)
     }
