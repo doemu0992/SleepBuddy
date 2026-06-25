@@ -126,6 +126,13 @@ struct EinstellungenView: View {
                 }
             }
 
+            Button {
+                SampleDataService.insertSampleNight(into: modelContext)
+            } label: {
+                Label("Beispielnacht hinzufügen", systemImage: "moon.stars.fill")
+                    .foregroundStyle(.indigo)
+            }
+
             Button(role: .destructive) {
                 zeigeLoeschenBestaetigung = true
             } label: {
