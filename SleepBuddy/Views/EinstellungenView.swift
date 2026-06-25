@@ -159,6 +159,13 @@ struct EinstellungenView: View {
                     .foregroundStyle(.indigo)
             }
 
+            Button {
+                for _ in 0..<3 { SampleDataService.insertSampleNight(into: modelContext) }
+            } label: {
+                Label("Alle 3 Beispielnächte hinzufügen", systemImage: "moon.3.fill")
+                    .foregroundStyle(.indigo)
+            }
+
             Button(role: .destructive) {
                 zeigeLoeschenBestaetigung = true
             } label: {
