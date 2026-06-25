@@ -179,7 +179,8 @@ NavigationStack (via NavigationLink aus StatistikView)
     ├── hypnogramSection   → Balken-Hypnogramm (identisch zu StatistikView)
     ├── verlaufChart       → Linechart mit AreaMark + Gradient
     ├── soundEventsSection → Geräusch-Ereignisse mit Typ und Uhrzeit
-    ├── noiseSection       → Umgebungslautstärke als Linechart
+    ├── noiseSection       → Umgebungslautstärke als Wellen-Chart (LineMark + AreaMark, Farbgradient)
+    ├── heartRateCard      → Herzfrequenz-Verlauf (nur wenn heartRateSamples vorhanden)
     ├── phaseListSection   → Alle Phasen als Timeline-Liste
     └── morgenBewertung    → Subj. Qualitäts-Rating 1–5
 ```
@@ -247,6 +248,8 @@ private func risikoWert(sessions: [SleepSession]) -> Double
 
 Darstellung: Gradient-Balken (grün→rot) + dreieckiger Positionsmarker (`Triangle: Shape`).
 
+> **`Triangle().fill(Color.primary)`** — niemals `Color.white` verwenden. `Color.primary` passt sich automatisch an Light/Dark Mode an (schwarz im Light Mode, weiß im Dark Mode).
+
 ### SleepHistoryView
 
 **Datei:** `Views/SleepHistoryView.swift`
@@ -286,16 +289,22 @@ NavigationStack
     var phases: [SleepPhase]?             // cascade delete
     var sleepQualityScore: Double?
     var healthKitSampleID: String?
-    var sleepOnsetDate: Date?             // Auto-detected
-    var snoringEventCount: Int
+    var sleepOnsetDate: Date?             // Erste nicht-Wach-Phase (für Anzeige)
     var alarmEarliestTime: Date?
     var alarmLatestTime: Date?
     var alarmFiredDate: Date?
     var soundEvents: [SleepSoundEvent]?   // cascade delete
-    var noiseSamples: [Double]            // dB/Minute
-    var subjectiveQuality: Int            // 0=nicht bewertet, 1–5
+    var noiseSamples: [Double] = []       // dB/Minute
+    var heartRateSamples: [Double] = []   // HR/Minute (0 = kein Wert)
+    var subjectiveQuality: Int = 0        // 0=nicht bewertet, 1–5
 }
 ```
+
+> **`snoringEventCount` ist computed** (kein stored Int mehr) — verhindert CloudKit-Duplikatfehler:
+> ```swift
+> var snoringEventCount: Int { soundEventsArray.filter { $0.type == .snoring }.count }
+> ```
+> Analog: `bruxismEventCount` und `coughingEventCount` ebenfalls computed.
 
 **Berechnete Properties:**
 
@@ -306,12 +315,13 @@ NavigationStack
 | `isActive` | `Bool` | `endDate == nil` |
 | `phasesArray` | `[SleepPhase]` | `phases ?? []` |
 | `soundEventsArray` | `[SleepSoundEvent]` | `soundEvents ?? []` |
+| `snoringEventCount` | `Int` | computed: Anzahl `.snoring`-Events |
+| `bruxismEventCount` | `Int` | computed: Anzahl `.bruxism`-Events |
+| `coughingEventCount` | `Int` | computed: Anzahl `.coughing`-Events |
 | `deepSleepDuration` | `TimeInterval` | Summe aller `.deep`-Phasen |
 | `remSleepDuration` | `TimeInterval` | Summe aller `.rem`-Phasen |
 | `lightSleepDuration` | `TimeInterval` | Summe aller `.light`-Phasen |
 | `awakeDuration` | `TimeInterval` | Summe aller `.awake`-Phasen |
-| `bruxismEventCount` | `Int` | Anzahl `.bruxism`-Events |
-| `coughingEventCount` | `Int` | Anzahl `.coughing`-Events |
 | `computedQualityScore` | `Double` | 0–100, restorativer Schlaf + Abzüge |
 
 **`computedQualityScore`-Formel:**
@@ -452,7 +462,11 @@ session.noiseSamples.append(db)
 2. Alle 60 Sekunden: Durchschnitt berechnen → dB-Wert → `noiseSamples`
 3. Accumulator leeren → nächste Minute
 
-**Darstellung in `SleepDetailView`:** `noiseSection` — Linechart über die Nacht, Y-Achse 0–100 dB.
+**Darstellung in `SleepDetailView`:** `ambientNoiseCard` — **Wellen-Chart** (`LineMark` + `AreaMark`) mit Catmull-Rom-Interpolation. Farbkodierung:
+- Linie: grün < 35 dB / orange 35–50 dB / rot > 50 dB (via `noiseColor()`)
+- Fläche: drei überlagerte `AreaMark`-Schichten (grün/orange/rot) bis jeweiligem Schwellenwert
+- Y-Achse: 20–90 dB, Gitterlinien bei 35/50/70 dB in Schwellenwertfarbe
+- **Kein `BarMark` verwenden** — war durch Balken-Stil ersetzt worden (inzwischen revertiert).
 
 ---
 
@@ -579,15 +593,20 @@ if isMLPrimary && confidence >= 0.65 && eventStartDate == nil && !isInCooldown {
 
 **Datei:** `ViewModels/SleepTrackingViewModel.swift`
 
-Phasenwechsel werden **stabilisiert** bevor sie in SwiftData geschrieben werden:
+Phasenwechsel werden **stabilisiert** bevor sie in SwiftData geschrieben werden.
+
+**Pflicht: `pendingPhase` und `pendingPhaseStartDate` als private Properties deklarieren** (werden in `handleFeatures`, `startTracking` und `stopTracking` benötigt):
 
 ```swift
-// Kandidatenphase muss stabil bleiben für minPhaseDuration
-var minPhaseDuration: TimeInterval {
-    healthKit.hasHeartRateAccess ? 60 : 90   // 60s mit Watch, 90s ohne
-}
+private var pendingPhase: SleepPhaseType = .awake
+private var pendingPhaseStartDate = Date()
+```
 
-// Phasenwechsel: erst wenn Kandidat >= minPhaseDuration gehalten hat
+```swift
+// Kandidatenphase muss stabil bleiben für minPhaseDuration (immer 60s, fix)
+private let minPhaseDuration: TimeInterval = 60
+
+// Phasenwechsel: erst wenn Kandidat >= 60s gehalten hat
 if result.phase != pendingPhase {
     pendingPhase = result.phase
     pendingPhaseStartDate = now
@@ -597,6 +616,38 @@ if result.phase != pendingPhase {
     currentPhase = result.phase
 }
 ```
+
+**Pending Awake beim Session-Stop:**
+Wenn beim Beenden eine Wachphase noch im Pending war (z.B. Morgen-Aufwachen), wird sie explizit committet:
+
+```swift
+if pendingPhase == .awake && pendingPhaseStartDate > currentPhaseStartDate {
+    finalizeCurrentPhase(endDate: pendingPhaseStartDate, session: session)
+    currentPhaseStartDate = pendingPhaseStartDate
+    currentPhase = .awake
+}
+finalizeCurrentPhase(endDate: .now, session: session)
+```
+
+### Herzrate-Sampling im ViewModel
+
+Ein Herzrate-Wert pro Minute wird in `session.heartRateSamples` gespeichert.
+Priorität: Apple Watch HR → BCG (Akkelerometer) → 0 (kein Wert):
+
+```swift
+// Private State (muss als Property deklariert sein):
+private var lastBCGSampleDate = Date.distantPast
+
+// In handleFeatures() — alle 60 Sekunden:
+if Date().timeIntervalSince(lastBCGSampleDate) >= 60, let session = currentSession {
+    let hr = liveBCGHeartRateBPM > 0 ? Double(liveBCGHeartRateBPM)
+           : liveHeartRateBPM > 0 ? liveHeartRateBPM : 0
+    session.heartRateSamples.append(hr)
+    lastBCGSampleDate = Date()
+}
+```
+
+`lastBCGSampleDate` muss in `startTracking()` auf `.distantPast` zurückgesetzt werden.
 
 ---
 
@@ -678,7 +729,7 @@ Liest Beschleunigungssensor via `CMMotionManager` bei **50 Hz**. Erkennt:
 | `movementIntensity` | RMS-Varianz der Magnitude (30s, 1500 Samples) | 0=still, 1=wach/bewegt |
 | `breathingRateBPM` | Autokorrelation (10 Hz, 9–30 BPM) | Atemfrequenz aus Mattress-Vibration |
 | `breathingRegularity` | ACF-Peak-Stärke | Zuverlässigkeit der Atemmessung |
-| `isOnMattress` | `rms > 0.0008` (ACF-Schwelle) | Telefon liegt auf Matratze |
+| `isOnMattress` | `rms > 0.0003` (ACF-Schwelle, gesenkt) | Telefon liegt auf Matratze |
 | `bcgHeartRateBPM` | BCG via z-Achse, Autokorrelation (50 Hz, 48–150 BPM) | Herzrate via Ballistokardiographie |
 
 **Sample-Rates:**
@@ -686,12 +737,34 @@ Liest Beschleunigungssensor via `CMMotionManager` bei **50 Hz**. Erkennt:
 - Atemrate: 10 Hz (jeder 5. Sample, `downsampleCounter`)
 - BCG: 50 Hz z-Achse (Bandpass: HP 1.5s MA + LP 3-Sample MA)
 
-**BCG-Algorithmus:**
+**Feature-Emit-Rate (kritisch):**
+Features werden alle **30 Sekunden** emittiert, **nicht** bei jedem Sample. Dafür `emitCounter`:
+
+```swift
+private var emitCounter = 0   // in Buffers-Section als Property deklarieren
+
+emitCounter += 1
+if emitCounter >= windowSize {   // windowSize = 1500 (30s × 50Hz)
+    emitCounter = 0
+    let features = extract()
+    DispatchQueue.main.async { self?.onFeaturesUpdated?(features) }
+}
+```
+
+> **Nie** `if rawSamples.count == windowSize` verwenden — das ist nach dem ersten Füllen des Buffers immer true und würde Features mit 50 Hz emittieren (3000 Autokorrelationen/min statt 2).
+
+**BCG-Algorithmus (angepasste Schwellenwerte):**
 1. High-Pass: 1.5s gleitender Mittelwert subtrahieren (entfernt DC + Atemfrequenz < 0.7 Hz)
 2. Low-Pass: 3-Sample MA (unterdrückt Sensor-Rauschen > ~8 Hz)
 3. Autokorrelation im Lag-Bereich 48–150 BPM
-4. Peak-Stärke > 0.35 erforderlich (noisier als Audio)
-5. BCG nur aktiv wenn `isOnMattress == true`
+4. Peak-Stärke > **0.28** (war 0.35 — gesenkt für bessere Erkennung auf Matratze)
+5. BCG-RMS-Mindest-Schwelle: **0.00003** (war 0.00008 — gesenkt)
+6. BCG nur aktiv wenn `isOnMattress == true`
+
+**Breathing-Erkennungsschwelle:**
+- `rms > 0.0003` (war 0.0008 — gesenkt für bessere Matratzen-Erkennung)
+
+**`stop()` und `reset()` müssen `emitCounter = 0` setzen.**
 
 ---
 
@@ -717,9 +790,27 @@ Regelbasierter Klassifikator — kombiniert Audio + Motion + HR/HRV + Schlafzykl
 3. **Schnarchen** → `.deep` (langsam + regelmäßig) oder `.light`
 4. **Keine Atemrate erkennbar** → HR-basiert oder `.light`/`.awake` je nach Amplitude
 5. **Tief**: langsam (9–15 BPM) + regelmäßig + leise + außerhalb REM-Fenster
-6. **REM**: unregelmäßig (reg < 0.50), leise, im REM-Fenster
-7. **HR-REM**: Watch-HR im REM-Bereich (60–78), kein BCG → `.rem` (Conf. 0.70)
+6. **REM**: unregelmäßig (reg < `remMaxRegularity`), leise, im REM-Fenster
+7. **HR-REM (5b)**: HR im REM-Bereich (60–78) + REM-Fenster + leise + keine hohe HRV → `.rem` (Watch: 0.70, BCG: 0.58×0.6)
 8. **Leicht**: 14–19 BPM oder Restfall
+
+**Angepasste Schwellenwerte (aktueller Stand):**
+
+| Parameter | Wert | Beschreibung |
+|-----------|------|-------------|
+| `remBreathMin` | 11 BPM (war 12) | Untergrenze REM-Atemfrequenz |
+| `remBreathMax` | 24 BPM (war 22) | Obergrenze REM-Atemfrequenz |
+| `remMaxRegularity` | 0.68 (war 0.50) | Höherer Wert = mehr Fälle fallen unter REM |
+| `sleepAmplitudeMax` | 0.028 (war 0.020) | Erlaubt mehr Umgebungsgeräusche im Schlaf |
+
+**Case 5b — BCG erlaubt für HR-REM (wichtig):**
+```swift
+// BCG darf jetzt auch REM erkennen (mit reduzierter Konfidenz × 0.6)
+if hasHR && hrREM && remWindow && amp <= sleepAmplitudeMax && !hrvHigh {
+    let conf: Double = usingBCG ? 0.58 * hrConfidenceScale : 0.70
+    return (.rem, conf)
+}
+```
 
 **REM-Fenster-Erkennung:**
 ```swift
@@ -752,7 +843,29 @@ Erkennt den Zeitpunkt des Einschlafens. Zwei Modi:
 | **Matratze** | `motion.isOnMattress == true` (Atemrhythmus via Beschleunigungssensor) | 5 × 30s = 2.5 min |
 | **Nachttisch** | Keine Atemrate via Sensor | 10 × 30s = 5 min (Audio-Stille + Bewegungslosigkeit) |
 
-Setzt `SleepSession.sleepOnsetDate` bei Bestätigung. Wacht-Erkennung: 3 aufeinanderfolgende aktive Fenster → `isAsleep = false`.
+Wacht-Erkennung: 3 aufeinanderfolgende aktive Fenster → `isAsleep = false`.
+
+**Onset-Datum — zwei verschiedene Verwendungen (kritisch):**
+
+| Verwendung | Quelle | Beschreibung |
+|-----------|--------|-------------|
+| **Einschlaf-Anzeige** (`session.sleepOnsetDate`) | Erste nicht-Wach-Phase | Für "Einschlafen in X min" Anzeige in Statistik |
+| **REM-Fenster-Berechnung** (`classifier.sleepOnsetDate`) | Onset-Detektor (früher) | Muss früh gesetzt sein damit REM-Fenster rechtzeitig öffnen |
+
+```swift
+// In stopTracking() — IMMER Phasen bevorzugen für Anzeige:
+session.sleepOnsetDate = session.phasesArray.first(where: { $0.phaseType != .awake })?.startDate
+    ?? onsetDetector.sleepOnset
+
+// In handleFeatures() — Onset-Detektor OHNE Klassifikator-Abgleich:
+if !isSleepOnsetDetected && onsetDetector.update(audio: audio, motion: motion) {
+    isSleepOnsetDetected = true
+    classifier.sleepOnsetDate = onsetDetector.sleepOnset
+    // Kein classifier.phase-Check mehr — das verhinderte das Setzen (Chicken-and-Egg)
+}
+```
+
+> **Niemals** `classifier.sleepOnsetDate` als Anzeigewert für Einschlaflatenz verwenden — dieser Wert ist bewusst früher gesetzt als der tatsächliche Schlafbeginn.
 
 ---
 

@@ -32,6 +32,10 @@ final class SleepTrackingViewModel {
     private var currentPhaseStartDate = Date()
     private var latestMotionFeatures = MotionFeatures.neutral
 
+    // Phase smoothing state: candidate phase before it's committed
+    private var pendingPhase: SleepPhaseType = .awake
+    private var pendingPhaseStartDate = Date()
+
     // Ambient noise sampling: accumulate amplitudes and write one dB value per minute
     private var noiseAccumulator: [Float] = []
     private var lastNoiseSampleDate = Date.distantPast
