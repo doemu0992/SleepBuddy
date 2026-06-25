@@ -12,27 +12,26 @@ struct SleepBuddyApp: App {
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage("onboarding_complete") private var onboardingComplete = false
 
-    // Starts as a fast in-memory container so the UI renders at T=0.
-    // Replaced with the real persistent container once it's ready.
-    @State private var modelContainer: ModelContainer = SleepBuddyApp.makeInMemoryContainer()
-    @State private var isReady = false
+    @State private var modelContainer: ModelContainer? = nil
 
     var body: some Scene {
         WindowGroup {
-            Group {
-                if onboardingComplete {
-                    ContentView()
-                } else {
-                    OnboardingView { onboardingComplete = true }
+            if let container = modelContainer {
+                Group {
+                    if onboardingComplete {
+                        ContentView()
+                    } else {
+                        OnboardingView { onboardingComplete = true }
+                    }
                 }
-            }
-            .modelContainer(modelContainer)
-            .opacity(isReady ? 1 : 0)
-            .task {
-                let persistent = await _persistentContainerTask.value
-                modelContainer = persistent
-                withAnimation(.easeIn(duration: 0.15)) { isReady = true }
-                ICloudSettingsSync.shared.start()
+                .modelContainer(container)
+            } else {
+                Color.clear
+                    .task {
+                        let container = await _persistentContainerTask.value
+                        modelContainer = container
+                        ICloudSettingsSync.shared.start()
+                    }
             }
         }
         .onChange(of: scenePhase) { _, phase in
@@ -42,28 +41,14 @@ struct SleepBuddyApp: App {
         }
     }
 
-    // MARK: - In-memory container (instant, ~1 ms)
-
-    nonisolated static func makeInMemoryContainer() -> ModelContainer {
-        let sleepConfig = ModelConfiguration(
-            "SleepData",
-            schema: Schema([SleepSession.self, SleepPhase.self, SleepSoundEvent.self]),
-            isStoredInMemoryOnly: true
-        )
-        let mlConfig = ModelConfiguration(
-            "MLData",
-            schema: Schema([TrainingSample.self]),
-            isStoredInMemoryOnly: true
-        )
-        return try! ModelContainer(
-            for: SleepSession.self, SleepPhase.self, SleepSoundEvent.self, TrainingSample.self,
-            configurations: sleepConfig, mlConfig
-        )
-    }
-
     // MARK: - Persistent container with CloudKit (runs off main thread)
 
     nonisolated static func makePersistentContainer() -> ModelContainer {
+        let allModels: [any PersistentModel.Type] = [
+            SleepSession.self, SleepPhase.self, SleepSoundEvent.self, TrainingSample.self
+        ]
+
+        // Attempt 1: CloudKit sync
         let cloudConfig = ModelConfiguration(
             "SleepData",
             schema: Schema([SleepSession.self, SleepPhase.self, SleepSoundEvent.self]),
@@ -74,21 +59,45 @@ struct SleepBuddyApp: App {
             schema: Schema([TrainingSample.self]),
             cloudKitDatabase: .none
         )
+        if let c = try? ModelContainer(for: SleepSession.self, SleepPhase.self, SleepSoundEvent.self, TrainingSample.self, configurations: cloudConfig, localConfig) {
+            return c
+        }
 
-        if let container = try? ModelContainer(
-            for: SleepSession.self, SleepPhase.self, SleepSoundEvent.self, TrainingSample.self,
-            configurations: cloudConfig, localConfig
-        ) { return container }
-
-        let sleepFallback = ModelConfiguration(
+        // Attempt 2: Local only (no CloudKit)
+        let sleepLocal = ModelConfiguration(
             "SleepData",
             schema: Schema([SleepSession.self, SleepPhase.self, SleepSoundEvent.self]),
             cloudKitDatabase: .none
         )
-        return try! ModelContainer(
-            for: SleepSession.self, SleepPhase.self, SleepSoundEvent.self, TrainingSample.self,
-            configurations: sleepFallback, localConfig
+        let mlLocal = ModelConfiguration(
+            "MLData",
+            schema: Schema([TrainingSample.self]),
+            cloudKitDatabase: .none
         )
+        if let c = try? ModelContainer(for: SleepSession.self, SleepPhase.self, SleepSoundEvent.self, TrainingSample.self, configurations: sleepLocal, mlLocal) {
+            return c
+        }
+
+        // Attempt 3: Delete corrupt on-disk stores and recreate
+        deleteStoreFiles()
+        let sleepFresh = ModelConfiguration(
+            "SleepData",
+            schema: Schema([SleepSession.self, SleepPhase.self, SleepSoundEvent.self]),
+            cloudKitDatabase: .none
+        )
+        let mlFresh = ModelConfiguration(
+            "MLData",
+            schema: Schema([TrainingSample.self]),
+            cloudKitDatabase: .none
+        )
+        return try! ModelContainer(for: SleepSession.self, SleepPhase.self, SleepSoundEvent.self, TrainingSample.self, configurations: sleepFresh, mlFresh)
+    }
+
+    nonisolated private static func deleteStoreFiles() {
+        guard let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else { return }
+        let names = ["SleepData.sqlite", "SleepData.sqlite-wal", "SleepData.sqlite-shm",
+                     "MLData.sqlite", "MLData.sqlite-wal", "MLData.sqlite-shm"]
+        for name in names { try? FileManager.default.removeItem(at: dir.appendingPathComponent(name)) }
     }
 
     static var isTrackingActive = false
