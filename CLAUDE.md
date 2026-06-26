@@ -95,12 +95,14 @@ Natives `TabView` + zentrierter **54pt Kreis-Overlay-Button** für den Tracker.
 
 ```swift
 TabView(selection: $selectedTab) {
+    NavigationStack { HomeView() }
+        .tabItem { Label("Home", systemImage: "house.fill") }.tag(0)
     NavigationStack { StatistikView() }
-        .tabItem { Label("Statistik", systemImage: "chart.bar.fill") }.tag(0)
+        .tabItem { Label("Statistik", systemImage: "chart.bar.fill") }.tag(1)
     Color.clear
-        .tabItem { Label(" ", systemImage: "moon.stars.fill") }.tag(1)
+        .tabItem { Label(" ", systemImage: "moon.stars.fill") }.tag(2)
     NavigationStack { ProfilView() }
-        .tabItem { Label("Profil", systemImage: "person.fill") }.tag(2)
+        .tabItem { Label("Profil", systemImage: "person.fill") }.tag(3)
 }
 .tint(.indigo)
 .overlay(alignment: .bottom) {
@@ -117,13 +119,15 @@ TabView(selection: $selectedTab) {
     .padding(.bottom, 4)
 }
 .onChange(of: selectedTab) { _, tab in
-    if tab == 1 { showTracking = true; selectedTab = 0 }
+    if tab == 2 { showTracking = true; selectedTab = 0 }
 }
 ```
 
 **Regeln:**
 - Kein custom `safeAreaInset` Tab Bar — immer natives `TabView`
-- Tab 1 ist Dummy (`Color.clear`) und öffnet den Tracker via `onChange`
+- Reihenfolge: Home (0), Statistik (1), Tracker-Dummy (2), Profil (3)
+- Tab 2 ist Dummy (`Color.clear`) und öffnet den Tracker via `onChange`
+- `HomeView` ist der Landing-Tab (zeigt u.a. `MorgenBewertungCard`)
 - Safe Area wird vom System verwaltet
 
 ---
@@ -1477,7 +1481,7 @@ func classify(audio:motion:) -> (phase, confidence) {
 
 ## HomeView
 
-**Datei:** `Views/HomeView.swift`
+**Datei:** `Views/HomeView.swift` — **Landing-Tab** (tag 0 in `ContentView`).
 
 ```
 NavigationStack

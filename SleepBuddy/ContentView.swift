@@ -11,17 +11,21 @@ struct ContentView: View {
 
     var body: some View {
         TabView(selection: $selectedTab) {
+            NavigationStack { HomeView() }
+                .tabItem { Label("Home", systemImage: "house.fill") }
+                .tag(0)
+
             NavigationStack { StatistikView() }
                 .tabItem { Label("Statistik", systemImage: "chart.bar.fill") }
-                .tag(0)
+                .tag(1)
 
             Color.clear
                 .tabItem { Label(" ", systemImage: "moon.stars.fill") }
-                .tag(1)
+                .tag(2)
 
             NavigationStack { ProfilView() }
                 .tabItem { Label("Profil", systemImage: "person.fill") }
-                .tag(2)
+                .tag(3)
         }
         .tint(.indigo)
         .overlay(alignment: .bottom) {
@@ -54,7 +58,7 @@ struct ContentView: View {
             await trackingViewModel.requestHealthKitAccess()
         }
         .onChange(of: selectedTab) { _, tab in
-            if tab == 1 {
+            if tab == 2 {
                 showTracking = true
                 selectedTab = 0
             }

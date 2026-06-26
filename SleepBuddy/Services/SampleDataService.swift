@@ -241,9 +241,8 @@ enum SampleDataService {
         let s = SleepSession(startDate: start)
         s.endDate = end
         s.subjectiveQuality = quality
-        // Testnächte gelten als bereits bewertet — sonst erscheint die
-        // Morgen-Bewertungskarte (Bedingung: recordingQuality == 0).
-        s.recordingQuality = 2   // "OK"
+        // recordingQuality bleibt 0 → Morgen-Bewertungskarte erscheint für
+        // Testnächte (Aufzeichnungs-Bewertung noch offen).
         context.insert(s)
         return s
     }
