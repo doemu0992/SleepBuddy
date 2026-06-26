@@ -154,8 +154,10 @@ final class MotionAnalysisService {
         // BCG heart rate — only attempt when phone is on mattress
         let bcgHR: Float = onMattress ? detectHeartRate(zSamples: bcgZ) : 0
 
-        // Sleep position from gravity vector (5 s low-pass average)
-        let position = detectSleepPosition()
+        // Sleep position from gravity vector (5 s low-pass average).
+        // When the phone is flat on the mattress the z-axis always points up regardless of
+        // how the user is lying → position is indeterminate in that mode.
+        let position = onMattress ? .unknown : detectSleepPosition()
 
         // PLM: periodic limb movements every 20–40 s
         let plm = detectPLM(samples: plmBuffer)
