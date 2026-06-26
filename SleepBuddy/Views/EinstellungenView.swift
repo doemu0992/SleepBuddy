@@ -50,7 +50,12 @@ struct EinstellungenView: View {
     private var aufzeichnungSektion: some View {
         Section {
             Toggle(isOn: $soundEventsAktiv) {
-                Label("Schlafgeräusche aufzeichnen", systemImage: "waveform.badge.mic")
+                VStack(alignment: .leading, spacing: 2) {
+                    Label("Geräusche aufzeichnen", systemImage: "waveform.badge.mic")
+                    Text("Schlaf- & Umgebungsgeräusche mit 30s-Clip")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
             .tint(.indigo)
 
