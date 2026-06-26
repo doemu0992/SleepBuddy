@@ -301,7 +301,7 @@ private struct WochenSummaryCard: View {
     }
 
     @ViewBuilder private var trendBadge: some View {
-        if !letzteWoche.isEmpty && avgQualitaetDiese > 0 {
+        if !vorherigeSessionen.isEmpty && avgQualitaetDiese > 0 {
             let diff = trend
             HStack(spacing: 4) {
                 Image(systemName: diff > 2 ? "arrow.up" : diff < -2 ? "arrow.down" : "minus")
