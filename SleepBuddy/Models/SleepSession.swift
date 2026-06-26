@@ -35,6 +35,13 @@ final class SleepSession {
     // Recording quality rating: 0 = not rated, 1 = inaccurate, 2 = ok, 3 = accurate
     var recordingQuality: Int = 0
 
+    // Inaccuracy feedback bitmask (only relevant when recordingQuality == 1):
+    // bit 0 (1) = öfter wach als angezeigt
+    // bit 1 (2) = lebhafte Träume aber kein REM markiert
+    // bit 2 (4) = Einschlafzeit falsch
+    // bit 3 (8) = Aufwachzeit falsch
+    var recordingFeedbackMask: Int = 0
+
 
     init(startDate: Date = .now) {
         self.startDate = startDate

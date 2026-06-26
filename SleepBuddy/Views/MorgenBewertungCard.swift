@@ -8,6 +8,7 @@ struct MorgenBewertungCard: View {
 
     @State private var selectedQuality: Int = 0
     @State private var selectedRecording: Int = 0
+    @State private var feedbackMask: Int = 0
 
     private let qualityOptions: [(emoji: String, label: String)] = [
         ("😴", "Schlecht"), ("🙁", "Mäßig"), ("😐", "OK"), ("🙂", "Gut"), ("😄", "Super")
@@ -17,6 +18,19 @@ struct MorgenBewertungCard: View {
         ("hand.thumbsdown.fill", "Ungenau", .red),
         ("minus.circle.fill",   "OK",      .secondary),
         ("hand.thumbsup.fill",  "Präzise", .green)
+    ]
+
+    // Bitmask-Werte für die 4 Feedback-Optionen
+    private struct FeedbackOption {
+        let bit: Int
+        let icon: String
+        let text: String
+    }
+    private let feedbackOptions: [FeedbackOption] = [
+        FeedbackOption(bit: 1, icon: "eye.fill",           text: "Ich war öfter wach als angezeigt"),
+        FeedbackOption(bit: 2, icon: "moon.stars.fill",    text: "Ich hatte lebhafte Träume — aber kein REM war markiert"),
+        FeedbackOption(bit: 4, icon: "moon.zzz.fill",      text: "Ich bin früher/später eingeschlafen als angezeigt"),
+        FeedbackOption(bit: 8, icon: "alarm.fill",         text: "Ich bin früher/später aufgewacht als angezeigt"),
     ]
 
     var body: some View {
@@ -35,7 +49,8 @@ struct MorgenBewertungCard: View {
                             withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
                                 selectedQuality = stufe
                             }
-                            saveQuality(stufe)
+                            session.subjectiveQuality = stufe
+                            try? modelContext.save()
                         } label: {
                             VStack(spacing: 4) {
                                 Text(qualityOptions[stufe - 1].emoji)
@@ -62,7 +77,7 @@ struct MorgenBewertungCard: View {
             Divider()
 
             // MARK: Aufzeichnungs-Qualität
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 10) {
                 Text("Wie gut hat die App deine Nacht erkannt?")
                     .font(.subheadline.weight(.medium))
 
@@ -71,8 +86,9 @@ struct MorgenBewertungCard: View {
                         let opt = recordingOptions[stufe - 1]
                         let isSelected = selectedRecording == stufe
                         Button {
-                            withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
+                            withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
                                 selectedRecording = stufe
+                                if stufe != 1 { feedbackMask = 0 }
                             }
                             saveRecording(stufe)
                         } label: {
@@ -98,6 +114,50 @@ struct MorgenBewertungCard: View {
                     }
                 }
 
+                // Expandierendes Feedback bei "Ungenau"
+                if selectedRecording == 1 {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Was war ungenau?")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .padding(.top, 4)
+
+                        ForEach(feedbackOptions, id: \.bit) { opt in
+                            let isOn = (feedbackMask & opt.bit) != 0
+                            Button {
+                                withAnimation(.easeInOut(duration: 0.15)) {
+                                    feedbackMask ^= opt.bit
+                                }
+                                session.recordingFeedbackMask = feedbackMask
+                                try? modelContext.save()
+                            } label: {
+                                HStack(spacing: 10) {
+                                    Image(systemName: isOn ? "checkmark.square.fill" : "square")
+                                        .foregroundStyle(isOn ? .indigo : .secondary)
+                                        .font(.body)
+                                    Image(systemName: opt.icon)
+                                        .foregroundStyle(.secondary)
+                                        .font(.caption)
+                                        .frame(width: 16)
+                                    Text(opt.text)
+                                        .font(.caption)
+                                        .foregroundStyle(.primary)
+                                        .multilineTextAlignment(.leading)
+                                    Spacer()
+                                }
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 8)
+                                .background(
+                                    isOn ? Color.indigo.opacity(0.07) : Color.secondary.opacity(0.04),
+                                    in: RoundedRectangle(cornerRadius: 8)
+                                )
+                            }
+                            .buttonStyle(.plain)
+                            .animation(.easeInOut(duration: 0.15), value: isOn)
+                        }
+                    }
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+                }
             }
         }
         .padding()
@@ -107,19 +167,20 @@ struct MorgenBewertungCard: View {
         .onAppear {
             selectedQuality = session.subjectiveQuality
             selectedRecording = session.recordingQuality
+            feedbackMask = session.recordingFeedbackMask
         }
-    }
-
-    private func saveQuality(_ stufe: Int) {
-        session.subjectiveQuality = stufe
-        try? modelContext.save()
+        .animation(.spring(response: 0.35, dampingFraction: 0.7), value: selectedRecording)
     }
 
     private func saveRecording(_ stufe: Int) {
         session.recordingQuality = stufe
+        if stufe != 1 {
+            session.recordingFeedbackMask = 0
+            feedbackMask = 0
+        }
         try? modelContext.save()
 
-        // Aufzeichnung ungenau → TrainingSamples dieser Nacht als unzuverlässig markieren
+        // Aufzeichnung ungenau → TrainingSamples als unzuverlässig markieren
         if stufe == 1 {
             let sessionStart = session.startDate
             let sessionEnd = session.endDate ?? Date()
