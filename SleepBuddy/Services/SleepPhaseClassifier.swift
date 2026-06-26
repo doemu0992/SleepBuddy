@@ -190,6 +190,14 @@ final class SleepPhaseClassifier {
         return late - early
     }
 
+    // MARK: - BCG reliability tracking
+    // BCG (ballistocardiography) is noisy. Track the last 6 raw BCG readings;
+    // if the range exceeds 20 BPM the sensor is bouncing (phone not stable on mattress)
+    // and we discard BCG rather than feed garbage into classification.
+    private var bcgHRHistory: [Float] = []
+    private let bcgHRHistorySize = 6
+    private var bcgReliable = false
+
     // MARK: - Breathing rate trend
     // Tracks the last 5 breathing rate measurements to detect direction of change.
     // Falling rate → deepening sleep → boost deep confidence.
@@ -232,6 +240,8 @@ final class SleepPhaseClassifier {
         hrHistory.removeAll()
         hrvHistory.removeAll()
         bpmHistory.removeAll()
+        bcgHRHistory.removeAll()
+        bcgReliable = false
         sleepOnsetDate = nil
         lastCommittedPhase = .awake
         deepSleepDeficitMinutes = 0
@@ -303,11 +313,29 @@ final class SleepPhaseClassifier {
         // Heart rate: prefer Apple Watch (HealthKit, updated every 5 min),
         // fall back to BCG from accelerometer z-axis (updated every 30 s, on-mattress only).
         // BCG is noisier — lower confidence boosts when using it.
-        let bcgAvailable = motion.isOnMattress && motion.bcgHeartRateBPM > 0
+        // Reliability check: if the last 6 BCG readings span > 20 BPM the sensor is
+        // bouncing (unstable phone on mattress) → discard rather than mislead the classifier.
+        if motion.isOnMattress && motion.bcgHeartRateBPM > 0 {
+            bcgHRHistory.append(Float(motion.bcgHeartRateBPM))
+            if bcgHRHistory.count > bcgHRHistorySize { bcgHRHistory.removeFirst() }
+            if bcgHRHistory.count >= 4 {
+                let mn = bcgHRHistory.min()!; let mx = bcgHRHistory.max()!
+                bcgReliable = (mx - mn) < 20
+            }
+        } else if !motion.isOnMattress {
+            bcgHRHistory.removeAll()
+            bcgReliable = false
+        }
+        let bcgAvailable = motion.isOnMattress && motion.bcgHeartRateBPM > 0 && bcgReliable
         let effectiveHRBPM: Double = currentHRBPM > 0 ? currentHRBPM
                                    : bcgAvailable ? Double(motion.bcgHeartRateBPM) : 0
         let usingBCG = currentHRBPM == 0 && bcgAvailable
         let hrConfidenceScale: Double = usingBCG ? 0.6 : 1.0   // BCG is less reliable
+
+        // Audio-only mode: no Apple Watch AND BCG is unreliable / phone not on mattress.
+        // In this mode audio breathing rate is the only signal — relax the thresholds so
+        // the classifier can still distinguish deep sleep and REM.
+        let isAudioOnly = currentHRBPM == 0 && !bcgAvailable
 
         // Update HR/HRV/BPM history for trend analysis
         if effectiveHRBPM > 0 {
@@ -366,14 +394,18 @@ final class SleepPhaseClassifier {
             }
             if amp > sleepAmplitudeMax { return (.awake, 0.6) }
             // In a REM window with no breathing signal: prefer REM over light
-            if remWindow { return (.rem, 0.55) }
+            // Audio-only: slightly higher confidence since no competing signal
+            if remWindow { return (.rem, isAudioOnly ? 0.60 : 0.55) }
             return (.light, 0.4)
         }
 
         // 4. Deep sleep: slow + regular + quiet (only outside REM windows)
+        // Audio-only: lower the regularity bar by 0.12 — audio-mic breathing is less
+        // precise than accelerometer and tends to read as "moderately regular" even in deep.
+        let effectiveDeepRegMin: Float = isAudioOnly ? max(deepRegularityMin - 0.12, 0.38) : deepRegularityMin
         if !remWindow
             && bpm >= deepBreathMin && bpm <= deepBreathMax
-            && reg >= deepRegularityMin
+            && reg >= effectiveDeepRegMin
             && amp <= sleepAmplitudeMax
         {
             let breathScore = 1.0 - Double(abs(bpm - 12) / 3)
@@ -387,7 +419,10 @@ final class SleepPhaseClassifier {
         // 5. REM: irregular breathing, quiet.
         //    In a REM window the thresholds are relaxed — less regularity required.
         //    HR-based REM boost: slightly elevated HR + no high HRV is classic REM.
-        let remRegMax: Float = remWindow ? 0.94 : remMaxRegularity
+        //    Audio-only: raise the regularity ceiling — mic-derived breathing regularity
+        //    tends to be higher than true regularity, so we need a wider REM window.
+        let audioOnlyREMBonus: Float = isAudioOnly ? 0.15 : 0.0
+        let remRegMax: Float = remWindow ? 0.94 : min(remMaxRegularity + audioOnlyREMBonus, 0.88)
         let remVarMin: Float = remWindow ? 0.000002 : 0.000008
         let remConfBoost: Double = remWindow ? 0.20 : 0.0
         // HRV falling during REM window = sympathetic intrusion typical in REM → additional boost
@@ -411,7 +446,7 @@ final class SleepPhaseClassifier {
         }
 
         // 6. Deep sleep outside REM window (relaxed — catches cases missed above)
-        if bpm >= deepBreathMin && bpm <= deepBreathMax && reg >= deepRegularityMin {
+        if bpm >= deepBreathMin && bpm <= deepBreathMax && reg >= effectiveDeepRegMin {
             let hrBoost: Double = hasHR && hrLow ? 0.07 * hrConfidenceScale : 0.0
             return (.deep, min(0.65 + hrBoost, 0.80))
         }
