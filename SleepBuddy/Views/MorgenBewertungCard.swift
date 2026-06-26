@@ -8,7 +8,6 @@ struct MorgenBewertungCard: View {
 
     @State private var selectedQuality: Int = 0
     @State private var selectedRecording: Int = 0
-    @State private var showDetailLink = false
 
     private let qualityOptions: [(emoji: String, label: String)] = [
         ("😴", "Schlecht"), ("🙁", "Mäßig"), ("😐", "OK"), ("🙂", "Gut"), ("😄", "Super")
@@ -99,17 +98,6 @@ struct MorgenBewertungCard: View {
                     }
                 }
 
-                if showDetailLink {
-                    NavigationLink(destination: SleepDetailView(session: session)) {
-                        Label("Phasen korrigieren", systemImage: "pencil.and.list.clipboard")
-                            .font(.caption.bold())
-                            .foregroundStyle(.white)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 10)
-                            .background(Color.orange, in: RoundedRectangle(cornerRadius: 10))
-                    }
-                    .transition(.opacity.combined(with: .move(edge: .bottom)))
-                }
             }
         }
         .padding()
@@ -119,9 +107,7 @@ struct MorgenBewertungCard: View {
         .onAppear {
             selectedQuality = session.subjectiveQuality
             selectedRecording = session.recordingQuality
-            showDetailLink = session.recordingQuality == 1
         }
-        .animation(.easeInOut(duration: 0.2), value: showDetailLink)
     }
 
     private func saveQuality(_ stufe: Int) {
@@ -132,8 +118,6 @@ struct MorgenBewertungCard: View {
     private func saveRecording(_ stufe: Int) {
         session.recordingQuality = stufe
         try? modelContext.save()
-
-        withAnimation { showDetailLink = stufe == 1 }
 
         // Aufzeichnung ungenau → TrainingSamples dieser Nacht als unzuverlässig markieren
         if stufe == 1 {
