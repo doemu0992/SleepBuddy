@@ -470,6 +470,30 @@ final class SleepTrackingViewModel {
                 changed = true
             }
         }
+        // Terminal awake: if the session is long (> 5 h) and the final phase is not already
+        // awake, the user was very likely lying still in bed before stopping the tracker.
+        // Reclassify the last 15 minutes as awake to capture this "resting in bed" period.
+        let sorted2 = session.phasesArray.sorted { $0.startDate < $1.startDate }
+        if session.totalDuration > 5 * 3600,
+           let lastPhase = sorted2.last,
+           lastPhase.phaseType != .awake,
+           let end = session.endDate {
+            let terminalStart = end.addingTimeInterval(-15 * 60)
+            if lastPhase.startDate < terminalStart {
+                // Shorten the last phase and append a 15-min awake phase
+                lastPhase.endDate = terminalStart
+                let awakePhase = SleepPhase(startDate: terminalStart, endDate: end, phaseType: .awake, confidence: 0.68)
+                awakePhase.session = session
+                modelContext?.insert(awakePhase)
+                if session.phases == nil { session.phases = [] }
+                session.phases?.append(awakePhase)
+            } else {
+                // Phase is already shorter than 15 min — just flip its type
+                lastPhase.phaseType = .awake
+            }
+            changed = true
+        }
+
         if changed { try? modelContext?.save() }
     }
 

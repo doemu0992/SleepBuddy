@@ -290,7 +290,10 @@ final class SleepPhaseClassifier {
         case .light:
             multiplier = 1.0   // light sleep distributed evenly
         case .awake:
-            multiplier = 1.0   // waking is always plausible
+            // End of night: spontaneous waking becomes increasingly likely after ~85% of the
+            // expected sleep window (≈ 6.8 h into an 8 h night). A person lying still in bed
+            // produces signals almost identical to light sleep, so we need an extra push here.
+            multiplier = progress > 0.88 ? 1.30 : (progress > 0.75 ? 1.12 : 1.0)
         }
         return (result.phase, min(result.confidence * multiplier, 0.95))
     }
@@ -366,8 +369,14 @@ final class SleepPhaseClassifier {
 
         let remWindow = inREMWindow()
 
+        // Morning mode: after 6 h since sleep onset the person is more likely to be lying
+        // awake resting than genuinely in light sleep. Reduce the motion threshold so that
+        // the characteristic stillness of "resting in bed" tips toward awake.
+        let isMorning = sleepOnsetDate.map { Date().timeIntervalSince($0) > 6 * 3600 } ?? false
+        let effectiveAwakeMotion: Float = isMorning ? awakeMotionThreshold * 0.65 : awakeMotionThreshold
+
         // 1. Movement → awake (motion is most reliable signal)
-        if motion.movementIntensity > awakeMotionThreshold || amp > awakeAmplitudeThreshold {
+        if motion.movementIntensity > effectiveAwakeMotion || amp > awakeAmplitudeThreshold {
             let conf = min(Double(max(mov, (amp - awakeAmplitudeThreshold) / awakeAmplitudeThreshold)) * 0.5 + 0.5, 0.95)
             return (.awake, conf)
         }
