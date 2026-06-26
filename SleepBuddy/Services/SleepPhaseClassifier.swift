@@ -207,6 +207,21 @@ final class SleepPhaseClassifier {
         let amp = audio.averageAmplitude
         let mov = motion.movementIntensity
 
+        // ── Breathing features ────────────────────────────────────────────────────
+        // Accelerometer (phone on mattress) measures chest/torso vibration directly.
+        // Audio breathing rate is a decent fallback in nightstand mode.
+        // Only use when quality threshold (regularity > 0.30) is met.
+        let useMotionBreath = motion.isOnMattress
+                              && motion.breathingRateBPM > 0
+                              && motion.breathingRegularity > 0.30
+        let breathBPM:   Float  = useMotionBreath ? motion.breathingRateBPM   : audio.breathingRateBPM
+        let breathReg:   Float  = useMotionBreath ? motion.breathingRegularity : audio.breathingRegularity
+        let breathValid          = breathBPM > 5 && breathBPM < 35 && breathReg > 0.30
+        let breathScale: Double  = useMotionBreath ? 1.0 : 0.70
+        // Deep sleep: slow (< 13 BPM) + very regular. REM: irregular (< 0.45) + not too slow.
+        let breathDeep = breathValid && breathBPM < 13 && breathReg > 0.60
+        let breathREM  = breathValid && breathReg  < 0.45 && breathBPM > 11
+
         // --- Update BCG history for HR display (not used for phase decisions) ---
         if motion.isOnMattress && motion.bcgHeartRateBPM > 0 {
             bcgHRHistory.append(Float(motion.bcgHeartRateBPM))
@@ -284,6 +299,26 @@ final class SleepPhaseClassifier {
             }
         }
 
+        // ── Step 2b: Breathing override (when no HR source available) ────────────
+        // Breathing rate is a solid phase signal when measured cleanly, but noisier
+        // than HR. Only fires when there is no HR to conflict with.
+        if breathValid && !hasHR {
+            if breathDeep && !inREMCycle {
+                // Slow + very regular → deep, regardless of cycle position
+                let regBonus = Double(max(breathReg - 0.60, 0)) * 0.28
+                let base: Double = useMotionBreath ? 0.64 : 0.52
+                let cap:  Double = useMotionBreath ? 0.76 : 0.63
+                return (.deep, min(base + regBonus, cap))
+            }
+            if breathREM && inREMCycle {
+                // Irregular breathing in REM window → REM
+                let irregBonus = Double(max(0.45 - breathReg, 0)) * 0.32
+                let base: Double = useMotionBreath ? 0.60 : 0.50
+                let cap:  Double = useMotionBreath ? 0.70 : 0.60
+                return (.rem, min(base + irregBonus, cap))
+            }
+        }
+
         // ── Step 3: Person is asleep — use cycle position ──────────────────────
         // Fallback when no HR available or HR is in an ambiguous range.
         // Without onset date we have no cycle reference → default to light sleep.
@@ -301,20 +336,26 @@ final class SleepPhaseClassifier {
 
         // ── Zone B: Deep sleep (20–65 min into cycle) ──────────────────────────
         if cyclePos < 65 {
-            let hrBoost:   Double = (hasHR && hrLow)  ? 0.08 * hrConfScale : 0.0
-            let hrPenalty: Double = (hasHR && hrREM && !usingBCG) ? -0.08 : 0.0
-            let hrvBoost:  Double = hrvHigh ? 0.05 : 0.0
+            let hrBoost:         Double = (hasHR && hrLow)  ? 0.08 * hrConfScale : 0.0
+            let hrPenalty:       Double = (hasHR && hrREM && !usingBCG) ? -0.08 : 0.0
+            let hrvBoost:        Double = hrvHigh ? 0.05 : 0.0
             let firstCycleBoost: Double = elapsed < 90 ? 0.07 : 0.0
-            let snoringBoost: Double = audio.snoringIntensity > 0.3 ? 0.05 : 0.0
-            let conf = min(0.70 + hrBoost + hrPenalty + hrvBoost + firstCycleBoost + snoringBoost, 0.88)
+            let snoringBoost:    Double = audio.snoringIntensity > 0.3 ? 0.05 : 0.0
+            // Slow + regular breathing confirms deep; irregular breathing in REM window is suspicious
+            let breathBoost:   Double = breathDeep                ? 0.08 * breathScale : 0.0
+            let breathPenalty: Double = (breathREM && inREMCycle) ? -0.05             : 0.0
+            let conf = min(0.70 + hrBoost + hrPenalty + hrvBoost + firstCycleBoost + snoringBoost + breathBoost + breathPenalty, 0.92)
             return (.deep, conf)
         }
 
         // ── Zone C: REM (65–90 min into cycle) ─────────────────────────────────
-        let hrREMBoost:    Double = (hasHR && hrREM && !hrvHigh) ? 0.10 * hrConfScale : 0.0
-        let hrvREMBoost:   Double = (hrvFalling && hasHR)        ? 0.06 : 0.0
-        let lateNightBoost: Double = elapsed > 270 ? 0.06 : 0.0
-        let conf = min(0.68 + hrREMBoost + hrvREMBoost + lateNightBoost, 0.88)
+        let hrREMBoost:      Double = (hasHR && hrREM && !hrvHigh) ? 0.10 * hrConfScale : 0.0
+        let hrvREMBoost:     Double = (hrvFalling && hasHR)         ? 0.06 : 0.0
+        let lateNightBoost:  Double = elapsed > 270                  ? 0.06 : 0.0
+        // Irregular breathing confirms REM; slow+regular suggests we're still in deep
+        let breathREMBoost:   Double = breathREM  ? 0.08 * breathScale : 0.0
+        let breathDeepPenalty: Double = breathDeep ? -0.06             : 0.0
+        let conf = min(0.68 + hrREMBoost + hrvREMBoost + lateNightBoost + breathREMBoost + breathDeepPenalty, 0.90)
         return (.rem, conf)
     }
 
