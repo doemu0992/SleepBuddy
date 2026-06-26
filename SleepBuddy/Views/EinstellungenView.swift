@@ -62,7 +62,7 @@ struct EinstellungenView: View {
             Button {
                 zeigeMikrofonTest = true
             } label: {
-                Label("Mikrofon testen", systemImage: "mic.badge.waveform.fill")
+                Label("Mikrofon testen", systemImage: "mic.fill")
                     .foregroundStyle(.indigo)
             }
             .sheet(isPresented: $zeigeMikrofonTest) {
@@ -163,7 +163,7 @@ struct EinstellungenView: View {
             Button {
                 for _ in 0..<3 { SampleDataService.insertSampleNight(into: modelContext) }
             } label: {
-                Label("Alle 3 Beispielnächte hinzufügen", systemImage: "moon.3.fill")
+                Label("Alle 3 Beispielnächte hinzufügen", systemImage: "moon.stars.fill")
                     .foregroundStyle(.indigo)
             }
 
@@ -517,7 +517,7 @@ struct MikrofonTestView: View {
 
                         if topErkennungen.isEmpty {
                             HStack {
-                                Image(systemName: "mic.badge.waveform.fill").foregroundStyle(.secondary)
+                                Image(systemName: "mic.fill").foregroundStyle(.secondary)
                                 Text(isRunning ? "Mach ein Geräusch — schnarche, huste, klatsche…"
                                               : "Test starten")
                                     .font(.subheadline).foregroundStyle(.secondary)
