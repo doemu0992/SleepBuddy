@@ -546,27 +546,36 @@ struct SleepDetailView: View {
         return lo...hi
     }
 
-    private func noiseGradient(domain: ClosedRange<Double>) -> LinearGradient {
+    private func noiseStops(domain: ClosedRange<Double>) -> [Gradient.Stop] {
         let span = domain.upperBound - domain.lowerBound
         let s35 = max(0, min(1, (35 - domain.lowerBound) / span))
         let s70 = max(0, min(1, (70 - domain.lowerBound) / span))
-        return LinearGradient(
-            stops: [
-                .init(color: .green.opacity(0.9),  location: 0.0),
-                .init(color: .green.opacity(0.9),  location: s35),
-                .init(color: .orange.opacity(0.9), location: s35),
-                .init(color: .orange.opacity(0.9), location: s70),
-                .init(color: .red.opacity(0.9),    location: s70),
-                .init(color: .red.opacity(0.9),    location: 1.0),
-            ],
-            startPoint: .bottom, endPoint: .top
-        )
+        return [
+            .init(color: .green,  location: 0.0),
+            .init(color: .green,  location: s35),
+            .init(color: .orange, location: s35),
+            .init(color: .orange, location: s70),
+            .init(color: .red,    location: s70),
+            .init(color: .red,    location: 1.0),
+        ]
+    }
+
+    private func noiseLineGrad(domain: ClosedRange<Double>) -> LinearGradient {
+        LinearGradient(stops: noiseStops(domain: domain), startPoint: .bottom, endPoint: .top)
+    }
+
+    private func noiseAreaGrad(domain: ClosedRange<Double>) -> LinearGradient {
+        let stops = noiseStops(domain: domain).map {
+            Gradient.Stop(color: $0.color.opacity(0.35), location: $0.location)
+        }
+        return LinearGradient(stops: stops, startPoint: .bottom, endPoint: .top)
     }
 
     @ViewBuilder
     private var ambientNoiseCard: some View {
         let domain = noiseYDomain
-        let grad = noiseGradient(domain: domain)
+        let lineGrad = noiseLineGrad(domain: domain)
+        let areaGrad = noiseAreaGrad(domain: domain)
         let data = noiseData
 
         VStack(alignment: .leading, spacing: 12) {
@@ -580,15 +589,15 @@ struct SleepDetailView: View {
                     yStart: .value("Boden", domain.lowerBound),
                     yEnd: .value("dB", sample.db)
                 )
-                .foregroundStyle(grad.opacity(0.22))
+                .foregroundStyle(areaGrad)
                 .interpolationMethod(.monotone)
 
                 LineMark(
                     x: .value("Zeit", sample.time),
                     y: .value("dB", sample.db)
                 )
-                .foregroundStyle(grad)
-                .lineStyle(StrokeStyle(lineWidth: 1.8))
+                .foregroundStyle(lineGrad)
+                .lineStyle(StrokeStyle(lineWidth: 2.2))
                 .interpolationMethod(.monotone)
 
                 if domain.contains(35) {
