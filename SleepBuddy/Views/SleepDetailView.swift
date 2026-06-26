@@ -528,57 +528,79 @@ struct SleepDetailView: View {
     }
 
     private var noiseData: [NoiseSample] {
-        session.noiseSamples.enumerated().map { i, db in
-            NoiseSample(id: i, time: session.startDate.addingTimeInterval(Double(i) * 60), db: db)
+        session.noiseSamples.enumerated().compactMap { i, db in
+            guard db > 1.0 else { return nil }  // skip unrecorded minutes
+            return NoiseSample(
+                id: i,
+                time: session.startDate.addingTimeInterval(Double(i + 1) * 60),
+                db: max(15.0, min(90.0, db))
+            )
         }
     }
 
-    private func noiseColor(_ db: Double) -> Color {
-        db < 35 ? .green : db < 70 ? .orange : .red
+    // Adaptive Y domain: zoom to actual data range so quiet nights aren't squashed
+    private var noiseYDomain: ClosedRange<Double> {
+        guard !noiseData.isEmpty else { return 20...90 }
+        let lo = max(15.0, (noiseData.map(\.db).min()! - 5).rounded(.down))
+        let hi = min(92.0, (noiseData.map(\.db).max()! + 8).rounded(.up))
+        return lo...hi
     }
 
+    private func noiseGradient(domain: ClosedRange<Double>) -> LinearGradient {
+        let span = domain.upperBound - domain.lowerBound
+        let s35 = max(0, min(1, (35 - domain.lowerBound) / span))
+        let s70 = max(0, min(1, (70 - domain.lowerBound) / span))
+        return LinearGradient(
+            stops: [
+                .init(color: .green.opacity(0.9),  location: 0.0),
+                .init(color: .green.opacity(0.9),  location: s35),
+                .init(color: .orange.opacity(0.9), location: s35),
+                .init(color: .orange.opacity(0.9), location: s70),
+                .init(color: .red.opacity(0.9),    location: s70),
+                .init(color: .red.opacity(0.9),    location: 1.0),
+            ],
+            startPoint: .bottom, endPoint: .top
+        )
+    }
+
+    @ViewBuilder
     private var ambientNoiseCard: some View {
+        let domain = noiseYDomain
+        let grad = noiseGradient(domain: domain)
+        let data = noiseData
+
         VStack(alignment: .leading, spacing: 12) {
             Label("Umgebungslautstärke", systemImage: "waveform.and.mic").font(.headline)
 
             trackerTimeRow
 
-            Chart(noiseData) { sample in
-                // Green zone: 20–35 dB
+            Chart(data) { sample in
                 AreaMark(
                     x: .value("Zeit", sample.time),
-                    yStart: .value("Boden", 20.0),
-                    yEnd: .value("dB", min(sample.db, 35.0))
-                )
-                .foregroundStyle(Color.green.opacity(0.18))
-                .interpolationMethod(.catmullRom)
-
-                // Orange zone: 35–70 dB
-                AreaMark(
-                    x: .value("Zeit", sample.time),
-                    yStart: .value("Boden", min(sample.db, 35.0)),
-                    yEnd: .value("dB", min(sample.db, 70.0))
-                )
-                .foregroundStyle(Color.orange.opacity(0.20))
-                .interpolationMethod(.catmullRom)
-
-                // Red zone: above 70 dB
-                AreaMark(
-                    x: .value("Zeit", sample.time),
-                    yStart: .value("Boden", min(sample.db, 70.0)),
+                    yStart: .value("Boden", domain.lowerBound),
                     yEnd: .value("dB", sample.db)
                 )
-                .foregroundStyle(Color.red.opacity(0.22))
-                .interpolationMethod(.catmullRom)
+                .foregroundStyle(grad.opacity(0.22))
+                .interpolationMethod(.monotone)
 
-                // Wave line — single color, zones shown via AreaMarks above
                 LineMark(
                     x: .value("Zeit", sample.time),
                     y: .value("dB", sample.db)
                 )
-                .foregroundStyle(Color.primary.opacity(0.75))
-                .lineStyle(StrokeStyle(lineWidth: 1.5))
-                .interpolationMethod(.catmullRom)
+                .foregroundStyle(grad)
+                .lineStyle(StrokeStyle(lineWidth: 1.8))
+                .interpolationMethod(.monotone)
+
+                if domain.contains(35) {
+                    RuleMark(y: .value("35 dB", 35.0))
+                        .foregroundStyle(Color.green.opacity(0.35))
+                        .lineStyle(StrokeStyle(lineWidth: 0.8, dash: [3, 3]))
+                }
+                if domain.contains(70) {
+                    RuleMark(y: .value("70 dB", 70.0))
+                        .foregroundStyle(Color.red.opacity(0.35))
+                        .lineStyle(StrokeStyle(lineWidth: 0.8, dash: [3, 3]))
+                }
 
                 RuleMark(x: .value("Start", session.startDate))
                     .foregroundStyle(Color.indigo.opacity(0.5))
@@ -590,7 +612,7 @@ struct SleepDetailView: View {
                         .lineStyle(StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
                 }
             }
-            .chartYScale(domain: 20...90)
+            .chartYScale(domain: domain)
             .chartXAxis {
                 AxisMarks(values: .stride(by: .hour)) { _ in
                     AxisGridLine()
@@ -598,12 +620,13 @@ struct SleepDetailView: View {
                 }
             }
             .chartYAxis {
-                AxisMarks(values: [35, 70]) { val in
-                    AxisGridLine().foregroundStyle(
-                        val.as(Int.self) == 35 ? Color.green.opacity(0.5)
-                        : Color.red.opacity(0.5)
-                    )
-                    AxisValueLabel { Text("\(val.as(Int.self) ?? 0) dB").font(.caption2) }
+                AxisMarks(values: .automatic(desiredCount: 4)) { val in
+                    AxisGridLine().foregroundStyle(Color.secondary.opacity(0.15))
+                    AxisValueLabel {
+                        if let v = val.as(Double.self) {
+                            Text("\(Int(v)) dB").font(.caption2)
+                        }
+                    }
                 }
             }
             .chartXScale(domain: session.startDate...(session.endDate ?? Date()))
@@ -612,7 +635,6 @@ struct SleepDetailView: View {
             .frame(height: 160)
             .clipped()
 
-            // Legend
             HStack(spacing: 12) {
                 legendDot(.green,  "< 35 dB Ruhig")
                 legendDot(.orange, "35–70 dB Normal")
