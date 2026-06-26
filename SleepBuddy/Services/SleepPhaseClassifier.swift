@@ -259,7 +259,33 @@ final class SleepPhaseClassifier {
             return (.awake, 0.72)
         }
 
-        // ── Step 2: Person is asleep — use cycle position ──────────────────────
+        // ── Step 2: HR override (ShutEye-style: HR wins when signal is clear) ──
+        // Apple Watch: authoritative. BCG (phone on mattress): confident but scaled.
+        // Only override when HR clearly points to a specific phase — ambiguous HR
+        // falls through to the cycle model below.
+        if hasHR {
+            // Distinctly low HR → deep sleep regardless of cycle zone.
+            // BCG threshold raised slightly (more noise in BCG signal).
+            let deepThresh: Double = usingBCG ? 60.0 : 56.0
+            if effectiveHR < deepThresh && !inREMCycle {
+                let depthBonus = min((deepThresh - effectiveHR) * 0.012, 0.10)
+                let base: Double = usingBCG ? 0.64 : 0.76
+                let cap:  Double = usingBCG ? 0.74 : 0.88
+                return (.deep, min(base + depthBonus, cap))
+            }
+
+            // REM-range HR + REM window open → REM.
+            // HRV falling during REM eye movements adds extra confidence (Watch only).
+            if hrREM && inREMCycle && !hrvHigh {
+                let hrvBonus: Double = (hrvFalling && !usingBCG) ? 0.07 : 0.0
+                let base: Double = usingBCG ? 0.60 : 0.72
+                let cap:  Double = usingBCG ? 0.70 : 0.84
+                return (.rem, min(base + hrvBonus, cap))
+            }
+        }
+
+        // ── Step 3: Person is asleep — use cycle position ──────────────────────
+        // Fallback when no HR available or HR is in an ambiguous range.
         // Without onset date we have no cycle reference → default to light sleep.
         guard let cyclePos = cyclePosition() else {
             return amp <= sleepAmplitudeMax ? (.light, 0.50) : (.awake, 0.55)
@@ -269,33 +295,26 @@ final class SleepPhaseClassifier {
 
         // ── Zone A: Transition / light (0–20 min into each cycle) ──────────────
         if cyclePos < 20 {
-            // HR slightly elevated relative to deep = consistent with light/transition
             let hrBoost: Double = (hasHR && hrREM) ? 0.05 : 0.0
             return (.light, min(0.68 + hrBoost, 0.80))
         }
 
         // ── Zone B: Deep sleep (20–65 min into cycle) ──────────────────────────
         if cyclePos < 65 {
-            // HR secondary confirmation: low HR = deeper, REM-range HR = suspicious
-            let hrBoost:  Double = (hasHR && hrLow)  ? 0.10 * hrConfScale : 0.0
+            let hrBoost:   Double = (hasHR && hrLow)  ? 0.08 * hrConfScale : 0.0
             let hrPenalty: Double = (hasHR && hrREM && !usingBCG) ? -0.08 : 0.0
-            // HRV high (parasympathetic) = consistent with deep
-            let hrvBoost: Double = hrvHigh ? 0.05 : 0.0
-            // First cycle deep sleep is the most reliable (≤ 90 min in)
+            let hrvBoost:  Double = hrvHigh ? 0.05 : 0.0
             let firstCycleBoost: Double = elapsed < 90 ? 0.07 : 0.0
-            // Snoring often accompanies deep sleep
             let snoringBoost: Double = audio.snoringIntensity > 0.3 ? 0.05 : 0.0
-            let conf = min(0.70 + hrBoost + hrPenalty + hrvBoost + firstCycleBoost + snoringBoost, 0.92)
+            let conf = min(0.70 + hrBoost + hrPenalty + hrvBoost + firstCycleBoost + snoringBoost, 0.88)
             return (.deep, conf)
         }
 
         // ── Zone C: REM (65–90 min into cycle) ─────────────────────────────────
-        // REM: muscle atonia → very still; elevated HR; HRV drops briefly during eye movements.
-        let hrREMBoost:   Double = (hasHR && hrREM && !hrvHigh) ? 0.12 * hrConfScale : 0.0
-        let hrvREMBoost:  Double = (hrvFalling && hasHR)        ? 0.06 : 0.0
-        // REM cycles lengthen later in the night → more confidence in later cycles
+        let hrREMBoost:    Double = (hasHR && hrREM && !hrvHigh) ? 0.10 * hrConfScale : 0.0
+        let hrvREMBoost:   Double = (hrvFalling && hasHR)        ? 0.06 : 0.0
         let lateNightBoost: Double = elapsed > 270 ? 0.06 : 0.0
-        let conf = min(0.68 + hrREMBoost + hrvREMBoost + lateNightBoost, 0.90)
+        let conf = min(0.68 + hrREMBoost + hrvREMBoost + lateNightBoost, 0.88)
         return (.rem, conf)
     }
 
