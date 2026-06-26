@@ -641,6 +641,7 @@ struct SleepDetailView: View {
             .chartXScale(domain: session.startDate...(session.endDate ?? Date()))
             .chartScrollableAxes(.horizontal)
             .chartXVisibleDomain(length: 3 * 3600)
+            .chartPlotStyle { $0.padding(.trailing, 4) }
             .frame(height: 180)
 
             HStack(spacing: 12) {
@@ -688,20 +689,16 @@ struct SleepDetailView: View {
             let minBPM = (data.map(\.bpm).min() ?? 40) - 5
             let maxBPM = (data.map(\.bpm).max() ?? 100) + 5
 
-            // Resting HR zone: 50–70 BPM (typical sleeping heart rate)
-            let ruhepulsMin = max(minBPM, 50.0)
-            let ruhepulsMax = min(maxBPM, 70.0)
-
             Chart(data) { sample in
-                // Resting HR reference band
-                if ruhepulsMin < ruhepulsMax {
+                // Resting HR reference band (50–70 BPM)
+                if minBPM < 70 && maxBPM > 50 {
                     RectangleMark(
                         xStart: .value("Start", session.startDate),
                         xEnd: .value("Ende", session.endDate ?? Date()),
-                        yStart: .value("Ruhepuls min", ruhepulsMin),
-                        yEnd: .value("Ruhepuls max", ruhepulsMax)
+                        yStart: .value("Ruhepuls min", max(minBPM, 50.0)),
+                        yEnd: .value("Ruhepuls max", min(maxBPM, 70.0))
                     )
-                    .foregroundStyle(Color.gray.opacity(0.10))
+                    .foregroundStyle(Color.gray.opacity(0.08))
                 }
 
                 LineMark(
