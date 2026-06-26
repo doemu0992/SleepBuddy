@@ -1492,10 +1492,11 @@ NavigationStack
 
 **Bedingungen für Morgen-Cards:**
 ```swift
-// Relevant wenn letzte Session heute oder gestern und ≥ 1h
+// MorgenBewertungCard: subjectiveQuality == 0 UND Session ≤ 7 Tage alt (isBewertungRelevant)
+// MorgenBerichtCard: Session heute oder gestern (isMorgenBerichtRelevant)
+// Bewusst getrennt: Bewertung kann nachgeholt werden, Morgenbericht nur frisch sinnvoll
 private func isMorgenBerichtRelevant(_ session: SleepSession) -> Bool
-// MorgenBewertungCard: session.subjectiveQuality == 0
-// MorgenBerichtCard: immer wenn isMorgenBerichtRelevant
+private func isBewertungRelevant(_ session: SleepSession) -> Bool  // ≤ 7 Tage
 ```
 
 ---

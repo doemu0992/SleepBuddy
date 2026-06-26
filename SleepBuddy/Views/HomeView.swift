@@ -21,11 +21,13 @@ struct HomeView: View {
                         emptyState
                     } else {
                         sleepButton
-                        if let session = lastSession, isMorgenBerichtRelevant(session) {
-                            if session.subjectiveQuality == 0 {
+                        if let session = lastSession {
+                            if session.subjectiveQuality == 0, isBewertungRelevant(session) {
                                 MorgenBewertungCard(session: session)
                             }
-                            MorgenBerichtCard(session: session)
+                            if isMorgenBerichtRelevant(session) {
+                                MorgenBerichtCard(session: session)
+                            }
                         }
                         smartAlarmCard
                         if let session = lastSession {
@@ -314,6 +316,11 @@ struct HomeView: View {
     private func isMorgenBerichtRelevant(_ session: SleepSession) -> Bool {
         Calendar.current.isDateInToday(session.endDate ?? .distantPast) ||
         Calendar.current.isDateInYesterday(session.endDate ?? .distantPast)
+    }
+
+    private func isBewertungRelevant(_ session: SleepSession) -> Bool {
+        guard let end = session.endDate else { return false }
+        return Date().timeIntervalSince(end) < 7 * 24 * 3600
     }
 }
 
