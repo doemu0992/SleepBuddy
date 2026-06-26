@@ -23,9 +23,13 @@ struct ContentView: View {
                 .tabItem { Label(" ", systemImage: "moon.stars.fill") }
                 .tag(2)
 
+            NavigationStack { SleepHistoryView() }
+                .tabItem { Label("Verlauf", systemImage: "clock.arrow.circlepath") }
+                .tag(3)
+
             NavigationStack { ProfilView() }
                 .tabItem { Label("Profil", systemImage: "person.fill") }
-                .tag(3)
+                .tag(4)
         }
         .tint(.indigo)
         .overlay(alignment: .bottom) {

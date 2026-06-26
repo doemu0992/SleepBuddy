@@ -65,13 +65,6 @@ struct HomeView: View {
             }
             .background(Color(.systemGroupedBackground))
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    NavigationLink(destination: SleepHistoryView()) {
-                        Image(systemName: "clock.arrow.circlepath")
-                    }
-                }
-            }
             .fullScreenCover(isPresented: $viewModel.showTrackingSheet) {
                 SleepTrackingView(viewModel: trackingViewModel)
             }

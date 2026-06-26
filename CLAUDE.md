@@ -101,8 +101,10 @@ TabView(selection: $selectedTab) {
         .tabItem { Label("Statistik", systemImage: "chart.bar.fill") }.tag(1)
     Color.clear
         .tabItem { Label(" ", systemImage: "moon.stars.fill") }.tag(2)
+    NavigationStack { SleepHistoryView() }
+        .tabItem { Label("Verlauf", systemImage: "clock.arrow.circlepath") }.tag(3)
     NavigationStack { ProfilView() }
-        .tabItem { Label("Profil", systemImage: "person.fill") }.tag(3)
+        .tabItem { Label("Profil", systemImage: "person.fill") }.tag(4)
 }
 .tint(.indigo)
 .overlay(alignment: .bottom) {
@@ -125,7 +127,8 @@ TabView(selection: $selectedTab) {
 
 **Regeln:**
 - Kein custom `safeAreaInset` Tab Bar — immer natives `TabView`
-- Reihenfolge: Home (0), Statistik (1), Tracker-Dummy (2), Profil (3)
+- Reihenfolge: Home (0), Statistik (1), Tracker-Dummy (2), Verlauf (3), Profil (4)
+- **5 Tab-Items mit dem Tracker-Dummy exakt in der Mitte (Index 2)** — der zentrale Kreis-Button sitzt nur bei ungerader Tab-Anzahl korrekt über dem mittleren Item. Niemals auf eine gerade Anzahl wechseln (Button wird sonst versetzt dargestellt).
 - Tab 2 ist Dummy (`Color.clear`) und öffnet den Tracker via `onChange`
 - `HomeView` ist der Landing-Tab (zeigt u.a. `MorgenBewertungCard`)
 - Safe Area wird vom System verwaltet
