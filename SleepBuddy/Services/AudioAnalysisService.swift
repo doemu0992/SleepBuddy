@@ -37,6 +37,10 @@ final class AudioAnalysisService {
     private var chunkSamples: [Float] = []
     private var samplesPerEnvelopeTick: Int { Int(audioSampleRate / envelopeSampleRate) }
 
+    // Most recent instantaneous RMS (single 125 ms window) — used by SoundEventService
+    // for event detection. The 30s average in AudioFeatures is too smoothed for burst detection.
+    private(set) var lastInstantRMS: Float = 0
+
     // FFT setup for raw-audio snoring/speech (4096-point, created once)
     private var fftSetup: FFTSetup?
     // Separate FFT setup for envelope breathing rate (256-point)
@@ -116,6 +120,7 @@ final class AudioAnalysisService {
     }
 
     private func appendEnvelopeSample(_ value: Float) {
+        lastInstantRMS = value   // always track the per-125ms RMS for burst detection
         envelopeBuffer.append(value)
         if envelopeBuffer.count > envelopeWindowSize { envelopeBuffer.removeFirst() }
 
@@ -146,6 +151,7 @@ final class AudioAnalysisService {
 
         return AudioFeatures(
             averageAmplitude: mean,
+            instantAmplitude: lastInstantRMS,
             amplitudeVariance: variance,
             breathingRateBPM: breathingRate,
             breathingRegularity: regularity,
@@ -377,11 +383,18 @@ final class AudioAnalysisService {
 }
 
 struct AudioFeatures {
-    let averageAmplitude: Float
+    let averageAmplitude: Float     // 30 s rolling mean — for breathing analysis
+    let instantAmplitude: Float     // latest 125 ms RMS — for sound-event detection
     let amplitudeVariance: Float
     let breathingRateBPM: Float        // 0 if not detectable
     let breathingRegularity: Float     // 0–1, 1 = perfectly regular
     let snoringIntensity: Float        // 0–1, 0 = kein Schnarchen
     let speechLikelihood: Float        // 0–1, heuristic for voice-like sounds
     let timestamp: Date
+
+    static var neutral: AudioFeatures {
+        AudioFeatures(averageAmplitude: 0, instantAmplitude: 0, amplitudeVariance: 0,
+                      breathingRateBPM: 0, breathingRegularity: 0,
+                      snoringIntensity: 0, speechLikelihood: 0, timestamp: Date())
+    }
 }

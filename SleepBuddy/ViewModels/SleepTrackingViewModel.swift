@@ -105,7 +105,7 @@ final class SleepTrackingViewModel {
 
         audioService.onFeaturesUpdated = { [weak self] audio in
             self?.soundEventService.tick(
-                amplitude: audio.averageAmplitude,
+                instantAmplitude: audio.instantAmplitude,
                 snoringScore: audio.snoringIntensity,
                 speechLikelihood: audio.speechLikelihood
             )

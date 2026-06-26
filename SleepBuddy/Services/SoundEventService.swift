@@ -3,7 +3,10 @@ import Foundation
 import Observation
 
 /// Detects sound events during sleep (snoring, talking, coughing, bruxism, other) and saves
-/// 30-second audio clips to iCloud Documents on opt-in. Raw audio stays in RAM until confirmed.
+/// 30-second audio clips to iCloud Documents on opt-in.
+///
+/// ShutEye-style: event detection uses the instantaneous 125 ms RMS, NOT the 30 s average.
+/// Ring buffer runs always — iCloud/local saves are gated by isEnabled.
 @Observable
 final class SoundEventService {
 
@@ -19,19 +22,21 @@ final class SoundEventService {
         set { UserDefaults.standard.set(newValue, forKey: "soundEvents_enabled") }
     }
 
-    // MARK: - Continuous adaptive noise floor
+    // MARK: - Amplitude threshold (fixed, ShutEye-style)
+    //
+    // We deliberately do NOT use an adaptive EMA multiplier here.
+    // ShutEye uses fixed dB thresholds: ~45 dB normal, raised in partner mode.
+    // 45 dB ≈ amplitude 0.006, 50 dB ≈ 0.010, 55 dB ≈ 0.018
+    // Use 0.010 as default (≈ 50 dB) — catches moderate snoring, not room hiss.
 
-    /// Exponential moving average of quiet-moment amplitude — seeded in first 60 s,
-    /// then updated throughout the night so threshold tracks fans, traffic, AC, etc.
-    private var ambientEMA: Float = 0.008
-    private let ambientAlpha: Float = 0.002     // time constant ≈ 60 s at 8 Hz
-    private var isCalibrated = false
-    private var calibrationValues: [Float] = []
-    private let calibrationTicks = 480          // 60 s × 8 Hz seed window
-
-    // EMA × 2.5 adapts to room noise; baseAmplitudeThreshold is the hard minimum
-    // (partner mode explicitly raises it, so we never go below that).
-    private var amplitudeThreshold: Float { max(ambientEMA * 2.5, baseAmplitudeThreshold) }
+    private var amplitudeThreshold: Float {
+        guard UserDefaults.standard.bool(forKey: "partnerModus_aktiv") else { return 0.010 }
+        switch UserDefaults.standard.integer(forKey: "partnerModus_stufe") {
+        case 1: return 0.022   // partner's breathing / movement noise is louder
+        case 2: return 0.040   // partner very close — only clear loud events
+        default: return 0.010
+        }
+    }
 
     // MARK: - Circular raw-sample buffer (last 35 s at native sample rate)
 
@@ -42,23 +47,17 @@ final class SoundEventService {
 
     // MARK: - Event detection state
 
-    private var baseAmplitudeThreshold: Float {
-        guard UserDefaults.standard.bool(forKey: "partnerModus_aktiv") else { return 0.010 }
-        switch UserDefaults.standard.integer(forKey: "partnerModus_stufe") {
-        case 1: return 0.022   // Mitte: etwas höher, Partner-Geräusche unterdrücken
-        case 2: return 0.040   // Partner: deutlich höher, nur laute eigene Geräusche
-        default: return 0.010
-        }
-    }
-
-    private let cooldownAfterEventSeconds: TimeInterval = 2.0  // was 4s — shorter to catch consecutive events
+    private let cooldownAfterEventSeconds: TimeInterval = 2.0
 
     private var eventStartDate: Date?
     private var pendingEventType: SoundEventType = .other
     private var consecutiveLoudTicks = 0
     private var consecutiveQuietTicks = 0
-    private let quietTicksToEnd = 8     // 1 s of quiet ends the event
-    private let loudTicksToStart = 3    // 0.375 s of noise starts an event (was 4 = 0.5s)
+
+    // At 8 Hz (one tick per 125 ms):
+    private let loudTicksToStart = 3   // 375 ms of continuous sound → event start
+    private let quietTicksToEnd  = 8   // 1 s of silence → event end
+
     private var lastEventEndDate: Date?
 
     // MARK: - ML hint (from SoundClassificationService)
@@ -66,34 +65,30 @@ final class SoundEventService {
     private var mlHintType: SoundEventType?
     private var mlHintConfidence: Double = 0
     private var mlHintDate: Date?
-    private let mlHintMaxAge: TimeInterval = 3.0   // tight window — old hints can misclassify
+    private let mlHintMaxAge: TimeInterval = 3.0
 
     /// Called by SoundClassificationService when Apple's ML fires.
-    /// For bruxism and coughing (often quiet), a high-confidence hit directly starts an event
-    /// without waiting for the amplitude threshold — these sounds may never cross it.
+    /// Quiet personal sounds (bruxism, coughing…) bypass the amplitude gate — they are
+    /// real events that may never cross the threshold. External/ambient sounds must cross
+    /// the amplitude threshold naturally to avoid false positives from AC / fan noise.
     func hintMLDetection(type: SoundEventType, confidence: Double) {
         mlHintType = type
         mlHintConfidence = confidence
         mlHintDate = Date()
 
-        // Only truly quiet personal sounds bypass the amplitude gate — bruxism, coughing,
-        // sneezing never cross the threshold but are real events. External/ambient sounds
-        // (music, traffic, dog, thunder…) ARE loud and will cross the amplitude threshold
-        // naturally; bypassing it causes false positives from AC / fan noise misclassified as music.
         let isMLPrimary = type == .bruxism || type == .coughing || type == .sneezing
             || type == .knock || type == .glassBreak || type == .snoring
             || type == .gasping || type == .laughing
         if isMLPrimary && confidence >= 0.45 && eventStartDate == nil && !isInCooldown {
             eventStartDate = Date()
             pendingEventType = type
-            consecutiveLoudTicks = loudTicksToStart  // bypass tick counter
+            consecutiveLoudTicks = loudTicksToStart
             consecutiveQuietTicks = 0
         }
     }
 
     // MARK: - Callback (fires on main actor)
 
-    /// Provides (timestamp, type, duration, optional iCloud file name, decibelLevel, confidenceScore).
     var onEventCaptured: ((Date, SoundEventType, TimeInterval, String?, Double, Double) -> Void)?
 
     // MARK: - Public API
@@ -105,22 +100,22 @@ final class SoundEventService {
         reset()
     }
 
-    /// Feed raw PCM samples (called on background queue). Gated by isEnabled for clip saving.
+    /// Feed raw PCM samples — always buffers for ring buffer; saves only when isEnabled.
     func appendSamples(_ samples: [Float], actualSampleRate: Double? = nil) {
-        guard isEnabled else { return }
         if let sr = actualSampleRate, sr != sampleRate { sampleRate = sr }
+        // Ring buffer always active — saves are gated by isEnabled in finaliseEvent()
         circularBuffer.append(contentsOf: samples)
         if circularBuffer.count > maxRingSize {
             circularBuffer.removeFirst(circularBuffer.count - maxRingSize)
         }
     }
 
-    /// Feed amplitude + scores per 8 Hz envelope tick (called on background queue).
-    func tick(amplitude: Float, snoringScore: Float, speechLikelihood: Float) {
-        updateAmbientNoise(amplitude: amplitude)
+    /// Feed instantaneous 125 ms RMS amplitude + classification scores (8 Hz tick).
+    /// Uses instantAmplitude (NOT the 30 s average) so single snoring bursts are detected.
+    func tick(instantAmplitude: Float, snoringScore: Float, speechLikelihood: Float) {
         if isInCooldown { return }
 
-        let isLoud = amplitude > amplitudeThreshold
+        let isLoud = instantAmplitude > amplitudeThreshold
 
         if isLoud {
             consecutiveQuietTicks = 0
@@ -147,30 +142,6 @@ final class SoundEventService {
         mlHintType = nil
         mlHintConfidence = 0
         mlHintDate = nil
-        calibrationValues.removeAll()
-        ambientEMA = 0.012
-        isCalibrated = false
-    }
-
-    // MARK: - Ambient noise tracking
-
-    /// Seeds EMA from the first 60 s, then keeps it updated during quiet moments all night.
-    /// Only advances during genuine silence so sound events don't raise the noise floor.
-    private func updateAmbientNoise(amplitude: Float) {
-        if !isCalibrated {
-            calibrationValues.append(amplitude)
-            if calibrationValues.count >= calibrationTicks {
-                let sorted = calibrationValues.sorted()
-                // 75th-percentile of first 60 s → robust seed that ignores initial loud moments
-                ambientEMA = sorted[Int(Double(sorted.count) * 0.75)]
-                isCalibrated = true
-                calibrationValues.removeAll()
-            }
-            return
-        }
-        // Post-calibration: update only during quiet stretches (no active event, ≥ 1 s silence)
-        guard eventStartDate == nil, consecutiveQuietTicks >= 8 else { return }
-        ambientEMA = ambientEMA * (1.0 - ambientAlpha) + amplitude * ambientAlpha
     }
 
     // MARK: - Audio file URL for playback
@@ -181,6 +152,16 @@ final class SoundEventService {
             .appendingPathComponent(fileName)
     }
 
+    func localAudioURL(for fileName: String) -> URL? {
+        if fileName.hasPrefix("local://") {
+            let name = String(fileName.dropFirst("local://".count))
+            return FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first?
+                .appendingPathComponent(Self.soundsFolder)
+                .appendingPathComponent(name)
+        }
+        return audioURL(for: fileName)
+    }
+
     // MARK: - Private helpers
 
     private var isInCooldown: Bool {
@@ -188,8 +169,6 @@ final class SoundEventService {
         return Date().timeIntervalSince(lastEnd) < cooldownAfterEventSeconds
     }
 
-    /// Minimum event duration varies by type.
-    /// Coughs (0.5–1.5 s) and bruxism bursts (< 1 s) were previously filtered out by the 2.5 s floor.
     private func minDuration(for type: SoundEventType) -> TimeInterval {
         switch type {
         case .coughing:                   return 0.5
@@ -213,8 +192,8 @@ final class SoundEventService {
            let hint = mlHintType {
             return hint
         }
-        if snoringScore > 0.30 { return .snoring }   // was 0.45 — catch quieter snoring
-        if speechLikelihood > 0.30 { return .talking } // was 0.4
+        if snoringScore > 0.30 { return .snoring }
+        if speechLikelihood > 0.30 { return .talking }
         return .other
     }
 
@@ -222,8 +201,7 @@ final class SoundEventService {
         guard !samples.isEmpty else { return 0.0 }
         let sumSquares = samples.reduce(0.0) { $0 + Double($1 * $1) }
         let rms = sqrt(sumSquares / Double(samples.count))
-        let db = 20.0 * log10(max(rms, 1e-6))
-        return max(0.0, min(120.0, db + 90.0))
+        return max(0.0, min(120.0, 20.0 * log10(max(rms, 1e-6)) + 90.0))
     }
 
     private func finaliseEvent() {
@@ -248,7 +226,9 @@ final class SoundEventService {
 
         Task.detached(priority: .background) { [weak self] in
             guard let self else { return }
-            let fileName = self.isEnabled ? self.saveToICloud(samples: samples, sampleRate: sr, timestamp: timestamp) : nil
+            let fileName = self.isEnabled
+                ? self.saveToICloud(samples: samples, sampleRate: sr, timestamp: timestamp)
+                : nil
             await MainActor.run {
                 self.onEventCaptured?(timestamp, type, duration, fileName, decibelLevel, capturedConfidence)
             }
@@ -310,15 +290,5 @@ final class SoundEventService {
         let dest = folder.appendingPathComponent(fileName)
         try? FileManager.default.copyItem(at: src, to: dest)
         return "local://\(fileName)"
-    }
-
-    func localAudioURL(for fileName: String) -> URL? {
-        if fileName.hasPrefix("local://") {
-            let name = String(fileName.dropFirst("local://".count))
-            return FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first?
-                .appendingPathComponent(Self.soundsFolder)
-                .appendingPathComponent(name)
-        }
-        return audioURL(for: fileName)
     }
 }
