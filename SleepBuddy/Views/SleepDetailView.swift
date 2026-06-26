@@ -620,7 +620,8 @@ struct SleepDetailView: View {
             .chartXScale(domain: session.startDate...(session.endDate ?? Date()))
             .chartScrollableAxes(.horizontal)
             .chartXVisibleDomain(length: 3 * 3600)
-            .frame(height: 110)
+            .frame(height: 130)
+            .clipped()
 
             // Legend
             HStack(spacing: 12) {
@@ -712,7 +713,8 @@ struct SleepDetailView: View {
             .chartXScale(domain: session.startDate...(session.endDate ?? Date()))
             .chartScrollableAxes(.horizontal)
             .chartXVisibleDomain(length: 3 * 3600)
-            .frame(height: 100)
+            .frame(height: 120)
+            .clipped()
 
             Text("Quelle: Ballistokardiographie (Beschleunigungssensor) oder Apple Watch")
                 .font(.caption2).foregroundStyle(.secondary)
