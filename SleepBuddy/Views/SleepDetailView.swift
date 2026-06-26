@@ -534,7 +534,7 @@ struct SleepDetailView: View {
     }
 
     private func noiseColor(_ db: Double) -> Color {
-        db < 35 ? .green : db < 50 ? .orange : .red
+        db < 35 ? .green : db < 70 ? .orange : .red
     }
 
     private var ambientNoiseCard: some View {
@@ -544,7 +544,7 @@ struct SleepDetailView: View {
             trackerTimeRow
 
             Chart(noiseData) { sample in
-                // Colored area fill: three stacked areas for thresholds
+                // Green zone: 20–35 dB
                 AreaMark(
                     x: .value("Zeit", sample.time),
                     yStart: .value("Boden", 20.0),
@@ -553,41 +553,31 @@ struct SleepDetailView: View {
                 .foregroundStyle(Color.green.opacity(0.18))
                 .interpolationMethod(.catmullRom)
 
+                // Orange zone: 35–70 dB
                 AreaMark(
                     x: .value("Zeit", sample.time),
                     yStart: .value("Boden", min(sample.db, 35.0)),
-                    yEnd: .value("dB", min(sample.db, 50.0))
+                    yEnd: .value("dB", min(sample.db, 70.0))
                 )
                 .foregroundStyle(Color.orange.opacity(0.20))
                 .interpolationMethod(.catmullRom)
 
+                // Red zone: above 70 dB
                 AreaMark(
                     x: .value("Zeit", sample.time),
-                    yStart: .value("Boden", min(sample.db, 50.0)),
+                    yStart: .value("Boden", min(sample.db, 70.0)),
                     yEnd: .value("dB", sample.db)
                 )
                 .foregroundStyle(Color.red.opacity(0.22))
                 .interpolationMethod(.catmullRom)
 
-                // Wave line — gradient by Y position: green(20dB) → orange(35dB) → red(50dB+)
-                // Y domain 20...90 (70 range); thresholds: 35=(15/70)≈0.21, 50=(30/70)≈0.43
+                // Wave line — single color, zones shown via AreaMarks above
                 LineMark(
                     x: .value("Zeit", sample.time),
                     y: .value("dB", sample.db)
                 )
-                .foregroundStyle(LinearGradient(
-                    stops: [
-                        .init(color: .green,  location: 0.0),
-                        .init(color: .green,  location: 0.21),
-                        .init(color: .orange, location: 0.21),
-                        .init(color: .orange, location: 0.43),
-                        .init(color: .red,    location: 0.43),
-                        .init(color: .red,    location: 1.0),
-                    ],
-                    startPoint: .bottom,
-                    endPoint: .top
-                ))
-                .lineStyle(StrokeStyle(lineWidth: 2))
+                .foregroundStyle(Color.primary.opacity(0.75))
+                .lineStyle(StrokeStyle(lineWidth: 1.5))
                 .interpolationMethod(.catmullRom)
 
                 RuleMark(x: .value("Start", session.startDate))
@@ -608,11 +598,10 @@ struct SleepDetailView: View {
                 }
             }
             .chartYAxis {
-                AxisMarks(values: [35, 50, 70]) { val in
+                AxisMarks(values: [35, 70]) { val in
                     AxisGridLine().foregroundStyle(
-                        val.as(Int.self) == 35 ? Color.green.opacity(0.4)
-                        : val.as(Int.self) == 50 ? Color.orange.opacity(0.4)
-                        : Color.red.opacity(0.4)
+                        val.as(Int.self) == 35 ? Color.green.opacity(0.5)
+                        : Color.red.opacity(0.5)
                     )
                     AxisValueLabel { Text("\(val.as(Int.self) ?? 0) dB").font(.caption2) }
                 }
@@ -620,14 +609,14 @@ struct SleepDetailView: View {
             .chartXScale(domain: session.startDate...(session.endDate ?? Date()))
             .chartScrollableAxes(.horizontal)
             .chartXVisibleDomain(length: 3 * 3600)
-            .frame(height: 130)
+            .frame(height: 160)
             .clipped()
 
             // Legend
             HStack(spacing: 12) {
                 legendDot(.green,  "< 35 dB Ruhig")
-                legendDot(.orange, "35–50 dB Normal")
-                legendDot(.red,    "> 50 dB Laut")
+                legendDot(.orange, "35–70 dB Normal")
+                legendDot(.red,    "> 70 dB Laut")
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
