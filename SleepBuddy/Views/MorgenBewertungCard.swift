@@ -4,76 +4,146 @@ import SwiftData
 struct MorgenBewertungCard: View {
     let session: SleepSession
     @Environment(\.modelContext) private var modelContext
-    @State private var selected: Int = 0
+    @Query private var trainingSamples: [TrainingSample]
 
-    private let bewertungen: [(emoji: String, label: String)] = [
-        ("😴", "Schlecht"),
-        ("🙁", "Mäßig"),
-        ("😐", "OK"),
-        ("🙂", "Gut"),
-        ("😄", "Super")
+    @State private var selectedQuality: Int = 0
+    @State private var selectedRecording: Int = 0
+    @State private var showDetailLink = false
+
+    private let qualityOptions: [(emoji: String, label: String)] = [
+        ("😴", "Schlecht"), ("🙁", "Mäßig"), ("😐", "OK"), ("🙂", "Gut"), ("😄", "Super")
+    ]
+
+    private let recordingOptions: [(icon: String, label: String, color: Color)] = [
+        ("hand.thumbsdown.fill", "Ungenau", .red),
+        ("minus.circle.fill",   "OK",      .secondary),
+        ("hand.thumbsup.fill",  "Präzise", .green)
     ]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Label("Wie hast du dich gefühlt?", systemImage: "face.smiling")
+        VStack(alignment: .leading, spacing: 16) {
+            Label("Morgen-Bewertung", systemImage: "sun.horizon.fill")
                 .font(.headline).foregroundStyle(.indigo)
 
-            Text("Deine Bewertung beeinflusst das KI-Training: Top-Nächte werden stärker gewichtet, schlechte ausgeschlossen.")
-                .font(.caption).foregroundStyle(.secondary)
+            // MARK: Schlaf-Qualität
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Wie hast du geschlafen?")
+                    .font(.subheadline.weight(.medium))
 
-            HStack(spacing: 0) {
-                ForEach(1...5, id: \.self) { stufe in
-                    Button {
-                        withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
-                            selected = stufe
+                HStack(spacing: 0) {
+                    ForEach(1...5, id: \.self) { stufe in
+                        Button {
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
+                                selectedQuality = stufe
+                            }
+                            saveQuality(stufe)
+                        } label: {
+                            VStack(spacing: 4) {
+                                Text(qualityOptions[stufe - 1].emoji)
+                                    .font(.title2)
+                                    .scaleEffect(selectedQuality == stufe ? 1.25 : 1.0)
+                                Text(qualityOptions[stufe - 1].label)
+                                    .font(.caption2)
+                                    .foregroundStyle(selectedQuality == stufe ? .indigo : .secondary)
+                                    .fontWeight(selectedQuality == stufe ? .bold : .regular)
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 8)
+                            .background(
+                                selectedQuality == stufe ? Color.indigo.opacity(0.1) : Color.clear,
+                                in: RoundedRectangle(cornerRadius: 10)
+                            )
                         }
-                        bewerten(stufe: stufe)
-                    } label: {
-                        VStack(spacing: 5) {
-                            Text(bewertungen[stufe - 1].emoji)
-                                .font(.title2)
-                                .scaleEffect(selected == stufe ? 1.3 : 1.0)
-                            Text(bewertungen[stufe - 1].label)
-                                .font(.caption2)
-                                .foregroundStyle(selected == stufe ? .indigo : .secondary)
-                                .fontWeight(selected == stufe ? .bold : .regular)
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 10)
-                        .background(
-                            selected == stufe
-                                ? Color.indigo.opacity(0.1)
-                                : Color.clear,
-                            in: RoundedRectangle(cornerRadius: 10)
-                        )
+                        .buttonStyle(.plain)
+                        .animation(.spring(response: 0.3, dampingFraction: 0.6), value: selectedQuality)
                     }
-                    .buttonStyle(.plain)
                 }
             }
 
-            if selected > 0 {
-                let msg = selected >= 4
-                    ? "Diese Nacht wird stärker gewichtet — die KI lernt mehr aus ihr."
-                    : selected == 1
-                    ? "Diese Nacht wird aus dem Training ausgeschlossen."
-                    : "Bewertung gespeichert."
-                Label(msg, systemImage: selected == 1 ? "xmark.circle" : "checkmark.circle.fill")
-                    .font(.caption)
-                    .foregroundStyle(selected >= 4 ? .green : selected == 1 ? .red : .secondary)
+            Divider()
+
+            // MARK: Aufzeichnungs-Qualität
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Wie gut hat die App deine Nacht erkannt?")
+                    .font(.subheadline.weight(.medium))
+
+                HStack(spacing: 8) {
+                    ForEach(1...3, id: \.self) { stufe in
+                        let opt = recordingOptions[stufe - 1]
+                        let isSelected = selectedRecording == stufe
+                        Button {
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
+                                selectedRecording = stufe
+                            }
+                            saveRecording(stufe)
+                        } label: {
+                            VStack(spacing: 5) {
+                                Image(systemName: opt.icon)
+                                    .font(.title3)
+                                    .foregroundStyle(isSelected ? opt.color : .secondary)
+                                    .scaleEffect(isSelected ? 1.2 : 1.0)
+                                Text(opt.label)
+                                    .font(.caption2)
+                                    .foregroundStyle(isSelected ? opt.color : .secondary)
+                                    .fontWeight(isSelected ? .bold : .regular)
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 10)
+                            .background(
+                                isSelected ? opt.color.opacity(0.12) : Color.secondary.opacity(0.06),
+                                in: RoundedRectangle(cornerRadius: 10)
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .animation(.spring(response: 0.3, dampingFraction: 0.6), value: selectedRecording)
+                    }
+                }
+
+                if showDetailLink {
+                    NavigationLink(destination: SleepDetailView(session: session)) {
+                        Label("Phasen korrigieren", systemImage: "pencil.and.list.clipboard")
+                            .font(.caption.bold())
+                            .foregroundStyle(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 10)
+                            .background(Color.orange, in: RoundedRectangle(cornerRadius: 10))
+                    }
                     .transition(.opacity.combined(with: .move(edge: .bottom)))
+                }
             }
         }
         .padding()
         .background(Color(.secondarySystemGroupedBackground))
         .clipShape(RoundedRectangle(cornerRadius: 16))
         .shadow(color: Color.primary.opacity(0.06), radius: 10, x: 0, y: 2)
-        .onAppear { selected = session.subjectiveQuality }
-        .animation(.easeInOut(duration: 0.2), value: selected)
+        .onAppear {
+            selectedQuality = session.subjectiveQuality
+            selectedRecording = session.recordingQuality
+            showDetailLink = session.recordingQuality == 1
+        }
+        .animation(.easeInOut(duration: 0.2), value: showDetailLink)
     }
 
-    private func bewerten(stufe: Int) {
+    private func saveQuality(_ stufe: Int) {
         session.subjectiveQuality = stufe
         try? modelContext.save()
+    }
+
+    private func saveRecording(_ stufe: Int) {
+        session.recordingQuality = stufe
+        try? modelContext.save()
+
+        withAnimation { showDetailLink = stufe == 1 }
+
+        // Aufzeichnung ungenau → TrainingSamples dieser Nacht als unzuverlässig markieren
+        if stufe == 1 {
+            let sessionStart = session.startDate
+            let sessionEnd = session.endDate ?? Date()
+            let affected = trainingSamples.filter {
+                $0.timestamp >= sessionStart && $0.timestamp <= sessionEnd
+            }
+            for s in affected { s.isUserCorrected = true }
+            try? modelContext.save()
+        }
     }
 }

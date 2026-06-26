@@ -22,7 +22,8 @@ struct HomeView: View {
                     } else {
                         sleepButton
                         if let session = lastSession {
-                            if session.subjectiveQuality == 0, isBewertungRelevant(session) {
+                            if (session.subjectiveQuality == 0 || session.recordingQuality == 0),
+                               isBewertungRelevant(session) {
                                 MorgenBewertungCard(session: session)
                             }
                             if isMorgenBerichtRelevant(session) {
