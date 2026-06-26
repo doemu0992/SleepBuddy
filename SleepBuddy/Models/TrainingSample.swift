@@ -5,16 +5,16 @@ import SwiftData
 /// 7-dimensional: 4 audio features + motion + snoring + time-of-night.
 @Model
 final class TrainingSample {
-    var timestamp: Date
-    var averageAmplitude: Float
-    var amplitudeVariance: Float
-    var breathingRateBPM: Float
-    var breathingRegularity: Float
-    var movementIntensity: Float
-    var snoringIntensity: Float
-    var elapsedMinutesSinceOnset: Float = 0  // 7th feature: 0–480 min normalised by 480
-    var label: String               // SleepPhaseType.rawValue
-    var isUserCorrected: Bool       // corrected samples get 3× weight
+    var timestamp: Date = Date()
+    var averageAmplitude: Float = 0
+    var amplitudeVariance: Float = 0
+    var breathingRateBPM: Float = 0
+    var breathingRegularity: Float = 0
+    var movementIntensity: Float = 0
+    var snoringIntensity: Float = 0
+    var elapsedMinutesSinceOnset: Float = 0
+    var label: String = SleepPhaseType.light.rawValue
+    var isUserCorrected: Bool = false
 
     init(timestamp: Date, audio: AudioFeatures, motion: MotionFeatures, label: SleepPhaseType,
          elapsedMinutes: Float = 0, isUserCorrected: Bool = false) {
