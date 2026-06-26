@@ -40,11 +40,6 @@ final class OnlineSleepClassifier {
         set { fallback.currentHRVms = newValue }
     }
 
-    var deepSleepDeficitMinutes: Double {
-        get { fallback.deepSleepDeficitMinutes }
-        set { fallback.deepSleepDeficitMinutes = newValue }
-    }
-
     private var sessionBuffer: [(timestamp: Date, audio: AudioFeatures, motion: MotionFeatures, phase: SleepPhaseType, elapsedMinutes: Float)] = []
 
     // MARK: - Lifecycle

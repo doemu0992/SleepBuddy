@@ -90,8 +90,6 @@ final class SleepTrackingViewModel {
         noiseAccumulator.removeAll()
         lastNoiseSampleDate = .distantPast
 
-        // Homeostatic sleep pressure: compute deep-sleep deficit from recent sessions
-        computeAndApplyDeepSleepDeficit()
         lastBCGSampleDate = .distantPast
         snoringTimestamps.removeAll()
         snoringIsObstructive = false
@@ -425,20 +423,4 @@ final class SleepTrackingViewModel {
         if changed { try? modelContext?.save() }
     }
 
-    // MARK: - Homeostatic sleep pressure
-    // Read recent sessions from SwiftData and pass any deep-sleep deficit to the classifier.
-    private func computeAndApplyDeepSleepDeficit() {
-        guard let context = modelContext else { return }
-        let descriptor = FetchDescriptor<SleepSession>(
-            predicate: #Predicate { $0.endDate != nil },
-            sortBy: [SortDescriptor(\.startDate, order: .reverse)]
-        )
-        let recent = (try? context.fetch(descriptor))?.prefix(7) ?? []
-        guard !recent.isEmpty else { return }
-        let targetDeepMinutes: Double = 90  // ideal ~90 min deep sleep per night
-        let avgDeep = recent.map { $0.deepSleepDuration / 60 }.reduce(0, +) / Double(recent.count)
-        let deficit = max(0, targetDeepMinutes - avgDeep)
-        // Pass deficit to rule-based classifier (accessed via MLSleepClassifier → OnlineSleepClassifier → fallback)
-        classifier.onlineClassifier.deepSleepDeficitMinutes = deficit
-    }
 }
