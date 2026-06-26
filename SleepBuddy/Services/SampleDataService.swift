@@ -108,11 +108,12 @@ enum SampleDataService {
 
         let mins = totalMinutes(start, end)
         var noise = generateNoiseCurve(minutes: mins, baseDB: 32)
-        for i in 0..<mins {
-            if i >= 30 && i <= 90   { noise[i] = min(90, noise[i] + 20) }
-            if i >= 72 && i <= 74   { noise[i] = min(90, noise[i] + 30) }
-            if i >= 228 && i <= 232 { noise[i] = min(90, noise[i] + 28) }
-            if i >= 252 && i <= 280 { noise[i] = min(90, noise[i] + 18) }
+        for (_, offsetH, durSec, db, _) in events {
+            let center = Int(offsetH * 60)
+            let halfW  = max(1, Int(durSec / 60) + 1)
+            for i in max(0, center - halfW)...min(mins - 1, center + halfW) {
+                noise[i] = min(90, max(noise[i], db - 4 + Double.random(in: -2...2)))
+            }
         }
         session.noiseSamples = noise
         session.heartRateSamples = generateHRCurve(minutes: mins)

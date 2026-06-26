@@ -597,28 +597,31 @@ struct SleepDetailView: View {
         let lineGrad = noiseLineGrad(domain: domain)
         let areaGrad = noiseAreaGrad(domain: domain)
         let data = noiseData
+        let events = session.soundEventsArray.filter { $0.decibelLevel > 0 }
 
         VStack(alignment: .leading, spacing: 12) {
             Label("Umgebungslautstärke", systemImage: "waveform.and.mic").font(.headline)
 
             trackerTimeRow
 
-            Chart(data) { sample in
-                AreaMark(
-                    x: .value("Zeit", sample.time),
-                    yStart: .value("Boden", domain.lowerBound),
-                    yEnd: .value("dB", sample.db)
-                )
-                .foregroundStyle(areaGrad)
-                .interpolationMethod(.monotone)
+            Chart {
+                ForEach(data) { sample in
+                    AreaMark(
+                        x: .value("Zeit", sample.time),
+                        yStart: .value("Boden", domain.lowerBound),
+                        yEnd: .value("dB", sample.db)
+                    )
+                    .foregroundStyle(areaGrad)
+                    .interpolationMethod(.monotone)
 
-                LineMark(
-                    x: .value("Zeit", sample.time),
-                    y: .value("dB", sample.db)
-                )
-                .foregroundStyle(lineGrad)
-                .lineStyle(StrokeStyle(lineWidth: 2.2))
-                .interpolationMethod(.monotone)
+                    LineMark(
+                        x: .value("Zeit", sample.time),
+                        y: .value("dB", sample.db)
+                    )
+                    .foregroundStyle(lineGrad)
+                    .lineStyle(StrokeStyle(lineWidth: 2.2))
+                    .interpolationMethod(.monotone)
+                }
 
                 if domain.contains(35) {
                     RuleMark(y: .value("35 dB", 35.0))
@@ -639,6 +642,18 @@ struct SleepDetailView: View {
                     RuleMark(x: .value("Ende", end))
                         .foregroundStyle(Color.indigo.opacity(0.5))
                         .lineStyle(StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
+                }
+
+                // Event markers (ShutEye-Stil): farbige Punkte an Event-Timestamps
+                ForEach(events, id: \.timestamp) { event in
+                    let yPos = min(max(event.decibelLevel, domain.lowerBound + 2), domain.upperBound - 1)
+                    PointMark(
+                        x: .value("Zeit", event.timestamp),
+                        y: .value("dB", yPos)
+                    )
+                    .foregroundStyle(event.type.color)
+                    .symbolSize(55)
+                    .symbol(.circle)
                 }
             }
             .chartYScale(domain: domain)
@@ -668,6 +683,12 @@ struct SleepDetailView: View {
                 legendDot(.green,  "< 35 dB Ruhig")
                 legendDot(.orange, "35–70 dB Normal")
                 legendDot(.red,    "> 70 dB Laut")
+                if !events.isEmpty {
+                    HStack(spacing: 4) {
+                        Circle().fill(Color.secondary).frame(width: 8, height: 8)
+                        Text("Ereignis").font(.caption2).foregroundStyle(.secondary)
+                    }
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
