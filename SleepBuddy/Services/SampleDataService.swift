@@ -206,9 +206,6 @@ enum SampleDataService {
         let mins = totalMinutes(start, end)
         session.noiseSamples = generateNoiseCurve(minutes: mins, baseDB: Double.random(in: 24...34))
         session.heartRateSamples = generateHRCurve(minutes: mins)
-            minutes: mins,
-            backPercent: Double.random(in: 0.20...0.60),
-            stomachPercent: Double.random(in: 0.00...0.20))
         insertTrainingSamples(from: start, arch: arch, into: context)
     }
 
