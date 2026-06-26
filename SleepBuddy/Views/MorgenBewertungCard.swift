@@ -182,3 +182,106 @@ struct MorgenBewertungCard: View {
         FeedbackCalibrationService.shared.calibrate(context: modelContext)
     }
 }
+
+// MARK: - FeedbackCalibrationService
+// Defined here (not in a separate file) to avoid Xcode build-target registration issues.
+// Automatically adjusts the sleep phase classifier based on accumulated morning feedback.
+// Stage 1 (<10 nights): collect only. Stage 2 (10–20): threshold calibration. Stage 3 (20+): label correction.
+final class FeedbackCalibrationService {
+
+    static let shared = FeedbackCalibrationService()
+
+    private let ud = UserDefaults.standard
+
+    var currentStage: Int { ud.integer(forKey: "calibration.stage") }
+
+    func calibrate(context: ModelContext) {
+        let sessions = fetchRatedSessions(context: context)
+        let ratedCount = sessions.count
+        ud.set(ratedCount, forKey: "calibration.ratedNightCount")
+
+        let stage = stageFor(ratedCount)
+        ud.set(stage, forKey: "calibration.stage")
+
+        switch stage {
+        case 1:
+            break
+        case 2:
+            applyStage2(sessions: sessions)
+        default:
+            applyStage2(sessions: sessions)
+            applyStage3(sessions: sessions, context: context)
+        }
+    }
+
+    private func stageFor(_ ratedCount: Int) -> Int {
+        switch ratedCount {
+        case 0..<10:  return 1
+        case 10..<20: return 2
+        default:      return 3
+        }
+    }
+
+    private func applyStage2(sessions: [SleepSession]) {
+        let inaccurate = sessions.filter { $0.recordingQuality == 1 }.suffix(20)
+        guard !inaccurate.isEmpty else { return }
+        let total = Double(inaccurate.count)
+
+        let wachRatio = Double(inaccurate.filter { $0.recordingFeedbackMask & 1 != 0 }.count) / total
+        ud.set(-wachRatio * 0.10,  forKey: "calibration.awakeMotionOffset")
+        ud.set(-wachRatio * 0.010, forKey: "calibration.awakeAmplitudeOffset")
+
+        let remRatio = Double(inaccurate.filter { $0.recordingFeedbackMask & 2 != 0 }.count) / total
+        ud.set(remRatio * 0.08, forKey: "calibration.remConfBoost")
+    }
+
+    private func applyStage3(sessions: [SleepSession], context: ModelContext) {
+        let toCorrect = sessions.filter { $0.recordingQuality == 1 && $0.recordingFeedbackMask != 0 }
+        guard !toCorrect.isEmpty else { return }
+        var didChange = false
+
+        for session in toCorrect {
+            let mask = session.recordingFeedbackMask
+            let start = session.startDate
+            let end   = session.endDate ?? Date()
+            let samples = fetchSamples(in: start...end, context: context)
+            guard !samples.isEmpty else { continue }
+
+            if mask & 1 != 0 {
+                for s in samples where s.phase != .awake && s.movementIntensity > 0.12 {
+                    s.label = SleepPhaseType.awake.rawValue
+                    s.isUserCorrected = true
+                    didChange = true
+                }
+            }
+            if mask & 2 != 0 {
+                for s in samples where s.phase == .light {
+                    let cyclePos = s.elapsedMinutesSinceOnset.truncatingRemainder(dividingBy: 90)
+                    if cyclePos >= 60 && s.breathingRegularity < 0.50 {
+                        s.label = SleepPhaseType.rem.rawValue
+                        s.isUserCorrected = true
+                        didChange = true
+                    }
+                }
+            }
+        }
+        if didChange { try? context.save() }
+    }
+
+    private func fetchRatedSessions(context: ModelContext) -> [SleepSession] {
+        let desc = FetchDescriptor<SleepSession>(
+            predicate: #Predicate { $0.recordingQuality > 0 },
+            sortBy: [SortDescriptor(\.startDate)]
+        )
+        return (try? context.fetch(desc)) ?? []
+    }
+
+    private func fetchSamples(in range: ClosedRange<Date>, context: ModelContext) -> [TrainingSample] {
+        let start = range.lowerBound
+        let end   = range.upperBound
+        let desc = FetchDescriptor<TrainingSample>(
+            predicate: #Predicate { $0.timestamp >= start && $0.timestamp <= end }
+        )
+        return (try? context.fetch(desc)) ?? []
+    }
+}
