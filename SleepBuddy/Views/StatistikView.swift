@@ -146,6 +146,10 @@ struct StatistikView: View {
                 langzeitCard
             }
 
+            if trendPoints(for: .sixMonths).count >= 7 {
+                wochentagCard
+            }
+
             NavigationLink(destination: SleepDetailView(session: session)) {
                 HStack {
                     Text("Nacht im Detail")
@@ -447,6 +451,82 @@ struct StatistikView: View {
         .background(Color(.secondarySystemGroupedBackground))
         .clipShape(RoundedRectangle(cornerRadius: 20))
         .shadow(color: Color.primary.opacity(0.06), radius: 12, x: 0, y: 3)
+        .padding(.horizontal)
+    }
+
+    // MARK: - Wochentag-Vergleich
+
+    private struct WochentagPunkt: Identifiable {
+        let id: Int  // weekday (1=So, 2=Mo…7=Sa)
+        let name: String
+        let avgScore: Double
+        let avgStunden: Double
+    }
+
+    private var wochentagPunkte: [WochentagPunkt] {
+        let cal = Calendar.current
+        let alle = trendPoints(for: .sixMonths)
+        let tage = ["So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"]
+        return (1...7).compactMap { wd in
+            let matching = alle.filter { cal.component(.weekday, from: $0.date) == wd }
+            guard !matching.isEmpty else { return nil }
+            return WochentagPunkt(
+                id: wd,
+                name: tage[wd - 1],
+                avgScore: Double(matching.map(\.score).reduce(0, +)) / Double(matching.count),
+                avgStunden: matching.map(\.duration).reduce(0, +) / Double(matching.count)
+            )
+        }
+    }
+
+    private var wochentagCard: some View {
+        let punkte = wochentagPunkte
+        let maxScore = punkte.map(\.avgScore).max() ?? 100
+        let minScore = punkte.map(\.avgScore).min() ?? 0
+
+        return VStack(alignment: .leading, spacing: 14) {
+            Label("Schlaf nach Wochentag", systemImage: "calendar.badge.clock")
+                .font(.headline).foregroundStyle(.indigo)
+
+            Chart(punkte) { p in
+                BarMark(
+                    x: .value("Tag", p.name),
+                    y: .value("Score", p.avgScore)
+                )
+                .foregroundStyle(p.avgScore == maxScore ? Color.green.opacity(0.8)
+                                 : p.avgScore == minScore ? Color.orange.opacity(0.8)
+                                 : Color.indigo.opacity(0.55))
+                .cornerRadius(5)
+                .annotation(position: .top) {
+                    Text("\(Int(p.avgScore))%")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .chartYAxis(.hidden)
+            .chartXAxis {
+                AxisMarks { val in
+                    AxisValueLabel().font(.caption2)
+                }
+            }
+            .frame(height: 100)
+
+            HStack(spacing: 16) {
+                if let best = punkte.max(by: { $0.avgScore < $1.avgScore }) {
+                    Label("Bester: \(best.name)", systemImage: "star.fill")
+                        .font(.caption2).foregroundStyle(.green)
+                }
+                if let worst = punkte.min(by: { $0.avgScore < $1.avgScore }) {
+                    Label("Schwächster: \(worst.name)", systemImage: "arrow.down")
+                        .font(.caption2).foregroundStyle(.orange)
+                }
+                Spacer()
+            }
+        }
+        .padding()
+        .background(Color(.secondarySystemGroupedBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .shadow(color: Color.primary.opacity(0.06), radius: 10, x: 0, y: 2)
         .padding(.horizontal)
     }
 

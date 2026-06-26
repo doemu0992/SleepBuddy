@@ -223,21 +223,98 @@ private struct WochenSummaryCard: View {
                 statPill("\(Int(avgTiefDiese)) min",            label: "Ø Tiefschlaf", farbe: .purple)
             }
 
-            // Bar chart
-            let calUnit: Calendar.Component = useWeeklyAggregation ? .weekOfYear : .day
-            Chart(chartDaten) { tag in
-                BarMark(
-                    x: .value("Tag", tag.datum, unit: calUnit),
-                    y: .value("Stunden", max(tag.stunden, tag.stunden == 0 ? 0.15 : 0))
-                )
-                .foregroundStyle(balkenFarbe(tag.qualitaet))
-                .cornerRadius(4)
+            // Phase breakdown bar
+            if !sessions.isEmpty {
+                let totalSleep = sessions.map { $0.totalDuration }.reduce(0, +)
+                let deep  = sessions.map { $0.deepSleepDuration  }.reduce(0, +)
+                let rem   = sessions.map { $0.remSleepDuration   }.reduce(0, +)
+                let light = sessions.map { $0.lightSleepDuration }.reduce(0, +)
+                let awake = sessions.map { $0.awakeDuration      }.reduce(0, +)
+                let safe  = max(totalSleep, 1)
 
-                if let sel = ausgewaehltTag, cal.isDate(tag.datum, inSameDayAs: sel) {
-                    RuleMark(x: .value("Sel", sel, unit: calUnit))
-                        .foregroundStyle(Color.indigo.opacity(0.25))
-                        .lineStyle(StrokeStyle(lineWidth: useWeeklyAggregation ? 40 : 24, lineCap: .round))
+                VStack(spacing: 6) {
+                    GeometryReader { geo in
+                        HStack(spacing: 2) {
+                            ForEach([
+                                (SleepPhaseType.deep,  deep),
+                                (.rem,   rem),
+                                (.light, light),
+                                (.awake, awake),
+                            ], id: \.0) { phase, dur in
+                                if dur > 0 {
+                                    RoundedRectangle(cornerRadius: 3)
+                                        .fill(phase.color)
+                                        .frame(width: geo.size.width * CGFloat(dur / safe))
+                                }
+                            }
+                        }
+                    }
+                    .frame(height: 10)
+                    .clipShape(Capsule())
+
+                    HStack(spacing: 10) {
+                        ForEach([
+                            (SleepPhaseType.deep,  deep,  "Tief"),
+                            (.rem,   rem,   "REM"),
+                            (.light, light, "Leicht"),
+                            (.awake, awake, "Wach"),
+                        ], id: \.0) { phase, dur, name in
+                            if dur > 0 {
+                                HStack(spacing: 4) {
+                                    Circle().fill(phase.color).frame(width: 6, height: 6)
+                                    Text("\(name) \(Int(dur / safe * 100))%")
+                                        .font(.caption2).foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+                        Spacer()
+                    }
                 }
+            }
+
+            // Chart: Balken für 7T/30T, Linie+Punkte für 3M/6M/Alle
+            let calUnit: Calendar.Component = useWeeklyAggregation ? .weekOfYear : .day
+            let nonEmpty = chartDaten.filter { $0.stunden > 0 }
+
+            Chart {
+                if useWeeklyAggregation {
+                    // Linienchart mit Qualitäts-Farbpunkten
+                    ForEach(nonEmpty) { tag in
+                        LineMark(
+                            x: .value("Tag", tag.datum, unit: calUnit),
+                            y: .value("Stunden", tag.stunden)
+                        )
+                        .foregroundStyle(Color.indigo.opacity(0.5))
+                        .lineStyle(StrokeStyle(lineWidth: 2))
+                        .interpolationMethod(.catmullRom)
+
+                        PointMark(
+                            x: .value("Tag", tag.datum, unit: calUnit),
+                            y: .value("Stunden", tag.stunden)
+                        )
+                        .foregroundStyle(balkenFarbe(tag.qualitaet))
+                        .symbolSize(60)
+                    }
+                } else {
+                    ForEach(chartDaten) { tag in
+                        BarMark(
+                            x: .value("Tag", tag.datum, unit: calUnit),
+                            y: .value("Stunden", max(tag.stunden, tag.stunden == 0 ? 0.15 : 0))
+                        )
+                        .foregroundStyle(balkenFarbe(tag.qualitaet))
+                        .cornerRadius(4)
+
+                        if let sel = ausgewaehltTag, cal.isDate(tag.datum, inSameDayAs: sel) {
+                            RuleMark(x: .value("Sel", sel, unit: calUnit))
+                                .foregroundStyle(Color.indigo.opacity(0.25))
+                                .lineStyle(StrokeStyle(lineWidth: 24, lineCap: .round))
+                        }
+                    }
+                }
+
+                RuleMark(y: .value("Ziel", schlafZielStunden))
+                    .lineStyle(StrokeStyle(lineWidth: 1.5, dash: [4]))
+                    .foregroundStyle(Color.indigo.opacity(0.5))
             }
             .chartOverlay { proxy in
                 GeometryReader { _ in
@@ -245,7 +322,6 @@ private struct WochenSummaryCard: View {
                         .onTapGesture { loc in balkenTippen(proxy: proxy, location: loc) }
                 }
             }
-            .chartForegroundStyleScale(["Schlafziel": Color.indigo])
             .chartYAxis {
                 AxisMarks(values: [0, schlafZielStunden]) { val in
                     if let h = val.as(Double.self), h == schlafZielStunden {
@@ -274,7 +350,7 @@ private struct WochenSummaryCard: View {
                     }
                 }
             }
-            .frame(height: 100)
+            .frame(height: useWeeklyAggregation ? 130 : 100)
 
             // Tooltip
             if let tag = ausgewaehltTag,

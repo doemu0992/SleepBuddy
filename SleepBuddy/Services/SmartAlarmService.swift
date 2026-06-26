@@ -403,6 +403,13 @@ final class SmartAlarmService {
         player.play()
     }
 
+    /// Fires the alarm immediately for testing — same tone + volume as the real alarm.
+    func testAlarm() {
+        alarmFired = true
+        alarmFiredDate = Date()
+        playAlarmTone()
+    }
+
     func stopAlarm() {
         snoozeTask?.cancel()
         snoozeTask = nil

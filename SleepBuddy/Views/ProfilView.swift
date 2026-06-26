@@ -382,6 +382,34 @@ struct AlarmEinstellungenView: View {
                 }
 
                 Section {
+                    Button {
+                        if alarm.alarmFired {
+                            alarm.stopAlarm()
+                        } else {
+                            alarm.testAlarm()
+                        }
+                    } label: {
+                        HStack(spacing: 12) {
+                            Image(systemName: alarm.alarmFired ? "stop.circle.fill" : "bell.fill")
+                                .foregroundStyle(alarm.alarmFired ? .red : .indigo)
+                                .font(.title3)
+                                .symbolEffect(.pulse, isActive: alarm.alarmFired)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(alarm.alarmFired ? "Alarm stoppen" : "Alarm jetzt testen")
+                                    .font(.subheadline)
+                                    .foregroundStyle(alarm.alarmFired ? .red : .primary)
+                                Text(alarm.alarmFired ? "Tippe um den laufenden Alarm zu beenden."
+                                                      : "Spielt den gewählten Ton wie im Ernstfall ab.")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                } footer: {
+                    Text("Der Alarm-Test verhält sich identisch zum echten Smart Alarm — inkl. Lautstärke und Wiederholung.")
+                }
+
+                Section {
                     VStack(alignment: .leading, spacing: 8) {
                         HStack {
                             Text("Lautstärke")

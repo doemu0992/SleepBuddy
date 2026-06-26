@@ -15,6 +15,7 @@ struct SleepDetailView: View {
     @State private var downloadingEventID: Date?
     @State private var correctingEvent: SleepSoundEvent?
     @State private var spo2Percent: Double? = nil
+    @State private var spo2Loaded = false
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
 
@@ -76,6 +77,7 @@ struct SleepDetailView: View {
             if let end = session.endDate {
                 spo2Percent = await hk.averageSpO2(from: session.startDate, to: end)
             }
+            spo2Loaded = true
         }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
@@ -410,7 +412,25 @@ struct SleepDetailView: View {
 
     @ViewBuilder
     private var spo2Card: some View {
-        if let spo2 = spo2Percent {
+        if spo2Loaded && spo2Percent == nil {
+            // HealthKit hat keinen SpO₂-Wert für diese Nacht
+            HStack(spacing: 12) {
+                Image(systemName: "drop.fill")
+                    .foregroundStyle(.secondary)
+                    .font(.title3)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Blutsauerstoff (SpO₂)")
+                        .font(.subheadline.bold())
+                    Text("Nicht verfügbar — Apple Watch mit SpO₂-Sensor erforderlich.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer()
+            }
+            .padding()
+            .background(Color(.secondarySystemGroupedBackground))
+            .clipShape(RoundedRectangle(cornerRadius: 16))
+            .shadow(color: Color.primary.opacity(0.06), radius: 10, x: 0, y: 2)
+        } else if let spo2 = spo2Percent, spo2 > 0 {
             let pct = Int(spo2 * 100)
             let color: Color = pct >= 95 ? .green : pct >= 90 ? .yellow : .red
             let label: String = pct >= 95 ? "Normal" : pct >= 90 ? "Leicht reduziert" : "Reduziert"
