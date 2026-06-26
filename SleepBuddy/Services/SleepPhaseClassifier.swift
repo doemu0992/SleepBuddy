@@ -73,7 +73,7 @@ final class SleepPhaseClassifier {
         } else {
             base = 0.35
         }
-        let offset = Float(UserDefaults.standard.double(forKey: FeedbackCalibrationService.CalKey.awakeMotionOffset.rawValue))
+        let offset = Float(UserDefaults.standard.double(forKey: "calibration.awakeMotionOffset"))
         return max(0.15, base + offset)
     }
 
@@ -90,7 +90,7 @@ final class SleepPhaseClassifier {
         } else {
             base = 0.035
         }
-        let offset = Float(UserDefaults.standard.double(forKey: FeedbackCalibrationService.CalKey.awakeAmplOffset.rawValue))
+        let offset = Float(UserDefaults.standard.double(forKey: "calibration.awakeAmplitudeOffset"))
         return max(0.010, base + offset)
 
     }
@@ -370,7 +370,7 @@ final class SleepPhaseClassifier {
         // Irregular breathing confirms REM; slow+regular suggests we're still in deep
         let breathREMBoost:   Double = breathREM  ? 0.08 * breathScale : 0.0
         let breathDeepPenalty: Double = breathDeep ? -0.06             : 0.0
-        let userREMBoost = UserDefaults.standard.double(forKey: FeedbackCalibrationService.CalKey.remConfBoost.rawValue)
+        let userREMBoost = UserDefaults.standard.double(forKey: "calibration.remConfBoost")
         let conf = min(0.68 + hrREMBoost + hrvREMBoost + lateNightBoost + breathREMBoost + breathDeepPenalty + userREMBoost, 0.90)
         return (.rem, conf)
     }
