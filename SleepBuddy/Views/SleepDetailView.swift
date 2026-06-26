@@ -41,7 +41,7 @@ struct SleepDetailView: View {
                 statsGrid
                 let bruxismCount = session.soundEventsArray.filter { $0.type == .bruxism }.count
                 let coughCount = session.soundEventsArray.filter { $0.type == .coughing }.count
-                if session.sleepOnsetLatency != nil || session.snoringEventCount > 0 || session.alarmFiredDate != nil || bruxismCount > 0 || coughCount > 0 || session.positionChanges > 0 {
+                if session.sleepOnsetLatency != nil || session.snoringEventCount > 0 || session.alarmFiredDate != nil || bruxismCount > 0 || coughCount > 0 {
                     extraStatsRow
                 }
                 phaseBarCard
@@ -204,10 +204,6 @@ struct SleepDetailView: View {
             if coughCount > 0 {
                 Divider().frame(height: 40)
                 extraStat("\(coughCount)×", icon: "lungs.fill", color: .teal, label: "Husten")
-            }
-            if session.positionChanges > 0 {
-                Divider().frame(height: 40)
-                extraStat("\(session.positionChanges)×", icon: "arrow.triangle.2.circlepath", color: .cyan, label: "Lageänderungen")
             }
             if let alarmDate = session.alarmFiredDate {
                 Divider().frame(height: 40)

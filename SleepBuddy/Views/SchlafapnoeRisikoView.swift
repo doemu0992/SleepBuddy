@@ -53,22 +53,6 @@ struct SchlafapnoeRisikoView: View {
         return rates.reduce(0, +) / Double(rates.count)
     }
 
-    private var pausesPerHour: Double {
-        guard !qualifyingSessions.isEmpty else { return 0 }
-        let rates = qualifyingSessions.map { s -> Double in
-            let hours = s.totalDuration / 3600
-            return hours > 0 ? Double(s.breathingPauseCount) / hours : 0
-        }
-        return rates.reduce(0, +) / Double(rates.count)
-    }
-
-    private var backSleepPercent: Double {
-        let allSamples = qualifyingSessions.flatMap { $0.positionSamples }
-        guard !allSamples.isEmpty else { return 0 }
-        let backCount = allSamples.filter { $0 == SleepPosition.back.rawValue }.count
-        return Double(backCount) / Double(allSamples.count) * 100
-    }
-
     /// Sessions where snoring events arrive in a regular 4–14 s pattern (OSA-like)
     private var obstructiveNightCount: Int {
         qualifyingSessions.filter { session in
@@ -87,18 +71,8 @@ struct SchlafapnoeRisikoView: View {
         }.count
     }
 
-    private var stomachSleepPercent: Double {
-        let allSamples = qualifyingSessions.flatMap { $0.positionSamples }
-        guard !allSamples.isEmpty else { return 0 }
-        let stomachCount = allSamples.filter { $0 == SleepPosition.stomach.rawValue }.count
-        return Double(stomachCount) / Double(allSamples.count) * 100
-    }
-
     private var risiko: Risiko {
         var score = snoringPerHour
-        score += pausesPerHour * 3                           // pauses weighted more heavily
-        if backSleepPercent > 60 { score += 10 }             // back sleeping worsens apnea
-        score -= min(stomachSleepPercent * 0.1, 8)           // stomach sleeping helps
         let obstrFraction = Double(obstructiveNightCount) / max(Double(qualifyingSessions.count), 1)
         score += obstrFraction * 20                          // periodic snoring = strong OSA signal
         if score < 25 { return .niedrig }
@@ -167,47 +141,14 @@ struct SchlafapnoeRisikoView: View {
                 }
 
                 // Additional detail rows
-                if pausesPerHour > 0 || backSleepPercent > 0 || stomachSleepPercent > 0 || obstructiveNightCount > 0 {
+                if obstructiveNightCount > 0 {
                     Divider()
-                    VStack(spacing: 6) {
-                        if pausesPerHour > 0 {
-                            HStack {
-                                Label(String(format: "%.1f Atempausen/h", pausesPerHour),
-                                      systemImage: "waveform.path.ecg")
-                                    .font(.caption)
-                                    .foregroundStyle(pausesPerHour > 5 ? .orange : .secondary)
-                                Spacer()
-                                Text("Ø letzte \(qualifyingSessions.count) Nächte")
-                                    .font(.caption2).foregroundStyle(.secondary)
-                            }
-                        }
-                        if backSleepPercent > 0 {
-                            HStack {
-                                Label(String(format: "%.0f %% Rückenlage", backSleepPercent),
-                                      systemImage: "person.fill")
-                                    .font(.caption)
-                                    .foregroundStyle(backSleepPercent > 60 ? .orange : .secondary)
-                                Spacer()
-                            }
-                        }
-                        if stomachSleepPercent > 0 {
-                            HStack {
-                                Label(String(format: "%.0f %% Bauchlage", stomachSleepPercent),
-                                      systemImage: "person.fill.viewfinder")
-                                    .font(.caption)
-                                    .foregroundStyle(.green)
-                                Spacer()
-                            }
-                        }
-                        if obstructiveNightCount > 0 {
-                            HStack {
-                                Label("\(obstructiveNightCount) Nacht/Nächte mit periodischem Schnarchen",
-                                      systemImage: "waveform.badge.exclamationmark")
-                                    .font(.caption)
-                                    .foregroundStyle(.red)
-                                Spacer()
-                            }
-                        }
+                    HStack {
+                        Label("\(obstructiveNightCount) Nacht/Nächte mit periodischem Schnarchen",
+                              systemImage: "waveform.badge.exclamationmark")
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                        Spacer()
                     }
                 }
             } else {

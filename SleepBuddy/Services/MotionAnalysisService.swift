@@ -39,12 +39,6 @@ final class MotionAnalysisService {
     private var downsampleCounter = 0
     private var emitCounter = 0                    // emit features every windowSize samples (30 s)
 
-    // Sleep position: 5 s low-pass (250 samples @ 50 Hz) isolates gravity from each axis
-    private var gravX: [Float] = []
-    private var gravY: [Float] = []
-    private var gravZ: [Float] = []
-    private let gravWindowSize = 250   // 5 s × 50 Hz
-
     // PLM detection: 1 Hz movement envelope (every 50th sample) over 3 min
     private var plmBuffer: [Float] = []
     private let plmWindowSize = 180    // 3 min × 1 Hz
@@ -74,7 +68,6 @@ final class MotionAnalysisService {
         rawSamples.removeAll()
         breathingSamples.removeAll()
         bcgZ.removeAll()
-        gravX.removeAll(); gravY.removeAll(); gravZ.removeAll()
         plmBuffer.removeAll()
         downsampleCounter = 0
         plmDownsampleCounter = 0
@@ -86,7 +79,6 @@ final class MotionAnalysisService {
         rawSamples.removeAll()
         breathingSamples.removeAll()
         bcgZ.removeAll()
-        gravX.removeAll(); gravY.removeAll(); gravZ.removeAll()
         plmBuffer.removeAll()
         downsampleCounter = 0
         plmDownsampleCounter = 0
@@ -103,12 +95,6 @@ final class MotionAnalysisService {
         // BCG: z-axis at full 50 Hz
         bcgZ.append(z)
         if bcgZ.count > bcgWindowSize { bcgZ.removeFirst() }
-
-        // Gravity: 5 s low-pass on each axis (DC component = gravity vector)
-        gravX.append(x); gravY.append(y); gravZ.append(z)
-        if gravX.count > gravWindowSize { gravX.removeFirst() }
-        if gravY.count > gravWindowSize { gravY.removeFirst() }
-        if gravZ.count > gravWindowSize { gravZ.removeFirst() }
 
         // Breathing: downsample to 10 Hz (every 5th sample)
         downsampleCounter += 1
@@ -154,11 +140,6 @@ final class MotionAnalysisService {
         // BCG heart rate — only attempt when phone is on mattress
         let bcgHR: Float = onMattress ? detectHeartRate(zSamples: bcgZ) : 0
 
-        // Sleep position from gravity vector (5 s low-pass average).
-        // When the phone is flat on the mattress the z-axis always points up regardless of
-        // how the user is lying → position is indeterminate in that mode.
-        let position = onMattress ? .unknown : detectSleepPosition()
-
         // PLM: periodic limb movements every 20–40 s
         let plm = detectPLM(samples: plmBuffer)
 
@@ -168,7 +149,6 @@ final class MotionAnalysisService {
             breathingRegularity: breathReg,
             isOnMattress: onMattress,
             bcgHeartRateBPM: bcgHR,
-            sleepPosition: position,
             isPLMSuspected: plm,
             timestamp: Date()
         )
@@ -211,25 +191,6 @@ final class MotionAnalysisService {
         let normPeak = bestPeak / zeroPower
         // Threshold: normalised ACF > 0.35 indicates clear periodicity
         return normPeak > 0.35
-    }
-
-    // MARK: - Sleep position (gravity-based)
-
-    private func detectSleepPosition() -> SleepPosition {
-        guard gravX.count >= gravWindowSize / 2 else { return .unknown }
-        var mx: Float = 0, my: Float = 0, mz: Float = 0
-        vDSP_meanv(gravX, 1, &mx, vDSP_Length(gravX.count))
-        vDSP_meanv(gravY, 1, &my, vDSP_Length(gravY.count))
-        vDSP_meanv(gravZ, 1, &mz, vDSP_Length(gravZ.count))
-        let mag = sqrt(mx*mx + my*my + mz*mz)
-        guard mag > 0.3 else { return .unknown }
-        // Side sleeping: x or y component is significant (phone tilted on mattress).
-        // Flat: z dominates. Sign of mz tells which face is up:
-        //   mz < 0 → display facing up → Rückenlage
-        //   mz > 0 → display facing down → Bauchlage
-        let zRatio = abs(mz) / mag
-        if zRatio <= 0.75 { return .side }
-        return mz < 0 ? .back : .stomach
     }
 
     // MARK: - Breathing detection (10 Hz autocorrelation, 9–30 BPM)
@@ -357,20 +318,12 @@ final class MotionAnalysisService {
     }
 }
 
-enum SleepPosition: Int {
-    case unknown = 0
-    case back    = 1   // phone flat, display up → z negative → Rückenlage
-    case side    = 2   // phone tilted, x/y dominant → Seitenlage
-    case stomach = 3   // phone flat, display down → z positive → Bauchlage
-}
-
 struct MotionFeatures {
     let movementIntensity: Float       // 0 = still, 1 = awake/moving
     let breathingRateBPM: Float        // >0 when phone is on mattress
     let breathingRegularity: Float     // 0–1, from accelerometer
     let isOnMattress: Bool             // true when breathing rhythm detected via accelerometer
     let bcgHeartRateBPM: Float         // BCG heart rate, 0 if unreliable or not on mattress
-    let sleepPosition: SleepPosition   // estimated sleep position from gravity vector
     let isPLMSuspected: Bool           // periodic limb movements detected (20–40 s intervals)
     let timestamp: Date
 
@@ -382,7 +335,6 @@ struct MotionFeatures {
         breathingRegularity: 0,
         isOnMattress: false,
         bcgHeartRateBPM: 0,
-        sleepPosition: .unknown,
         isPLMSuspected: false,
         timestamp: Date()
     )

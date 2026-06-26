@@ -43,28 +43,11 @@ final class SleepTrackingViewModel {
     // BCG heart rate sampling: last known BCG HR, written once per minute
     private var lastBCGSampleDate = Date.distantPast
 
-    // Sleep position sampling: one SleepPosition value per minute
-    private var lastPositionSampleDate = Date.distantPast
-
-    // Breathing pause detection: silence immediately after snoring → potential apnea
-    private var lastSnoringEventEndDate: Date = .distantPast
-    private var pauseQuietTicks: Int = 0
-    private let pauseQuietTicksRequired = 24  // 3 s at 8 Hz
-    private let pauseWindowAfterSnoring: TimeInterval = 20
-    private let pauseCooldown: TimeInterval = 15
-    private var pauseCooldownUntil: Date = .distantPast
-
     // Snoring pattern analysis: rolling timestamps of last 12 snoring events
     private var snoringTimestamps: [Date] = []
     private(set) var snoringIsObstructive: Bool = false  // periodic pattern = OSA-like
 
     // Turn detection: track consecutive still periods so a movement spike counts as a turn
-    private var stillSince: Date? = nil
-    private var lastTurnDate: Date = .distantPast
-    private let turnMovementThreshold: Double = 0.5
-    private let stillMovementThreshold: Double = 0.08
-    private let minStillBeforeTurn: TimeInterval = 120  // 2 min still before a spike counts
-    private let turnCooldown: TimeInterval = 30          // min gap between two turns
 
     // Phase smoothing: commit after stability window.
     // 60 s is enough to catch genuine brief wake events (phone check, turning over)
@@ -110,14 +93,8 @@ final class SleepTrackingViewModel {
         // Homeostatic sleep pressure: compute deep-sleep deficit from recent sessions
         computeAndApplyDeepSleepDeficit()
         lastBCGSampleDate = .distantPast
-        lastPositionSampleDate = .distantPast
-        lastSnoringEventEndDate = .distantPast
-        pauseQuietTicks = 0
-        pauseCooldownUntil = .distantPast
         snoringTimestamps.removeAll()
         snoringIsObstructive = false
-        stillSince = nil
-        lastTurnDate = .distantPast
 
         motionService.onFeaturesUpdated = { [weak self] motion in
             self?.latestMotionFeatures = motion
@@ -154,8 +131,6 @@ final class SleepTrackingViewModel {
             ctx.insert(event)
             session.soundEvents?.append(event)
             if type == .snoring {
-                self.lastSnoringEventEndDate = timestamp.addingTimeInterval(duration)
-                self.pauseQuietTicks = 0
                 self.snoringTimestamps.append(timestamp)
                 if self.snoringTimestamps.count > 12 { self.snoringTimestamps.removeFirst() }
                 self.snoringIsObstructive = self.analyzeSnoringSnoringPattern()
@@ -360,59 +335,12 @@ final class SleepTrackingViewModel {
             lastNoiseSampleDate = Date()
         }
 
-        // Turn detection: movement spike after ≥2 min of stillness = body turn
-        if isSleepOnsetDetected, let session = currentSession {
-            let intensity = Double(motion.movementIntensity)
-            let now = Date()
-            if intensity < stillMovementThreshold {
-                if stillSince == nil { stillSince = now }
-            } else if intensity > turnMovementThreshold,
-                      let since = stillSince,
-                      now.timeIntervalSince(since) >= minStillBeforeTurn,
-                      now.timeIntervalSince(lastTurnDate) >= turnCooldown {
-                session.positionChanges += 1
-                lastTurnDate = now
-                stillSince = nil
-            } else if intensity > stillMovementThreshold {
-                stillSince = nil
-            }
-        }
-
         // BCG heart rate: store one sample per minute (0 = no data this minute)
         if Date().timeIntervalSince(lastBCGSampleDate) >= 60, let session = currentSession {
             let hr = liveBCGHeartRateBPM > 0 ? Double(liveBCGHeartRateBPM)
                    : liveHeartRateBPM > 0 ? liveHeartRateBPM : 0
             session.heartRateSamples.append(hr)
             lastBCGSampleDate = Date()
-        }
-
-        // Sleep position: store one sample per minute (gravity-based)
-        if Date().timeIntervalSince(lastPositionSampleDate) >= 60, let session = currentSession {
-            session.positionSamples.append(motion.sleepPosition.rawValue)
-            lastPositionSampleDate = Date()
-        }
-
-        // Breathing pause detection: near-silence right after snoring → potential apnea
-        if isSleepOnsetDetected, let session = currentSession {
-            let now2 = Date()
-            let inPauseWindow = now2.timeIntervalSince(lastSnoringEventEndDate) < pauseWindowAfterSnoring
-            let notInCooldown = now2 >= pauseCooldownUntil
-            if inPauseWindow && notInCooldown {
-                let isQuiet = audio.averageAmplitude < 0.010 && audio.snoringIntensity < 0.15
-                if isQuiet {
-                    pauseQuietTicks += 1
-                    if pauseQuietTicks >= pauseQuietTicksRequired {
-                        session.breathingPauseCount += 1
-                        pauseQuietTicks = 0
-                        pauseCooldownUntil = now2.addingTimeInterval(pauseCooldown)
-                        lastSnoringEventEndDate = .distantPast
-                    }
-                } else {
-                    pauseQuietTicks = 0
-                }
-            } else if !inPauseWindow {
-                pauseQuietTicks = 0
-            }
         }
     }
 

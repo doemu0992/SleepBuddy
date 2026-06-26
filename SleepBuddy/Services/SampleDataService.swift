@@ -42,7 +42,7 @@ enum SampleDataService {
         let start = makeDate(today: today, offsetDays: -2, hour: 23, minute: 0)
         let end   = start.addingTimeInterval(archTotal(arch) * 60)
 
-        let session = makeSession(start: start, end: end, quality: 3, changes: 5, context: context)
+        let session = makeSession(start: start, end: end, quality: 3, context: context)
         session.sleepOnsetDate = start.addingTimeInterval(12 * 60)
         insertPhases(from: start, arch: arch, session: session, context: context)
 
@@ -71,9 +71,6 @@ enum SampleDataService {
         }
         session.noiseSamples = noise
         session.heartRateSamples = generateHRCurve(minutes: mins)
-        // Night 1: heavy back-sleeper — elevated apnea risk profile
-        session.positionSamples = generatePositionCurve(minutes: mins, backPercent: 0.65, stomachPercent: 0.05)
-        session.breathingPauseCount = 13
         insertTrainingSamples(from: start, arch: arch, into: context)
     }
 
@@ -89,7 +86,7 @@ enum SampleDataService {
         let start = makeDate(today: today, offsetDays: -1, hour: 22, minute: 30)
         let end   = start.addingTimeInterval(archTotal(arch) * 60)
 
-        let session = makeSession(start: start, end: end, quality: 2, changes: 8, context: context)
+        let session = makeSession(start: start, end: end, quality: 2, context: context)
         session.sleepOnsetDate = start.addingTimeInterval(20 * 60)
         insertPhases(from: start, arch: arch, session: session, context: context)
 
@@ -119,9 +116,6 @@ enum SampleDataService {
         }
         session.noiseSamples = noise
         session.heartRateSamples = generateHRCurve(minutes: mins)
-        // Night 2: disturbed sleep — varied positions, low breathing pauses
-        session.positionSamples = generatePositionCurve(minutes: mins, backPercent: 0.35, stomachPercent: 0.10)
-        session.breathingPauseCount = 3
         insertTrainingSamples(from: start, arch: arch, into: context)
     }
 
@@ -137,7 +131,7 @@ enum SampleDataService {
         let start = makeDate(today: today, offsetDays: -3, hour: 23, minute: 15)
         let end   = start.addingTimeInterval(archTotal(arch) * 60)
 
-        let session = makeSession(start: start, end: end, quality: 4, changes: 6, context: context)
+        let session = makeSession(start: start, end: end, quality: 4, context: context)
         session.sleepOnsetDate = start.addingTimeInterval(15 * 60)
         insertPhases(from: start, arch: arch, session: session, context: context)
 
@@ -166,8 +160,6 @@ enum SampleDataService {
         session.noiseSamples = noise
         session.heartRateSamples = generateHRCurve(minutes: mins)
         // Night 3: balanced positions including some stomach time
-        session.positionSamples = generatePositionCurve(minutes: mins, backPercent: 0.30, stomachPercent: 0.15)
-        session.breathingPauseCount = 5
         insertTrainingSamples(from: start, arch: arch, into: context)
     }
 
@@ -190,7 +182,7 @@ enum SampleDataService {
 
         let quality = Int.random(in: 1...5)
         let session = makeSession(start: start, end: end,
-                                  quality: quality, changes: Int.random(in: 2...10), context: context)
+                                  quality: quality, context: context)
         session.sleepOnsetDate = start.addingTimeInterval(Double.random(in: 8...25) * 60)
         insertPhases(from: start, arch: arch, session: session, context: context)
 
@@ -214,11 +206,9 @@ enum SampleDataService {
         let mins = totalMinutes(start, end)
         session.noiseSamples = generateNoiseCurve(minutes: mins, baseDB: Double.random(in: 24...34))
         session.heartRateSamples = generateHRCurve(minutes: mins)
-        session.positionSamples = generatePositionCurve(
             minutes: mins,
             backPercent: Double.random(in: 0.20...0.60),
             stomachPercent: Double.random(in: 0.00...0.20))
-        session.breathingPauseCount = Int.random(in: 0...10)
         insertTrainingSamples(from: start, arch: arch, into: context)
     }
 
@@ -248,31 +238,11 @@ enum SampleDataService {
         arch.reduce(0) { $0 + $1.1 }
     }
 
-    /// Generates one SleepPosition.rawValue per minute.
-    /// backPercent/stomachPercent as 0–1 fractions; remainder is side (2).
-    private static func generatePositionCurve(minutes: Int, backPercent: Double, stomachPercent: Double) -> [Int] {
-        var positions = [Int](repeating: 2, count: minutes)  // default: side
-        var i = 0
-        while i < minutes {
-            // Random run length 8–30 minutes per segment
-            let runLen = Int.random(in: 8...30)
-            let roll = Double.random(in: 0...1)
-            let pos: Int
-            if roll < backPercent { pos = 1 }           // back
-            else if roll < backPercent + stomachPercent { pos = 3 }  // stomach
-            else { pos = 2 }                              // side
-            for j in i..<min(i + runLen, minutes) { positions[j] = pos }
-            i += runLen
-        }
-        return positions
-    }
-
-    private static func makeSession(start: Date, end: Date, quality: Int, changes: Int,
+    private static func makeSession(start: Date, end: Date, quality: Int,
                                      context: ModelContext) -> SleepSession {
         let s = SleepSession(startDate: start)
         s.endDate = end
         s.subjectiveQuality = quality
-        s.positionChanges = changes
         context.insert(s)
         return s
     }

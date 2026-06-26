@@ -431,8 +431,7 @@ struct WochenMusterKarte: View {
             let rem = Int(s.remSleepDuration / s.totalDuration * 100)
             let score = SchlafindexView.score(for: s)
             let snoring = s.snoringEventCount
-            let turns = s.positionChanges
-            return "\(fmt.string(from: s.startDate)): \(dur)min, Qualität \(score)%, Tief \(deep)%, REM \(rem)%, Schnarchen \(snoring)×, Lageänderungen \(turns)×"
+            return "\(fmt.string(from: s.startDate)): \(dur)min, Qualität \(score)%, Tief \(deep)%, REM \(rem)%, Schnarchen \(snoring)×"
         }.joined(separator: "\n")
 
         // PainDiary correlation (if available)
