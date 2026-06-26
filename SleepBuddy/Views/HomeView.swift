@@ -245,37 +245,27 @@ struct HomeView: View {
     private var learningStatusCard: some View {
         let count = max(trainingSamples.count, trackingViewModel.classifier.sampleCount)
         let knnActive = count >= 40
-        let coreMLActive = SleepModelTrainingService.isTrainedModelAvailable
 
         return VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 12) {
                 ZStack {
                     Circle()
-                        .fill(coreMLActive ? Color.green.opacity(0.12) : knnActive ? Color.indigo.opacity(0.12) : Color.secondary.opacity(0.1))
+                        .fill(knnActive ? Color.indigo.opacity(0.12) : Color.secondary.opacity(0.1))
                         .frame(width: 40, height: 40)
-                    Image(systemName: coreMLActive ? "cpu.fill" : knnActive ? "brain.fill" : "brain")
-                        .foregroundStyle(coreMLActive ? .green : knnActive ? .indigo : .secondary)
+                    Image(systemName: knnActive ? "brain.fill" : "brain")
+                        .foregroundStyle(knnActive ? .indigo : .secondary)
                         .font(.body)
                 }
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(coreMLActive ? "Persönliches CoreML-Modell aktiv"
-                         : knnActive ? "Persönliche KI aktiv"
-                         : "KI lernt dich kennen")
+                    Text(knnActive ? "Persönliche KI aktiv" : "KI lernt dich kennen")
                         .font(.subheadline.bold())
-                        .foregroundStyle(coreMLActive ? .green : knnActive ? .indigo : .primary)
-                    Text(coreMLActive
-                         ? "\(count) Messwerte · Modell wird jede Nacht neu trainiert"
-                         : knnActive ? "\(count) Messwerte gesammelt"
-                         : "\(count) von 40 Messwerten")
+                        .foregroundStyle(knnActive ? .indigo : .primary)
+                    Text(knnActive ? "\(count) Messwerte gesammelt" : "\(count) von 40 Messwerten")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
-                if coreMLActive {
-                    Image(systemName: "checkmark.seal.fill")
-                        .foregroundStyle(.green)
-                        .font(.title3)
-                } else if knnActive {
+                if knnActive {
                     Image(systemName: "checkmark.circle.fill")
                         .foregroundStyle(.indigo)
                         .font(.title3)
@@ -285,16 +275,14 @@ struct HomeView: View {
             if !knnActive {
                 ProgressView(value: Double(count), total: 40)
                     .tint(.indigo)
-                Text("Nach \(40 - count) weiteren Nächten schaltet SleepBuddy auf deinen persönlichen KI-Klassifikator um.")
+                Text("Nach \(40 - count) weiteren Nächten hat SleepBuddy genug Daten für deinen persönlichen KI-Klassifikator.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             } else {
                 HStack(spacing: 6) {
-                    Image(systemName: "sparkles").foregroundStyle(coreMLActive ? .green : .indigo).font(.caption)
-                    Text(coreMLActive
-                         ? "SleepBuddy trainiert nach jeder Nacht automatisch ein neues CoreML-Modell — deine Schlafphasen werden immer präziser."
-                         : "Persönlicher k-NN-Klassifikator aktiv. Nach der ersten Nacht wird automatisch ein CoreML-Modell trainiert.")
+                    Image(systemName: "sparkles").foregroundStyle(.indigo).font(.caption)
+                    Text("Persönlicher KI-Klassifikator aktiv — jede Nacht werden neue Trainingsdaten gesammelt und die Erkennung verbessert.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)

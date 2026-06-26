@@ -14,7 +14,7 @@ Jede neue View, jedes neue Feature und jede Änderung muss diesen Regeln folgen.
 | Audio | AVAudioEngine (Background Audio Entitlement) |
 | Geräuscherkennung | `SoundAnalysis.SNClassifySoundRequest` (iOS 15+) |
 | Beschleunigungssensor | `CoreMotion.CMMotionManager` (50 Hz) |
-| ML-Klassifikator | CoreML → Online k-NN → Regelbasiert (Fallback-Chain) |
+| ML-Klassifikator | ShutEye-Zyklus-Modell (live) + Online k-NN (Datensammlung) |
 | Apple Intelligence | `FoundationModels.LanguageModelSession` (iOS 26+) |
 | Gesundheitsdaten | HealthKit |
 | iCloud Settings Sync | `NSUbiquitousKeyValueStore` via `ICloudSettingsSync` |
@@ -539,56 +539,36 @@ FileManager.default.url(forUbiquityContainerIdentifier: "iCloud.DG-Software-Solu
 
 **Ring-Buffer:** 35 Sekunden Rohaudio im RAM (35s bei nativer Sample Rate). Bei Ereignis: letzten 30s als Clip speichern → RAM löschen.
 
-**Noise Floor:** Adaptiver EMA (exponential moving average) — passt sich über die Nacht an Raumgeräusche an.
+**Schwellenwert:** Fest (ShutEye-Stil) — 0.010 normal, 0.022 Partner Stufe 1, 0.040 Partner Stufe 2. Kein adaptiver EMA.
 
 ---
 
 ## Umgebungsgeräusch-System
 
-### Ambient Noise Floor — Kalibrierung & Tracking
+### Amplitude-Schwelle (ShutEye-Stil, fest)
 
 **Datei:** `Services/SoundEventService.swift`
 
-Der Umgebungsgeräusch-Schwellenwert wird **automatisch über die gesamte Nacht** kalibriert und angepasst — damit Ventilatoren, Klimaanlagen, Straßenlärm etc. keine Fehlalarme auslösen.
-
-**Phase 1: Initialkalibrierung (erste 60 Sekunden)**
+ShutEye verwendet **feste dB-Schwellen** — kein adaptiver EMA. Die Schwelle liegt bei ≈ 50 dB (Amplitude 0.010) und wird nur im Partner-Modus angehoben.
 
 ```swift
-// 480 Ticks × (1/8 Hz) = 60 Sekunden
-private let calibrationTicks = 480
-
-// Kalibrierung: 75. Perzentil der ersten 60s → robuster Startwert
-// (ignoriert einzelne laute Momente beim Einschlafen)
-let sorted = calibrationValues.sorted()
-ambientEMA = sorted[Int(Double(sorted.count) * 0.75)]
-isCalibrated = true
+private var amplitudeThreshold: Float {
+    guard UserDefaults.standard.bool(forKey: "partnerModus_aktiv") else { return 0.010 }
+    switch UserDefaults.standard.integer(forKey: "partnerModus_stufe") {
+    case 1: return 0.022   // Partner-Atmung / Bewegung ist lauter
+    case 2: return 0.040   // Partner sehr nah — nur klare laute Events
+    default: return 0.010
+    }
+}
 ```
 
-**Phase 2: Adaptiver EMA die ganze Nacht**
+| Modus | Amplitude | ≈ dB |
+|-------|-----------|------|
+| Normal | 0.010 | 50 dB |
+| Partner Stufe 1 | 0.022 | 55 dB |
+| Partner Stufe 2 | 0.040 | 60 dB |
 
-```swift
-// Zeitkonstante ≈ 60 s bei 8 Hz (alpha = 0.002)
-private let ambientAlpha: Float = 0.002
-
-// Update NUR während echter Stille (kein aktives Event, ≥ 1s Ruhe)
-guard eventStartDate == nil, consecutiveQuietTicks >= 8 else { return }
-ambientEMA = ambientEMA * (1.0 - ambientAlpha) + amplitude * ambientAlpha
-```
-
-**Schwellenwert-Berechnung:**
-```swift
-// EMA × 2.5 — reagiert auf langsame Änderungen (AC ein/aus, Fenster öffnen)
-// Minimum: baseAmplitudeThreshold (Partner-Modus angepasst)
-var amplitudeThreshold: Float { max(ambientEMA * 2.5, baseAmplitudeThreshold) }
-```
-
-| Modus | `baseAmplitudeThreshold` |
-|-------|--------------------------|
-| Normal | 0.018 |
-| Partner Stufe 1 | 0.035 |
-| Partner Stufe 2 | 0.058 |
-
-**Invariante:** Sound-Events dürfen den Noise Floor **nicht** erhöhen — der EMA wird nur in echten Ruhepausen aktualisiert.
+> **Kein adaptiver Noise Floor** — ML-Konfidenz ist das primäre Gate für alle Sound-Typen (ShutEye-Stil). Die Amplitude dient nur als Fallback für nicht-ML-erkannte Sounds.
 
 ---
 
@@ -672,14 +652,17 @@ session.noiseSamples = noise
 
 **Datei:** `Services/SoundEventService.swift`
 
-**Event-Erkennungs-Pipeline:**
+**Event-Erkennungs-Pipeline (ShutEye-Stil):**
 
 ```
-AudioFeatures (8 Hz) → tick(amplitude:snoringScore:speechLikelihood:)
-    → updateAmbientNoise()              ← Kalibrierung
-    → isLoud = amplitude > amplitudeThreshold
+SoundClassificationService (ML) → hintMLDetection(type:confidence:)
+    → confidence >= minConf (0.45 persönlich / 0.55 extern) → eventStartDate sofort
+    → classifyEvent() → ML-Typ übernehmen
+
+AudioFeatures (8 Hz) → tick(instantAmplitude:snoringScore:speechLikelihood:)
+    → isLoud = instantAmplitude > amplitudeThreshold  ← Fallback ohne ML-Hint
     → 4 aufeinanderfolgende laute Ticks (0.5s) → eventStartDate setzen
-    → classifyEvent() → SoundEventType
+    → classifyEvent() → snoringScore / speechLikelihood / .other
     → 8 aufeinanderfolgende ruhige Ticks (1s) → finaliseEvent()
     → minDuration prüfen
     → circularBuffer → saveToICloud() oder lokal
@@ -690,7 +673,7 @@ AudioFeatures (8 Hz) → tick(amplitude:snoringScore:speechLikelihood:)
 
 | Parameter | Wert | Beschreibung |
 |-----------|------|-------------|
-| `loudTicksToStart` | 4 (0.5s) | Konsekutive laute Ticks um Event zu starten |
+| `loudTicksToStart` | 4 (0.5 s) | Konsekutive laute Ticks (Amplitude-Fallback) um Event zu starten |
 | `quietTicksToEnd` | 8 (1.0s) | Konsekutive ruhige Ticks um Event zu beenden |
 | `cooldownAfterEventSeconds` | 4.0s | Pause nach Event (verhindert Doppelerkennung) |
 | `clipDuration` | 30s | Länge des gespeicherten Audio-Clips |
@@ -709,11 +692,13 @@ AudioFeatures (8 Hz) → tick(amplitude:snoringScore:speechLikelihood:)
 | Stimmengewirr, Wasser | 1.5s |
 | Alle anderen | 2.0s |
 
-**Event-Klassifikation:**
-1. Aktiver ML-Hint vorhanden (< 5s alt) → ML-Typ übernehmen
-2. `snoringScore > 0.45` → `.snoring`
-3. `speechLikelihood > 0.4` → `.talking`
+**Event-Klassifikation (ShutEye-Stil):**
+1. ML-Hint vorhanden (< 3s alt) → ML-Typ direkt übernehmen
+2. Amplitude-Fallback ohne frischen ML-Hint: `snoringScore > 0.45` → `.snoring`
+3. `speechLikelihood > 0.40` → `.talking`
 4. Sonst → `.other`
+
+**ML-Primär-Trigger:** `hintMLDetection()` löst Events für **alle** Typen aus (persönlich + extern) wenn Konfidenz ≥ Schwelle — kein `isMLPrimary`-Filter mehr.
 
 ---
 
@@ -757,27 +742,26 @@ request.overlapFactor = 0.75  // mehr Overlap = häufigere Ergebnisse = weniger 
 | `crowd`, `applause`, `chatter` | `.crowd` | 0.50–0.55 | Extern |
 | `water`, `running_water`, `toilet_flush` | `.water` | 0.50 | Extern |
 
-> **AC/Klimaanlage-Schutz:** Musik-Threshold auf 0.65 — verhindert Fehlklassifikation von Dauergeräuschen als Musik. Externe Umgebungsgeräusche müssen zusätzlich die Amplitude-Schwelle überschreiten (kein ML-Primary-Bypass für externe Typen).
+> **AC/Klimaanlage-Schutz:** Musik-Threshold auf 0.65 — verhindert Fehlklassifikation von Dauergeräuschen als Musik.
 
 > **Best-Match-Logik:** Alle Identifier werden ausgewertet, der höchste Konfidenz-Treffer über Threshold gewinnt — kein First-Match.
 
 > **Adaptive Thresholds:** `adjustedThreshold(for:base:)` liest UserDefaults-Feedback (confirmed/rejected/missed) und passt Schwellen ±10% an (ab 5 Samples, min 0.20, max 0.90).
 
-**ML-Primär-Trigger** (leise Sounds die Amplitude-Schwelle nie überschreiten — nur persönliche Typen):
+**ML als primärer Trigger (ShutEye-Stil, alle Typen):**
+
+`SoundClassificationService.onSoundDetected` → `SoundEventService.hintMLDetection()` — ML-Konfidenz ist das primäre Gate für persönliche **und** externe Typen. Kein `isMLPrimary`-Filter.
+
 ```swift
-// Nur quiet personal sounds dürfen Amplitude-Gating bypassen
-let isMLPrimary = type == .bruxism || type == .coughing || type == .sneezing
-    || type == .knock || type == .glassBreak || type == .snoring
-    || type == .gasping || type == .laughing
-// Externe Typen (music, traffic, etc.) müssen Amplitude-Schwelle selbst überschreiten
-if isMLPrimary && confidence >= 0.65 && eventStartDate == nil && !isInCooldown {
+// SoundEventService.hintMLDetection — alle Typen gleichbehandelt:
+let minConf: Double = type.isExternal ? 0.55 : 0.45
+if confidence >= minConf && eventStartDate == nil && !isInCooldown {
     eventStartDate = Date()
     pendingEventType = type
-    consecutiveLoudTicks = loudTicksToStart  // bypass amplitude gating
 }
 ```
 
-**ML-Hint-Alter:** Max. 5 Sekunden — ältere Hints werden ignoriert.
+**ML-Hint-Alter:** Max. 3 Sekunden — ältere Hints werden ignoriert.
 
 ---
 
@@ -1328,23 +1312,24 @@ private func autoSyncPainDiaryIfNeeded() {
 
 ## ML-Klassifikator-Stack
 
-Die Schlafphasenerkennung hat **drei Ebenen** — automatischer Fallback von oben nach unten:
+Die Schlafphasenerkennung verwendet **ShutEye-Stil** — 90-Minuten-Zyklus-Modell läuft immer:
 
 ```
-1. CoreML-Modell (SleepPhaseClassifier.mlmodelc)
-   → Trainiertes Modell aus dem Bundle (wenn vorhanden)
-   → 6D-Feature-Vektor → direkte Klassenvorhersage mit Konfidenzwerten
+Live-Klassifikation (immer):
+  SleepPhaseClassifier (ShutEye 90-min-Zyklusmodell)
+  → Zone A (0–20 min): Leichtschlaf
+  → Zone B (20–65 min): Tiefschlaf
+  → Zone C (65–90 min): REM
+  → Bewegung / Lautstärke → Wach (primäres Signal)
 
-2. Online k-NN (OnlineSleepClassifier)
-   → Aktiv sobald ≥ 40 gespeicherte TrainingSamples vorhanden
-   → Lernt aus jeder Nacht automatisch
-
-3. Regelbasierter Fallback (SleepPhaseClassifier)
-   → Nacht 1 (kein Training-History vorhanden)
-   → Immer aktiv wenn CoreML und k-NN nicht greifen
+Datensammlung (parallel, beeinflusst live-Klassifikation NICHT):
+  OnlineSleepClassifier (k-NN)
+  → Speichert TrainingSamples mit ShutEye-Label
+  → Klassifiziert intern — Ergebnis wird verworfen
+  → Ab ≥ 40 Samples: k-NN-Ergebnis wird als sessionBuffer gespeichert
 ```
 
-**Einstiegspunkt:** `MLSleepClassifier` — koordiniert alle drei Ebenen.
+**Einstiegspunkt:** `MLSleepClassifier` — delegiert live immer an `SleepPhaseClassifier`, ruft `onlineClassifier.recordSample()` für Datensammlung auf. Kein CoreML im Live-Pfad.
 
 ### TrainingSample (SwiftData-Modell)
 
@@ -1390,24 +1375,20 @@ func distance(to audio: AudioFeatures, motion: MotionFeatures) -> Float
 Double(0.4 + (winner.value / max(total, 1e-6)) * 0.55)
 ```
 
-### CoreML-Integration
+### MLSleepClassifier — Architektur
 
 **Datei:** `Services/MLSleepClassifier.swift`
 
 ```swift
-// Bundle-Lookup beim App-Start
-Bundle.main.url(forResource: "SleepPhaseClassifier", withExtension: "mlmodelc")
-
-// Input-Features (Dictionary)
-"averageAmplitude", "amplitudeVariance", "breathingRateBPM",
-"breathingRegularity", "movementIntensity", "snoringIntensity"
-
-// Output
-"phase" → String (SleepPhaseType.rawValue)
-"phaseProbability" → [String: Double] (Konfidenz je Klasse)
+// Immer: ShutEye live
+func classify(audio:motion:) -> (phase, confidence) {
+    let result = shutEyeClassifier.classify(audio: audio, motion: motion)
+    onlineClassifier.recordSample(audio: audio, motion: motion, phase: result.phase)
+    return result
+}
 ```
 
-> CoreML-Modell ist **optional** — fehlt es im Bundle, ist k-NN oder Regelklassifikator aktiv. Niemals den Fallback-Chain unterbrechen.
+> Kein CoreML im Live-Pfad. `SleepModelTrainingService` und `SleepPhaseClassifier.mlmodelc` sind inaktiv — kein Import, kein Laden, kein Laden-Fallback nötig.
 
 ---
 
@@ -1642,7 +1623,7 @@ Testdaten erzeugen echte WAV-Dateien mit typ-spezifischen Frequenzen/Harmonics f
 
 ## Architektur-Regeln (Ergänzung)
 
-7. **ML-Stack**: Niemals den Fallback-Chain (CoreML → k-NN → Regelbasiert) unterbrechen.
+7. **ML-Stack**: `SleepPhaseClassifier` (ShutEye) läuft immer für Live-Klassifikation. k-NN sammelt nur Daten — niemals für Live-Ausgabe verwenden.
 8. **Apple Intelligence**: Immer `#available(iOS 26, *)` + `SystemLanguageModel.default.isAvailable` prüfen.
 9. **TrainingSamples**: Session-Buffer erst beim Nacht-Ende flushen — nicht während der Aufnahme in SwiftData schreiben.
 

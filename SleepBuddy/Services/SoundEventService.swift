@@ -55,7 +55,7 @@ final class SoundEventService {
     private var consecutiveQuietTicks = 0
 
     // At 8 Hz (one tick per 125 ms):
-    private let loudTicksToStart = 3   // 375 ms of continuous sound → event start
+    private let loudTicksToStart = 4   // 500 ms of continuous sound → event start
     private let quietTicksToEnd  = 8   // 1 s of silence → event end
 
     private var lastEventEndDate: Date?
