@@ -61,23 +61,38 @@ final class SleepPhaseClassifier {
     // MARK: - Awake thresholds
 
     // Raised in partner mode because partner movements inflate the 30 s motion window.
+    // Reduced by FeedbackCalibrationService when user reports "öfter wach als angezeigt".
     private var awakeMotionThreshold: Float {
-        guard UserDefaults.standard.bool(forKey: "partnerModus_aktiv") else { return 0.35 }
-        switch UserDefaults.standard.integer(forKey: "partnerModus_stufe") {
-        case 1: return 0.50
-        case 2: return 0.65
-        default: return 0.35
+        let base: Float
+        if UserDefaults.standard.bool(forKey: "partnerModus_aktiv") {
+            switch UserDefaults.standard.integer(forKey: "partnerModus_stufe") {
+            case 1:  base = 0.50
+            case 2:  base = 0.65
+            default: base = 0.35
+            }
+        } else {
+            base = 0.35
         }
+        let offset = Float(UserDefaults.standard.double(forKey: FeedbackCalibrationService.CalKey.awakeMotionOffset.rawValue))
+        return max(0.15, base + offset)
     }
 
     // Raised in partner mode because partner's voice / TV / ambient noise is louder.
+    // Reduced by FeedbackCalibrationService when user reports "öfter wach als angezeigt".
     private var awakeAmplitudeThreshold: Float {
-        guard UserDefaults.standard.bool(forKey: "partnerModus_aktiv") else { return 0.035 }
-        switch UserDefaults.standard.integer(forKey: "partnerModus_stufe") {
-        case 1: return 0.062
-        case 2: return 0.095
-        default: return 0.035
+        let base: Float
+        if UserDefaults.standard.bool(forKey: "partnerModus_aktiv") {
+            switch UserDefaults.standard.integer(forKey: "partnerModus_stufe") {
+            case 1:  base = 0.062
+            case 2:  base = 0.095
+            default: base = 0.035
+            }
+        } else {
+            base = 0.035
         }
+        let offset = Float(UserDefaults.standard.double(forKey: FeedbackCalibrationService.CalKey.awakeAmplOffset.rawValue))
+        return max(0.010, base + offset)
+
     }
 
     private var sleepAmplitudeMax: Float { PersonalCalibrationService.shared.sleepAmplitudeMax }
@@ -355,7 +370,8 @@ final class SleepPhaseClassifier {
         // Irregular breathing confirms REM; slow+regular suggests we're still in deep
         let breathREMBoost:   Double = breathREM  ? 0.08 * breathScale : 0.0
         let breathDeepPenalty: Double = breathDeep ? -0.06             : 0.0
-        let conf = min(0.68 + hrREMBoost + hrvREMBoost + lateNightBoost + breathREMBoost + breathDeepPenalty, 0.90)
+        let userREMBoost = UserDefaults.standard.double(forKey: FeedbackCalibrationService.CalKey.remConfBoost.rawValue)
+        let conf = min(0.68 + hrREMBoost + hrvREMBoost + lateNightBoost + breathREMBoost + breathDeepPenalty + userREMBoost, 0.90)
         return (.rem, conf)
     }
 

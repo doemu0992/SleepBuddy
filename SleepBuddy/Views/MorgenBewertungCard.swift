@@ -4,7 +4,6 @@ import SwiftData
 struct MorgenBewertungCard: View {
     let session: SleepSession
     @Environment(\.modelContext) private var modelContext
-    @Query private var trainingSamples: [TrainingSample]
 
     @State private var selectedQuality: Int = 0
     @State private var selectedRecording: Int = 0
@@ -51,6 +50,7 @@ struct MorgenBewertungCard: View {
                             }
                             session.subjectiveQuality = stufe
                             try? modelContext.save()
+                            FeedbackCalibrationService.shared.calibrate(context: modelContext)
                         } label: {
                             VStack(spacing: 4) {
                                 Text(qualityOptions[stufe - 1].emoji)
@@ -179,16 +179,6 @@ struct MorgenBewertungCard: View {
             feedbackMask = 0
         }
         try? modelContext.save()
-
-        // Aufzeichnung ungenau → TrainingSamples als unzuverlässig markieren
-        if stufe == 1 {
-            let sessionStart = session.startDate
-            let sessionEnd = session.endDate ?? Date()
-            let affected = trainingSamples.filter {
-                $0.timestamp >= sessionStart && $0.timestamp <= sessionEnd
-            }
-            for s in affected { s.isUserCorrected = true }
-            try? modelContext.save()
-        }
+        FeedbackCalibrationService.shared.calibrate(context: modelContext)
     }
 }
