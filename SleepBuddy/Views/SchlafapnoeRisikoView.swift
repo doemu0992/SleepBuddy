@@ -186,8 +186,7 @@ struct SchlafapnoeRisikoView: View {
         let n = qualifyingSessions.count
         if n == 0 { return "Kein Ersatz für eine ärztliche Diagnose." }
         let rate = String(format: "%.0f", snoringPerHour)
-        let pauses = String(format: "%.1f", pausesPerHour)
-        return "Ø \(rate) Schnarch-Ereignisse/h, \(pauses) Atempausen/h (letzte \(n) Nächte). Kein medizinischer Befund."
+        return "Ø \(rate) Schnarch-Ereignisse/h (letzte \(n) Nächte). Kein medizinischer Befund."
     }
 }
 
