@@ -10,13 +10,32 @@ struct HomeView: View {
     @Query private var trainingSamples: [TrainingSample]
     @State private var trackingViewModel = SleepTrackingViewModel()
     @State private var showAlarmSetup = false
+    @State private var profil = SharedProfil.shared
 
     private var lastSession: SleepSession? { sessions.first(where: { !$0.isActive }) }
+
+    /// Tageszeitabhängige Begrüßung, optional mit Vornamen aus dem Profil.
+    private var begruessung: String {
+        let stunde = Calendar.current.component(.hour, from: Date())
+        let gruss: String
+        switch stunde {
+        case 5..<11:  gruss = "Guten Morgen"
+        case 11..<17: gruss = "Hallo"
+        case 17..<22: gruss = "Guten Abend"
+        default:      gruss = "Gute Nacht"
+        }
+        let vorname = profil.vorname.trimmingCharacters(in: .whitespaces)
+        return vorname.isEmpty ? gruss : "\(gruss), \(vorname)"
+    }
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 20) {
+                    Text(begruessung)
+                        .font(.largeTitle.bold())
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
                     if sessions.isEmpty {
                         emptyState
                     } else {
@@ -46,7 +65,7 @@ struct HomeView: View {
             }
             .background(Color(.systemGroupedBackground))
             .navigationTitle("SleepBuddy")
-            .navigationBarTitleDisplayMode(.large)
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     NavigationLink(destination: SleepHistoryView()) {
