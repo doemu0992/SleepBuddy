@@ -3,6 +3,7 @@ import SwiftData
 
 struct MorgenBewertungCard: View {
     let session: SleepSession
+    var onFertig: (() -> Void)? = nil
     @Environment(\.modelContext) private var modelContext
 
     @State private var selectedQuality: Int = 0
@@ -159,6 +160,22 @@ struct MorgenBewertungCard: View {
                     .transition(.opacity.combined(with: .move(edge: .top)))
                 }
             }
+
+            // Fertig — schließt die Karte (Bewertung bleibt gespeichert)
+            if selectedQuality > 0 && selectedRecording > 0 {
+                Button {
+                    onFertig?()
+                } label: {
+                    Text("Fertig")
+                        .font(.subheadline.bold())
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .background(Color.indigo, in: RoundedRectangle(cornerRadius: 12))
+                }
+                .buttonStyle(.plain)
+                .transition(.opacity)
+            }
         }
         .padding()
         .background(Color(.secondarySystemGroupedBackground))
@@ -170,6 +187,7 @@ struct MorgenBewertungCard: View {
             feedbackMask = session.recordingFeedbackMask
         }
         .animation(.spring(response: 0.35, dampingFraction: 0.7), value: selectedRecording)
+        .animation(.easeInOut(duration: 0.2), value: selectedQuality)
     }
 
     private func saveRecording(_ stufe: Int) {

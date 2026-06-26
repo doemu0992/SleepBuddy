@@ -7,10 +7,10 @@ struct HomeView: View {
     @Query(sort: \SleepSession.startDate, order: .reverse) private var sessions: [SleepSession]
 
     @State private var viewModel = HomeViewModel()
-    @Query private var trainingSamples: [TrainingSample]
     @State private var trackingViewModel = SleepTrackingViewModel()
     @State private var showAlarmSetup = false
     @State private var profil = SharedProfil.shared
+    @State private var zeigeBewertung = false
 
     private var lastSession: SleepSession? { sessions.first(where: { !$0.isActive }) }
 
@@ -41,9 +41,10 @@ struct HomeView: View {
                     } else {
                         sleepButton
                         if let session = lastSession {
-                            if (session.subjectiveQuality == 0 || session.recordingQuality == 0),
-                               isBewertungRelevant(session) {
-                                MorgenBewertungCard(session: session)
+                            if zeigeBewertung {
+                                MorgenBewertungCard(session: session) {
+                                    withAnimation { zeigeBewertung = false }
+                                }
                             }
                             if isMorgenBerichtRelevant(session) {
                                 MorgenBerichtCard(session: session)
@@ -55,9 +56,6 @@ struct HomeView: View {
                         }
                         if sessions.filter({ !$0.isActive }).count >= 3 {
                             WochenMusterKarte(sessions: Array(sessions.filter({ !$0.isActive }).prefix(14)))
-                        }
-                        if trainingSamples.count > 0 || trackingViewModel.classifier.sampleCount > 0 {
-                            learningStatusCard
                         }
                     }
                 }
@@ -73,11 +71,27 @@ struct HomeView: View {
             }
             .onAppear {
                 trackingViewModel.configure(modelContext: modelContext)
+                aktualisiereBewertung()
+            }
+            .onChange(of: lastSession?.persistentModelID) { _, _ in
+                aktualisiereBewertung()
             }
             .task {
                 await trackingViewModel.requestAlarmPermission()
             }
         }
+    }
+
+    /// Friert ein, ob die Morgen-Bewertungskarte angezeigt wird — verhindert,
+    /// dass die Karte mitten in der Bewertung verschwindet, wenn sich
+    /// `recordingQuality`/`subjectiveQuality` ändern.
+    private func aktualisiereBewertung() {
+        guard let s = lastSession, isBewertungRelevant(s),
+              (s.subjectiveQuality == 0 || s.recordingQuality == 0) else {
+            zeigeBewertung = false
+            return
+        }
+        zeigeBewertung = true
     }
 
     // MARK: - Empty State
@@ -255,59 +269,6 @@ struct HomeView: View {
     }
 
     // MARK: - Learning status
-
-    private var learningStatusCard: some View {
-        let count = max(trainingSamples.count, trackingViewModel.classifier.sampleCount)
-        let knnActive = count >= 40
-
-        return VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 12) {
-                ZStack {
-                    Circle()
-                        .fill(knnActive ? Color.indigo.opacity(0.12) : Color.secondary.opacity(0.1))
-                        .frame(width: 40, height: 40)
-                    Image(systemName: knnActive ? "brain.fill" : "brain")
-                        .foregroundStyle(knnActive ? .indigo : .secondary)
-                        .font(.body)
-                }
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(knnActive ? "Persönliche KI aktiv" : "KI lernt dich kennen")
-                        .font(.subheadline.bold())
-                        .foregroundStyle(knnActive ? .indigo : .primary)
-                    Text(knnActive ? "\(count) Messwerte gesammelt" : "\(count) von 40 Messwerten")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
-                if knnActive {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundStyle(.indigo)
-                        .font(.title3)
-                }
-            }
-
-            if !knnActive {
-                ProgressView(value: Double(count), total: 40)
-                    .tint(.indigo)
-                Text("Nach \(40 - count) weiteren Nächten hat SleepBuddy genug Daten für deinen persönlichen KI-Klassifikator.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            } else {
-                HStack(spacing: 6) {
-                    Image(systemName: "sparkles").foregroundStyle(.indigo).font(.caption)
-                    Text("Persönlicher KI-Klassifikator aktiv — jede Nacht werden neue Trainingsdaten gesammelt und die Erkennung verbessert.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-        }
-        .padding()
-        .background(Color(.secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 16))
-        .shadow(color: Color.primary.opacity(0.06), radius: 10, x: 0, y: 2)
-    }
 
     // MARK: - Helpers
 

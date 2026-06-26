@@ -1489,13 +1489,18 @@ func classify(audio:motion:) -> (phase, confidence) {
 ```
 NavigationStack
 └── ScrollView
+    ├── begruessung              → Persönliche, tageszeitabhängige Begrüßung (Vorname aus SharedProfil)
     ├── sleepButton              → Großer "Schlafen"-Button (startet Tracking)
-    ├── MorgenBewertungCard      → Subjektive Bewertung 1–5 (nur wenn letzte Session unbewertet, heute)
+    ├── MorgenBewertungCard      → Doppel-Bewertung (Schlaf + Aufzeichnung), Anzeige via @State eingefroren
     ├── MorgenBerichtCard        → KI-Morgen-Report (nur wenn letzte Session heute)
     ├── smartAlarmCard           → Smart-Alarm Konfiguration (Zeitfenster, Ton)
     ├── lastNightCard(session)   → Kurzübersicht letzte Nacht (Score, Dauer, Phasen)
-    └── learningStatusCard       → Lernfortschritt k-NN (nur wenn sampleCount > 0)
+    └── WochenMusterKarte        → Wochenmuster (nur wenn ≥ 3 abgeschlossene Nächte)
 ```
+
+> **`MorgenBewertungCard`-Sichtbarkeit eingefroren (bindend):** Die Karte setzt beim Antippen `recordingQuality`/`subjectiveQuality` auf der Session. Würde die Sichtbarkeit direkt reaktiv aus diesen Werten berechnet, verschwände die Karte mitten in der Bewertung (z.B. beim Aufklappen von „Ungenau"). Daher steuert ein `@State zeigeBewertung`, das nur in `onAppear` und `onChange(of: lastSession)` via `aktualisiereBewertung()` neu gesetzt wird. Ein „Fertig"-Button (`onFertig`-Closure) schließt die Karte explizit.
+
+> **Kein `learningStatusCard`/`@Query trainingSamples` in HomeView** — das Laden aller `TrainingSample`-Objekte (potenziell zehntausende) nur für eine Zählung verursachte spürbares Scroll-Ruckeln. Entfernt.
 
 **Bedingungen für Morgen-Cards:**
 ```swift
