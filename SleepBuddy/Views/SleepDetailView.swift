@@ -641,8 +641,7 @@ struct SleepDetailView: View {
             .chartXScale(domain: session.startDate...(session.endDate ?? Date()))
             .chartScrollableAxes(.horizontal)
             .chartXVisibleDomain(length: 3 * 3600)
-            .frame(height: 160)
-            .clipped()
+            .frame(height: 180)
 
             HStack(spacing: 12) {
                 legendDot(.green,  "< 35 dB Ruhig")
@@ -689,7 +688,22 @@ struct SleepDetailView: View {
             let minBPM = (data.map(\.bpm).min() ?? 40) - 5
             let maxBPM = (data.map(\.bpm).max() ?? 100) + 5
 
+            // Resting HR zone: 50–70 BPM (typical sleeping heart rate)
+            let ruhepulsMin = max(minBPM, 50.0)
+            let ruhepulsMax = min(maxBPM, 70.0)
+
             Chart(data) { sample in
+                // Resting HR reference band
+                if ruhepulsMin < ruhepulsMax {
+                    RectangleMark(
+                        xStart: .value("Start", session.startDate),
+                        xEnd: .value("Ende", session.endDate ?? Date()),
+                        yStart: .value("Ruhepuls min", ruhepulsMin),
+                        yEnd: .value("Ruhepuls max", ruhepulsMax)
+                    )
+                    .foregroundStyle(Color.gray.opacity(0.10))
+                }
+
                 LineMark(
                     x: .value("Zeit", sample.time),
                     y: .value("BPM", sample.bpm)
@@ -735,6 +749,15 @@ struct SleepDetailView: View {
             .chartXVisibleDomain(length: 3 * 3600)
             .frame(height: 120)
             .clipped()
+
+            HStack(spacing: 6) {
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(Color.gray.opacity(0.30))
+                    .frame(width: 16, height: 8)
+                Text("Ruhepuls-Zone (50–70 BPM)")
+                    .font(.caption2).foregroundStyle(.secondary)
+                Spacer()
+            }
 
             Text("Quelle: Ballistokardiographie (Beschleunigungssensor) oder Apple Watch")
                 .font(.caption2).foregroundStyle(.secondary)

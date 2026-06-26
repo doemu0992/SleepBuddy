@@ -998,7 +998,7 @@ if emitCounter >= windowSize {   // windowSize = 1500 (30s × 50Hz)
 
 **Datei:** `Services/SleepPhaseClassifier.swift`
 
-Regelbasierter Klassifikator — kombiniert Audio + Motion + HR/HRV + Schlafzyklus-Timing.
+Regelbasierter Klassifikator — kombiniert Audio + Motion + HR/HRV + Schlafzyklus-Timing (ShutEye-Stil).
 
 **Eingaben:**
 
@@ -1006,36 +1006,106 @@ Regelbasierter Klassifikator — kombiniert Audio + Motion + HR/HRV + Schlafzykl
 |--------|----------|-----------|
 | Apple Watch (HealthKit) | `currentHRBPM`, `currentHRVms` | Höchste — alle 5 min |
 | BCG (Beschleunigungssensor) | `motion.bcgHeartRateBPM` | Fallback wenn kein Watch — `hrConfidenceScale = 0.6` |
-| Akkelerometer | `motion.breathingRateBPM` | Wenn `isOnMattress == true` (direkter) |
-| Mikrofon | `audio.breathingRateBPM` | Fallback wenn Nightstand |
+| Akkelerometer | `motion.breathingRateBPM` | Wenn `isOnMattress == true` — `breathScale = 1.0` |
+| Mikrofon | `audio.breathingRateBPM` | Fallback Nachttisch — `breathScale = 0.70` |
 
-**Klassifikations-Logik (Reihenfolge):**
+**Klassifikations-Architektur (`rawClassify`) — 3 Schritte + Zonen-Verfeinerungen:**
 
-1. **Bewegung/Lautstärke** → `.awake` (stärkste Signal)
-2. **HR > 80 BPM** (außerhalb REM-Fenster, kein BCG) → `.awake`
-3. **Schnarchen** → `.deep` (langsam + regelmäßig) oder `.light`
-4. **Keine Atemrate erkennbar** → HR-basiert oder `.light`/`.awake` je nach Amplitude
-5. **Tief**: langsam (9–15 BPM) + regelmäßig + leise + außerhalb REM-Fenster
-6. **REM**: unregelmäßig (reg < `remMaxRegularity`), leise, im REM-Fenster
-7. **HR-REM (5b)**: HR im REM-Bereich (60–78) + REM-Fenster + leise + keine hohe HRV → `.rem` (Watch: 0.70, BCG: 0.58×0.6)
-8. **Leicht**: 14–19 BPM oder Restfall
+### Schritt 0 — Feature-Extraktion (Atemrate)
 
-**Angepasste Schwellenwerte (aktueller Stand):**
-
-| Parameter | Wert | Beschreibung |
-|-----------|------|-------------|
-| `remBreathMin` | 11 BPM (war 12) | Untergrenze REM-Atemfrequenz |
-| `remBreathMax` | 24 BPM (war 22) | Obergrenze REM-Atemfrequenz |
-| `remMaxRegularity` | 0.68 (war 0.50) | Höherer Wert = mehr Fälle fallen unter REM |
-| `sleepAmplitudeMax` | 0.028 (war 0.020) | Erlaubt mehr Umgebungsgeräusche im Schlaf |
-
-**Case 5b — BCG erlaubt für HR-REM (wichtig):**
 ```swift
-// BCG darf jetzt auch REM erkennen (mit reduzierter Konfidenz × 0.6)
-if hasHR && hrREM && remWindow && amp <= sleepAmplitudeMax && !hrvHigh {
-    let conf: Double = usingBCG ? 0.58 * hrConfidenceScale : 0.70
-    return (.rem, conf)
+let useMotionBreath = motion.isOnMattress
+                      && motion.breathingRateBPM > 0
+                      && motion.breathingRegularity > 0.30
+let breathBPM:   Float  = useMotionBreath ? motion.breathingRateBPM   : audio.breathingRateBPM
+let breathReg:   Float  = useMotionBreath ? motion.breathingRegularity : audio.breathingRegularity
+let breathValid          = breathBPM > 5 && breathBPM < 35 && breathReg > 0.30
+let breathScale: Double  = useMotionBreath ? 1.0 : 0.70
+let breathDeep = breathValid && breathBPM < 13 && breathReg > 0.60
+let breathREM  = breathValid && breathReg  < 0.45 && breathBPM > 11
+```
+
+### Schritt 1 — Wach-Erkennung
+
+- Bewegung > `awakeMotionThreshold` ODER Amplitude > `awakeAmplitudeThreshold` → `.awake`
+- HR > 80 BPM (Watch, außerhalb REM-Fenster) → `.awake`
+
+### Schritt 2 — HR-Override (ShutEye-Primärpfad, nur wenn `hasHR`)
+
+HR gewinnt über Zyklus-Position wenn das Signal klar ist:
+
+```swift
+if hasHR {
+    let deepThresh: Double = usingBCG ? 60.0 : 56.0
+    if effectiveHR < deepThresh && !inREMCycle {
+        let depthBonus = min((deepThresh - effectiveHR) * 0.012, 0.10)
+        let base: Double = usingBCG ? 0.64 : 0.76
+        let cap:  Double = usingBCG ? 0.74 : 0.88
+        return (.deep, min(base + depthBonus, cap))
+    }
+    if hrREM && inREMCycle && !hrvHigh {
+        let hrvBonus: Double = (hrvFalling && !usingBCG) ? 0.07 : 0.0
+        let base: Double = usingBCG ? 0.60 : 0.72
+        let cap:  Double = usingBCG ? 0.70 : 0.84
+        return (.rem, min(base + hrvBonus, cap))
+    }
 }
+```
+
+**Schwellenwerte HR-Override:**
+
+| Signal | Deep-Threshold | Konfidenz-Basis | Konfidenz-Cap |
+|--------|---------------|-----------------|---------------|
+| Apple Watch | < 56 BPM | 0.76 | 0.88 |
+| BCG | < 60 BPM | 0.64 | 0.74 |
+| REM (Watch) | 60–78 BPM + REM-Fenster | 0.72 | 0.84 |
+| REM (BCG) | 60–78 BPM + REM-Fenster | 0.60 | 0.70 |
+
+### Schritt 2b — Atem-Override (nur wenn `!hasHR`)
+
+Atemrate als primäres Signal wenn keine HR verfügbar:
+
+```swift
+if breathValid && !hasHR {
+    if breathDeep && !inREMCycle {
+        let regBonus = Double(max(breathReg - 0.60, 0)) * 0.28
+        let base: Double = useMotionBreath ? 0.64 : 0.52
+        let cap:  Double = useMotionBreath ? 0.76 : 0.63
+        return (.deep, min(base + regBonus, cap))
+    }
+    if breathREM && inREMCycle {
+        let irregBonus = Double(max(0.45 - breathReg, 0)) * 0.32
+        let base: Double = useMotionBreath ? 0.60 : 0.50
+        let cap:  Double = useMotionBreath ? 0.70 : 0.60
+        return (.rem, min(base + irregBonus, cap))
+    }
+}
+```
+
+> `breathDeep` = BPM < 13 UND Regularität > 0.60 — sehr langsam + regelmäßig → Tiefschlaf  
+> `breathREM` = Regularität < 0.45 UND BPM > 11 — unregelmäßig → REM
+
+### Schritt 3 — Zyklus-Zonen + Boost-System (ShutEye 90-min-Modell)
+
+Falls weder HR-Override noch Atem-Override ausgelöst haben:
+
+**Zone A (0–20 min nach Onset):** → `.light`, Konfidenz 0.55–0.65
+
+**Zone B (20–65 min) — Tiefschlaf-Wahrscheinlichkeit:**
+```swift
+let breathBoost:   Double = breathDeep                ? 0.08 * breathScale : 0.0
+let breathPenalty: Double = (breathREM && inREMCycle) ? -0.05             : 0.0
+// hrBoost, hrPenalty, hrvBoost, firstCycleBoost, snoringBoost ebenfalls addiert
+let conf = min(0.70 + hrBoost + hrPenalty + hrvBoost + firstCycleBoost + snoringBoost + breathBoost + breathPenalty, 0.92)
+return (.deep, conf)
+```
+
+**Zone C (65–90 min) — REM-Wahrscheinlichkeit:**
+```swift
+let breathREMBoost:    Double = breathREM  ? 0.08 * breathScale : 0.0
+let breathDeepPenalty: Double = breathDeep ? -0.06             : 0.0
+let conf = min(0.68 + hrREMBoost + hrvREMBoost + lateNightBoost + breathREMBoost + breathDeepPenalty, 0.90)
+return (.rem, conf)
 ```
 
 **REM-Fenster-Erkennung:**
@@ -1045,6 +1115,19 @@ if hasHR && hrREM && remWindow && amp <= sleepAmplitudeMax && !hrvHigh {
 let cycle = elapsedMin.truncatingRemainder(dividingBy: 90)
 return cycle >= 65
 ```
+
+**Angepasste Schwellenwerte:**
+
+| Parameter | Wert | Beschreibung |
+|-----------|------|-------------|
+| `awakeMotionThreshold` (normal) | 0.35 | Bewegungsgrenze für Wach |
+| `awakeAmplitudeThreshold` (normal) | 0.035 | Lautstärkegrenze für Wach |
+| `sleepAmplitudeMax` | 0.028 | Maximal-Amplitude für Schlaf |
+| Deep-Threshold Watch | 56 BPM | HR-Override Tiefschlaf |
+| Deep-Threshold BCG | 60 BPM | HR-Override Tiefschlaf (erhöht) |
+| `breathDeep` BPM-Schwelle | < 13 BPM | Tiefschlaf-Atemfrequenz |
+| `breathREM` Regularitäts-Schwelle | < 0.45 | Unregelmäßige Atmung → REM |
+| `breathValid` Qualitäts-Gate | reg > 0.30 | Mindest-Signalqualität |
 
 **Partner-Modus-Anpassungen:**
 

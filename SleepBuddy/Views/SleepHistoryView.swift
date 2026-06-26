@@ -2,12 +2,37 @@ import SwiftUI
 import SwiftData
 import Charts
 
+enum VerlaufZeitraum: String, CaseIterable {
+    case woche       = "7 T"
+    case monat       = "30 T"
+    case dreiMonate  = "3 M"
+    case sechsMonate = "6 M"
+    case alle        = "Alle"
+
+    var tage: Int? {
+        switch self {
+        case .woche:       return 7
+        case .monat:       return 30
+        case .dreiMonate:  return 90
+        case .sechsMonate: return 180
+        case .alle:        return nil
+        }
+    }
+}
+
 struct SleepHistoryView: View {
     @Query(sort: \SleepSession.startDate, order: .reverse) private var sessions: [SleepSession]
     @Environment(\.modelContext) private var modelContext
     @AppStorage("schlafZielStunden") private var schlafZielStunden = 8.0
+    @State private var zeitraum: VerlaufZeitraum = .woche
 
     private var abgeschlossene: [SleepSession] { sessions.filter { !$0.isActive } }
+
+    private var gefilterte: [SleepSession] {
+        guard let tage = zeitraum.tage else { return abgeschlossene }
+        let cutoff = Calendar.current.date(byAdding: .day, value: -tage, to: Date())!
+        return abgeschlossene.filter { ($0.endDate ?? .distantPast) >= cutoff }
+    }
 
     var body: some View {
         Group {
@@ -32,18 +57,41 @@ struct SleepHistoryView: View {
                 }
             } else {
                 List {
+                    // Zeitraum-Picker
                     Section {
-                        WochenSummaryCard(sessions: abgeschlossene, schlafZielStunden: schlafZielStunden)
+                        Picker("Zeitraum", selection: $zeitraum) {
+                            ForEach(VerlaufZeitraum.allCases, id: \.self) { z in
+                                Text(z.rawValue).tag(z)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+                    }
+                    .listRowBackground(Color.clear)
+
+                    Section {
+                        WochenSummaryCard(sessions: gefilterte, schlafZielStunden: schlafZielStunden, zeitraum: zeitraum)
                     }
                     .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
                     .listRowBackground(Color.clear)
 
-                    ForEach(abgeschlossene) { session in
-                        NavigationLink(destination: SleepDetailView(session: session)) {
-                            SleepSessionRow(session: session)
+                    if gefilterte.isEmpty {
+                        Section {
+                            ContentUnavailableView(
+                                "Keine Daten",
+                                systemImage: "moon.zzz",
+                                description: Text("Keine Aufzeichnungen im gewählten Zeitraum")
+                            )
                         }
+                        .listRowBackground(Color.clear)
+                    } else {
+                        ForEach(gefilterte) { session in
+                            NavigationLink(destination: SleepDetailView(session: session)) {
+                                SleepSessionRow(session: session)
+                            }
+                        }
+                        .onDelete(perform: delete)
                     }
-                    .onDelete(perform: delete)
                 }
                 .listStyle(.insetGrouped)
                 .toolbar { EditButton() }
@@ -55,7 +103,7 @@ struct SleepHistoryView: View {
 
     private func delete(at offsets: IndexSet) {
         for index in offsets {
-            let session = abgeschlossene[index]
+            let session = gefilterte[index]
             for phase in session.phasesArray { modelContext.delete(phase) }
             modelContext.delete(session)
         }
@@ -68,63 +116,78 @@ struct SleepHistoryView: View {
 private struct WochenSummaryCard: View {
     let sessions: [SleepSession]
     let schlafZielStunden: Double
+    let zeitraum: VerlaufZeitraum
 
     @State private var ausgewaehltTag: Date? = nil
     @State private var versteckTask: Task<Void, Never>? = nil
 
     private let cal = Calendar.current
 
-    private var dieseWoche: [SleepSession] {
-        let cutoff = cal.date(byAdding: .day, value: -7, to: Date())!
-        return sessions.filter { ($0.endDate ?? .distantPast) >= cutoff }
-    }
-
-    private var letzteWoche: [SleepSession] {
-        let start = cal.date(byAdding: .day, value: -14, to: Date())!
-        let end   = cal.date(byAdding: .day, value: -7,  to: Date())!
+    // Previous period for trend comparison
+    private var vorherigeSessionen: [SleepSession] {
+        guard let tage = zeitraum.tage else { return [] }
+        let start = cal.date(byAdding: .day, value: -tage * 2, to: Date())!
+        let end   = cal.date(byAdding: .day, value: -tage,     to: Date())!
+        // We don't have access to all sessions here, so use sessions filtered to prev period
         return sessions.filter {
             let d = $0.endDate ?? .distantPast
             return d >= start && d < end
         }
     }
 
-    // 7 days: today back to 6 days ago
-    private var chartTage: [Date] {
-        (0..<7).reversed().compactMap { cal.date(byAdding: .day, value: -$0, to: cal.startOfDay(for: Date())) }
+    private var useWeeklyAggregation: Bool {
+        zeitraum == .dreiMonate || zeitraum == .sechsMonate || zeitraum == .alle
     }
 
     private struct TagDaten: Identifiable {
         let datum: Date
-        let stunden: Double   // 0 if no session
-        let qualitaet: Int    // 0 if no session
+        let stunden: Double
+        let qualitaet: Int
         var id: Date { datum }
     }
 
     private var chartDaten: [TagDaten] {
-        chartTage.map { tag in
-            let s = dieseWoche.first { cal.isDate($0.endDate ?? .distantPast, inSameDayAs: tag) }
-            return TagDaten(datum: tag, stunden: (s?.totalDuration ?? 0) / 3600, qualitaet: s.map { SchlafindexView.score(for: $0) } ?? 0)
+        if useWeeklyAggregation {
+            // Group sessions by week start (Monday)
+            var byWeek: [Date: [SleepSession]] = [:]
+            for s in sessions {
+                let weekStart = cal.dateComponents([.yearForWeekOfYear, .weekOfYear], from: s.endDate ?? s.startDate)
+                let key = cal.date(from: weekStart) ?? s.startDate
+                byWeek[key, default: []].append(s)
+            }
+            return byWeek.sorted { $0.key < $1.key }.map { key, ss in
+                let avgH = ss.map { $0.totalDuration / 3600 }.reduce(0, +) / Double(ss.count)
+                let avgQ = ss.map { SchlafindexView.score(for: $0) }.reduce(0, +) / ss.count
+                return TagDaten(datum: key, stunden: avgH, qualitaet: avgQ)
+            }
+        } else {
+            let days = zeitraum.tage ?? 7
+            return (0..<days).reversed().compactMap { offset -> TagDaten? in
+                guard let tag = cal.date(byAdding: .day, value: -offset, to: cal.startOfDay(for: Date())) else { return nil }
+                let s = sessions.first { cal.isDate($0.endDate ?? .distantPast, inSameDayAs: tag) }
+                return TagDaten(datum: tag, stunden: (s?.totalDuration ?? 0) / 3600, qualitaet: s.map { SchlafindexView.score(for: $0) } ?? 0)
+            }
         }
     }
 
     private var avgDauerDiese: Double {
-        guard !dieseWoche.isEmpty else { return 0 }
-        return dieseWoche.map { $0.totalDuration / 3600 }.reduce(0, +) / Double(dieseWoche.count)
+        guard !sessions.isEmpty else { return 0 }
+        return sessions.map { $0.totalDuration / 3600 }.reduce(0, +) / Double(sessions.count)
     }
 
     private var avgQualitaetDiese: Int {
-        guard !dieseWoche.isEmpty else { return 0 }
-        return dieseWoche.map { SchlafindexView.score(for: $0) }.reduce(0, +) / dieseWoche.count
+        guard !sessions.isEmpty else { return 0 }
+        return sessions.map { SchlafindexView.score(for: $0) }.reduce(0, +) / sessions.count
     }
 
     private var avgTiefDiese: Double {
-        guard !dieseWoche.isEmpty else { return 0 }
-        return dieseWoche.map { $0.deepSleepDuration / 60 }.reduce(0, +) / Double(dieseWoche.count)
+        guard !sessions.isEmpty else { return 0 }
+        return sessions.map { $0.deepSleepDuration / 60 }.reduce(0, +) / Double(sessions.count)
     }
 
     private var avgQualitaetLetzte: Int {
-        guard !letzteWoche.isEmpty else { return 0 }
-        return letzteWoche.map { SchlafindexView.score(for: $0) }.reduce(0, +) / letzteWoche.count
+        guard !vorherigeSessionen.isEmpty else { return 0 }
+        return vorherigeSessionen.map { SchlafindexView.score(for: $0) }.reduce(0, +) / vorherigeSessionen.count
     }
 
     private var trend: Double {
@@ -145,7 +208,7 @@ private struct WochenSummaryCard: View {
         VStack(alignment: .leading, spacing: 16) {
             // Header
             HStack {
-                Label("Diese Woche", systemImage: "chart.bar.fill")
+                Label(zeitraum == .alle ? "Gesamtverlauf" : "Letzte \(zeitraum.rawValue)", systemImage: "chart.bar.fill")
                     .font(.headline).foregroundStyle(.indigo)
                 Spacer()
                 trendBadge
@@ -161,18 +224,19 @@ private struct WochenSummaryCard: View {
             }
 
             // Bar chart
+            let calUnit: Calendar.Component = useWeeklyAggregation ? .weekOfYear : .day
             Chart(chartDaten) { tag in
                 BarMark(
-                    x: .value("Tag", tag.datum, unit: .day),
+                    x: .value("Tag", tag.datum, unit: calUnit),
                     y: .value("Stunden", max(tag.stunden, tag.stunden == 0 ? 0.15 : 0))
                 )
                 .foregroundStyle(balkenFarbe(tag.qualitaet))
                 .cornerRadius(4)
 
                 if let sel = ausgewaehltTag, cal.isDate(tag.datum, inSameDayAs: sel) {
-                    RuleMark(x: .value("Sel", sel, unit: .day))
+                    RuleMark(x: .value("Sel", sel, unit: calUnit))
                         .foregroundStyle(Color.indigo.opacity(0.25))
-                        .lineStyle(StrokeStyle(lineWidth: 24, lineCap: .round))
+                        .lineStyle(StrokeStyle(lineWidth: useWeeklyAggregation ? 40 : 24, lineCap: .round))
                 }
             }
             .chartOverlay { proxy in
@@ -181,7 +245,6 @@ private struct WochenSummaryCard: View {
                         .onTapGesture { loc in balkenTippen(proxy: proxy, location: loc) }
                 }
             }
-            // Schlafziel as dashed line
             .chartForegroundStyleScale(["Schlafziel": Color.indigo])
             .chartYAxis {
                 AxisMarks(values: [0, schlafZielStunden]) { val in
@@ -195,10 +258,19 @@ private struct WochenSummaryCard: View {
                 }
             }
             .chartXAxis {
-                AxisMarks(values: .stride(by: .day)) { val in
-                    if val.as(Date.self) != nil {
-                        AxisValueLabel(format: .dateTime.weekday(.narrow), centered: true)
-                            .font(.caption2)
+                if useWeeklyAggregation {
+                    AxisMarks(values: .stride(by: .month)) { val in
+                        if val.as(Date.self) != nil {
+                            AxisValueLabel(format: .dateTime.month(.abbreviated))
+                                .font(.caption2)
+                        }
+                    }
+                } else {
+                    AxisMarks(values: .stride(by: .day)) { val in
+                        if val.as(Date.self) != nil {
+                            AxisValueLabel(format: .dateTime.weekday(.narrow), centered: true)
+                                .font(.caption2)
+                        }
                     }
                 }
             }
