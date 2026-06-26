@@ -156,7 +156,7 @@ final class SleepPhaseClassifier {
         let elapsedMin = Date().timeIntervalSince(onset) / 60
         guard elapsedMin >= 65 else { return false }
         let cycle = elapsedMin.truncatingRemainder(dividingBy: 90)
-        if cycle >= 65 { return true }
+        if cycle >= 60 { return true }  // widened from 65 → covers last 30 min of each cycle
         // HR-adaptive: HR elevated above typical deep-sleep level + rising trend
         // suggests REM is starting earlier than the fixed 65/90 min boundary.
         let hrInREMRange = !hrHistory.isEmpty && (hrHistory.last ?? 0) >= 60 && (hrHistory.last ?? 0) < 80
@@ -443,6 +443,27 @@ final class SleepPhaseClassifier {
         if hasHR && hrREM && remWindow && amp <= sleepAmplitudeMax && !hrvHigh {
             let conf: Double = usingBCG ? 0.58 * hrConfidenceScale : 0.70
             return (.rem, conf)
+        }
+
+        // 5c. REM window default: still body + quiet room = REM (ShutEye-style).
+        // REM sleep features muscle atonia (very still) + period-correct timing.
+        // If we're in a REM window and the person is clearly not awake and not deeply
+        // breathing, the absence of movement IS the REM signal — we don't need to prove
+        // irregular breathing from audio. This is how commercial apps detect REM reliably
+        // on a bare mattress without any extra setup.
+        if remWindow
+            && amp <= sleepAmplitudeMax
+            && mov < awakeMotionThreshold * 0.6   // clearly not moving
+            && bpm <= remBreathMax                 // not breathing too fast (not awake)
+        {
+            // Scale confidence: more time into REM window = more confident
+            let elapsedInCycle: Double = sleepOnsetDate.map {
+                Date().timeIntervalSince($0) / 60
+            }.map { $0.truncatingRemainder(dividingBy: 90) } ?? 72
+            let windowDepth = min((elapsedInCycle - 60) / 30, 1.0)  // 0 at entry, 1 at cycle end
+            let baseConf = 0.58 + windowDepth * 0.12
+            let hrBoost: Double = hasHR && hrREM && !hrvHigh ? 0.06 * hrConfidenceScale : 0.0
+            return (.rem, min(baseConf + hrBoost, 0.82))
         }
 
         // 6. Deep sleep outside REM window (relaxed — catches cases missed above)
