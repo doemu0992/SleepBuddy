@@ -690,15 +690,16 @@ struct SleepDetailView: View {
             let maxBPM = (data.map(\.bpm).max() ?? 100) + 5
 
             Chart(data) { sample in
-                // Resting HR reference band (50–70 BPM)
-                if minBPM < 70 && maxBPM > 50 {
-                    RectangleMark(
-                        xStart: .value("Start", session.startDate),
-                        xEnd: .value("Ende", session.endDate ?? Date()),
-                        yStart: .value("Ruhepuls min", max(minBPM, 50.0)),
-                        yEnd: .value("Ruhepuls max", min(maxBPM, 70.0))
-                    )
-                    .foregroundStyle(Color.gray.opacity(0.08))
+                // Resting HR reference zone: dashed boundary lines at 50 and 70 BPM
+                if maxBPM > 50 {
+                    RuleMark(y: .value("Ruhepuls min", 50.0))
+                        .foregroundStyle(Color.gray.opacity(0.35))
+                        .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 3]))
+                }
+                if maxBPM > 70 {
+                    RuleMark(y: .value("Ruhepuls max", 70.0))
+                        .foregroundStyle(Color.gray.opacity(0.35))
+                        .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 3]))
                 }
 
                 LineMark(
@@ -748,9 +749,9 @@ struct SleepDetailView: View {
             .clipped()
 
             HStack(spacing: 6) {
-                RoundedRectangle(cornerRadius: 2)
-                    .fill(Color.gray.opacity(0.30))
-                    .frame(width: 16, height: 8)
+                Rectangle()
+                    .fill(Color.gray.opacity(0.40))
+                    .frame(width: 16, height: 1)
                 Text("Ruhepuls-Zone (50–70 BPM)")
                     .font(.caption2).foregroundStyle(.secondary)
                 Spacer()
