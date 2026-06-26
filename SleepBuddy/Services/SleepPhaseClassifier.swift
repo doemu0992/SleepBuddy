@@ -68,7 +68,7 @@ final class PersonalCalibrationService {
     }
 
     var deepBreathMin: Float  { let v = ud.float(forKey: Key.deepBreathMin.rawValue);  return v > 0 ? v : 9.0  }
-    var deepBreathMax: Float  { let v = ud.float(forKey: Key.deepBreathMax.rawValue);  return v > 0 ? v : 15.0 }
+    var deepBreathMax: Float  { let v = ud.float(forKey: Key.deepBreathMax.rawValue);  return v > 0 ? v : 17.0 }
     var lightBreathMin: Float { let v = ud.float(forKey: Key.lightBreathMin.rawValue); return v > 0 ? v : 14.0 }
     var lightBreathMax: Float { let v = ud.float(forKey: Key.lightBreathMax.rawValue); return v > 0 ? v : 19.0 }
     var remBreathMin: Float   { let v = ud.float(forKey: Key.remBreathMin.rawValue);   return v > 0 ? v : 11.0 }
@@ -409,9 +409,10 @@ final class SleepPhaseClassifier {
         }
 
         // 4. Deep sleep: slow + regular + quiet (only outside REM windows)
-        // Audio-only: lower the regularity bar by 0.12 — audio-mic breathing is less
-        // precise than accelerometer and tends to read as "moderately regular" even in deep.
-        let effectiveDeepRegMin: Float = isAudioOnly ? max(deepRegularityMin - 0.12, 0.38) : deepRegularityMin
+        // Audio-only (nightstand): RAISE the regularity bar by 0.10 — mic breathing is
+        // noisier and more susceptible to ambient rhythmic sounds, so require stronger evidence.
+        // On-mattress: keep deepRegularityMin as-is (accelerometer is the reliable source).
+        let effectiveDeepRegMin: Float = isAudioOnly ? min(deepRegularityMin + 0.10, 0.80) : deepRegularityMin
         if !remWindow
             && bpm >= deepBreathMin && bpm <= deepBreathMax
             && reg >= effectiveDeepRegMin
@@ -428,10 +429,10 @@ final class SleepPhaseClassifier {
         // 5. REM: irregular breathing, quiet.
         //    In a REM window the thresholds are relaxed — less regularity required.
         //    HR-based REM boost: slightly elevated HR + no high HRV is classic REM.
-        //    Audio-only: raise the regularity ceiling — mic-derived breathing regularity
-        //    tends to be higher than true regularity, so we need a wider REM window.
-        let audioOnlyREMBonus: Float = isAudioOnly ? 0.15 : 0.0
-        let remRegMax: Float = remWindow ? 0.94 : min(remMaxRegularity + audioOnlyREMBonus, 0.88)
+        //    Audio-only (nightstand): lower the regularity ceiling — mic breathing reads
+        //    artificially high regularity from room hum, so tighten the REM window slightly.
+        let audioOnlyREMPenalty: Float = isAudioOnly ? 0.08 : 0.0
+        let remRegMax: Float = remWindow ? 0.94 : max(remMaxRegularity - audioOnlyREMPenalty, 0.50)
         let remVarMin: Float = remWindow ? 0.000002 : 0.000008
         let remConfBoost: Double = remWindow ? 0.20 : 0.0
         // HRV falling during REM window = sympathetic intrusion typical in REM → additional boost
