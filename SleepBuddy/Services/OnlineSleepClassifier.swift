@@ -77,17 +77,18 @@ final class OnlineSleepClassifier {
         history.append(raw)
         if history.count > historySize { history.removeFirst() }
 
-        let result = smoothed()
+        return smoothed()
+    }
 
-        // Store one session sample per 30s (same cadence as k-NN) — avoids 230K entries/night
+    /// Records a training sample labeled by the ShutEye classifier — called by MLSleepClassifier
+    /// so that stored samples reflect cycle-based ground truth, not k-NN self-labels.
+    func recordSample(audio: AudioFeatures, motion: MotionFeatures, phase: SleepPhaseType) {
         bufferTickCounter += 1
         if bufferTickCounter >= knnRunEveryNTicks {
             bufferTickCounter = 0
             let elapsed = sleepOnsetDate.map { Float(Date().timeIntervalSince($0) / 60) } ?? 0
-            sessionBuffer.append((timestamp: Date(), audio: audio, motion: motion, phase: result.phase, elapsedMinutes: elapsed))
+            sessionBuffer.append((timestamp: Date(), audio: audio, motion: motion, phase: phase, elapsedMinutes: elapsed))
         }
-
-        return result
     }
 
     // MARK: - Persistence

@@ -47,7 +47,7 @@ final class SoundEventService {
 
     // MARK: - Event detection state
 
-    private let cooldownAfterEventSeconds: TimeInterval = 2.0
+    private let cooldownAfterEventSeconds: TimeInterval = 4.0
 
     private var eventStartDate: Date?
     private var pendingEventType: SoundEventType = .other
@@ -191,8 +191,10 @@ final class SoundEventService {
            let hint = mlHintType {
             return hint
         }
-        if snoringScore > 0.30 { return .snoring }
-        if speechLikelihood > 0.30 { return .talking }
+        // Amplitude-triggered without fresh ML hint — use strict thresholds to match
+        // SoundClassificationService's minimum confidence levels
+        if snoringScore > 0.45 { return .snoring }
+        if speechLikelihood > 0.40 { return .talking }
         return .other
     }
 

@@ -3,13 +3,14 @@ import Foundation
 import HealthKit
 import SwiftData
 
-/// Entry point for classification. Priority:
-///   1. CoreML trained model (ApplicationSupport — retrained nightly, or bundled fallback)
-///   2. Online k-NN (learns from every night)
-///   3. Rule-based fallback (Nacht 1)
+/// Entry point for classification.
+/// ShutEye-style: the 90-minute cycle classifier (SleepPhaseClassifier) is ALWAYS used
+/// for live phase detection. k-NN and CoreML are kept for training-data collection only
+/// and do not influence real-time classification.
 final class MLSleepClassifier {
 
     let onlineClassifier = OnlineSleepClassifier()
+    private let shutEyeClassifier = SleepPhaseClassifier()
     private var coreMLModel: MLModel?
     private(set) var isCoreMLAvailable = false
 
@@ -63,26 +64,38 @@ final class MLSleepClassifier {
     // MARK: - Classification
 
     func classify(audio: AudioFeatures, motion: MotionFeatures) -> (phase: SleepPhaseType, confidence: Double) {
-        if isCoreMLAvailable, let result = coreMLClassify(audio: audio, motion: motion) { return result }
-        return onlineClassifier.classify(audio: audio, motion: motion)
+        // ShutEye cycle model is always the live classifier
+        let result = shutEyeClassifier.classify(audio: audio, motion: motion)
+        // Collect training sample labeled with ShutEye's phase for future model improvement
+        onlineClassifier.recordSample(audio: audio, motion: motion, phase: result.phase)
+        return result
     }
 
     var sleepOnsetDate: Date? {
-        get { onlineClassifier.sleepOnsetDate }
-        set { onlineClassifier.sleepOnsetDate = newValue }
+        get { shutEyeClassifier.sleepOnsetDate }
+        set {
+            shutEyeClassifier.sleepOnsetDate = newValue
+            onlineClassifier.sleepOnsetDate = newValue
+        }
     }
 
     var currentHRBPM: Double {
-        get { onlineClassifier.currentHRBPM }
-        set { onlineClassifier.currentHRBPM = newValue }
+        get { shutEyeClassifier.currentHRBPM }
+        set {
+            shutEyeClassifier.currentHRBPM = newValue
+            onlineClassifier.currentHRBPM = newValue
+        }
     }
 
     var currentHRVms: Double {
-        get { onlineClassifier.currentHRVms }
-        set { onlineClassifier.currentHRVms = newValue }
+        get { shutEyeClassifier.currentHRVms }
+        set {
+            shutEyeClassifier.currentHRVms = newValue
+            onlineClassifier.currentHRVms = newValue
+        }
     }
 
-    func reset() { onlineClassifier.reset() }
+    func reset() { shutEyeClassifier.reset(); onlineClassifier.reset() }
 
     func flushSessionBuffer(to context: ModelContext) {
         onlineClassifier.flushSessionBuffer(to: context)
