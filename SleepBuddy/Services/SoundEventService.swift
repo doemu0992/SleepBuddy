@@ -68,18 +68,17 @@ final class SoundEventService {
     private let mlHintMaxAge: TimeInterval = 3.0
 
     /// Called by SoundClassificationService when Apple's ML fires.
-    /// Quiet personal sounds (bruxism, coughing…) bypass the amplitude gate — they are
-    /// real events that may never cross the threshold. External/ambient sounds must cross
-    /// the amplitude threshold naturally to avoid false positives from AC / fan noise.
+    /// ShutEye-style: ML is the primary trigger for ALL sound types.
+    /// External sounds have higher confidence thresholds in SoundClassificationService (0.50–0.65)
+    /// which acts as the false-positive gate — no separate amplitude check needed.
     func hintMLDetection(type: SoundEventType, confidence: Double) {
         mlHintType = type
         mlHintConfidence = confidence
         mlHintDate = Date()
 
-        let isMLPrimary = type == .bruxism || type == .coughing || type == .sneezing
-            || type == .knock || type == .glassBreak || type == .snoring
-            || type == .gasping || type == .laughing
-        if isMLPrimary && confidence >= 0.45 && eventStartDate == nil && !isInCooldown {
+        // External sounds require slightly higher confidence to compensate for ambient noise
+        let minConf: Double = type.isExternal ? 0.55 : 0.45
+        if confidence >= minConf && eventStartDate == nil && !isInCooldown {
             eventStartDate = Date()
             pendingEventType = type
             consecutiveLoudTicks = loudTicksToStart
