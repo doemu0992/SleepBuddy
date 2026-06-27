@@ -581,7 +581,18 @@ private func finishCalibration() {
 | Nach Kalibrierung | `max(ambientCeiling95 × 1.8, 0.004)` |
 | + Partner Stufe 1 / 2 | × 1.6 / × 2.4 |
 
-> **`reset()` muss die Kalibrierung zurücksetzen** (`calibrationSamples`, `calibrationDeadline`, `calibratedThreshold`) — jede Nacht neu kalibrieren.
+**Rollende Nachkalibrierung (bindend):** Die Schwelle passt sich über die Nacht an wechselnde Bedingungen an (Heizung, Straßenlärm, etc.). Alle **2 Minuten** wird aus den letzten ~5 Minuten **ruhiger** Samples (nur `eventStartDate == nil` **und** unter aktueller Schwelle — so heben Events den Boden nie selbst an) ein neuer Boden berechnet und per EMA sanft eingemischt:
+
+```swift
+private func recalibrateRolling() {
+    guard rollingAmbient.count >= 240 else { return }   // ≥ ~30 s ruhige Daten
+    let ceiling = /* 95. Perzentil von rollingAmbient */
+    let candidate = max(ceiling * 1.8, 0.004)
+    calibratedThreshold = calibratedThreshold! * 0.6 + candidate * 0.4   // sanfte Mischung
+}
+```
+
+> **`reset()` muss Kalibrierung UND Rolling-State zurücksetzen** (`calibrationSamples`, `calibrationDeadline`, `calibratedThreshold`, `rollingAmbient`, `lastRecal`) — jede Nacht neu kalibrieren.
 
 > **ML bleibt primärer Trigger** (amplitudenunabhängig, gain-verstärkt). Die kalibrierte Amplitude ist das Gate für nicht-ML-Sounds + Spektral-Schnarchen.
 

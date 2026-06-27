@@ -39,6 +39,12 @@ final class SoundEventService {
     private var calibrationDeadline: Date?
     private(set) var calibratedThreshold: Float?   // nil until first 60 s elapsed
 
+    // Rolling re-calibration: keeps adapting the ambient floor through the night.
+    private let recalInterval: TimeInterval = 120          // re-evaluate every 2 min
+    private let rollingMax = 2400                          // ~5 min of quiet samples @ 8 Hz
+    private var rollingAmbient: [Float] = []
+    private var lastRecal = Date.distantPast
+
     private var amplitudeThreshold: Float {
         // Once calibrated, the measured ambient ceiling drives detection.
         if let cal = calibratedThreshold {
@@ -148,6 +154,18 @@ final class SoundEventService {
             return  // no event detection while calibrating
         }
 
+        // ── Rolling re-calibration: feed only quiet, non-event samples so that
+        //    events never raise the floor; re-evaluate the threshold every 2 min.
+        if eventStartDate == nil, let thr = calibratedThreshold, instantAmplitude < thr {
+            rollingAmbient.append(instantAmplitude)
+            if rollingAmbient.count > rollingMax {
+                rollingAmbient.removeFirst(rollingAmbient.count - rollingMax)
+            }
+        }
+        if Date().timeIntervalSince(lastRecal) >= recalInterval {
+            recalibrateRolling()
+        }
+
         if isInCooldown { return }
 
         // Snoring has a strong low-frequency spectral signature that survives
@@ -187,6 +205,8 @@ final class SoundEventService {
         calibrationSamples.removeAll()
         calibrationDeadline = nil
         calibratedThreshold = nil
+        rollingAmbient.removeAll()
+        lastRecal = .distantPast
     }
 
     /// Finalises calibration: threshold = 95th-percentile ambient ceiling × margin,
@@ -200,6 +220,23 @@ final class SoundEventService {
         let idx = min(sorted.count - 1, Int(Double(sorted.count) * 0.95))
         let ceiling = sorted[idx]
         calibratedThreshold = max(ceiling * 1.8, 0.004)   // never below ≈ 42 dB
+        lastRecal = Date()
+    }
+
+    /// Rolling re-calibration: recompute the ambient floor from the last ~5 min of
+    /// quiet samples and blend it smoothly into the current threshold (EMA) so the
+    /// app adapts to changing room conditions through the night without jumping.
+    private func recalibrateRolling() {
+        lastRecal = Date()
+        guard rollingAmbient.count >= 240 else { return }   // need ≥ ~30 s of quiet data
+        let sorted = rollingAmbient.sorted()
+        let ceiling = sorted[min(sorted.count - 1, Int(Double(sorted.count) * 0.95))]
+        let candidate = max(ceiling * 1.8, 0.004)
+        if let cur = calibratedThreshold {
+            calibratedThreshold = cur * 0.6 + candidate * 0.4   // smooth blend
+        } else {
+            calibratedThreshold = candidate
+        }
     }
 
     // MARK: - Audio file URL for playback
