@@ -153,6 +153,12 @@ final class SleepPhaseClassifier {
     /// degradation (lock lost = likely restlessness) later in the night.
     private var bcgWasReliable = false
 
+    // Sustained breathing-override streaks (cycle stays the backbone unless the
+    // sensor reading holds for breathOverrideMin consecutive measurements).
+    private var breathDeepStreak = 0
+    private var breathREMStreak = 0
+    private let breathOverrideMin = 3
+
     // MARK: - Phase transition matrix
     // Weights reflect physiological plausibility of phase-to-phase transitions.
 
@@ -179,6 +185,8 @@ final class SleepPhaseClassifier {
         bcgReliable      = false
         bcgMedian        = 0
         bcgWasReliable   = false
+        breathDeepStreak = 0
+        breathREMStreak  = 0
         sleepOnsetDate   = nil
         lastCommittedPhase = .awake
     }
@@ -242,6 +250,15 @@ final class SleepPhaseClassifier {
         // Deep sleep: slow (< 13 BPM) + very regular. REM: irregular (< 0.45) + not too slow.
         let breathDeep = breathValid && breathBPM < 13 && breathReg > 0.60
         let breathREM  = breathValid && breathReg  < 0.45 && breathBPM > 11
+
+        // Sustained-signal streaks: the cycle model is the backbone; breathing only
+        // OVERRIDES it once the same reading has held for several measurements
+        // (a single noisy sample must not flip the phase). ShutEye-style: pattern
+        // is the skeleton, sensors adapt within it.
+        breathDeepStreak = breathDeep ? breathDeepStreak + 1 : 0
+        breathREMStreak  = breathREM  ? breathREMStreak  + 1 : 0
+        let breathDeepSustained = breathDeepStreak >= breathOverrideMin
+        let breathREMSustained  = breathREMStreak  >= breathOverrideMin
 
         // --- Update BCG history for HR display (not used for phase decisions) ---
         if motion.isOnMattress && motion.bcgHeartRateBPM > 0 {
@@ -333,14 +350,14 @@ final class SleepPhaseClassifier {
         // Breathing rate is a solid phase signal when measured cleanly, but noisier
         // than HR. Only fires when there is no HR to conflict with.
         if breathValid && !hasHR {
-            if breathDeep && !inREMCycle {
+            if breathDeepSustained && !inREMCycle {
                 // Slow + very regular → deep, regardless of cycle position
                 let regBonus = Double(max(breathReg - 0.60, 0)) * 0.28
                 let base: Double = useMotionBreath ? 0.64 : 0.52
                 let cap:  Double = useMotionBreath ? 0.76 : 0.63
                 return (.deep, min(base + regBonus, cap))
             }
-            if breathREM && inREMCycle {
+            if breathREMSustained && inREMCycle {
                 // Irregular breathing in REM window → REM
                 let irregBonus = Double(max(0.45 - breathReg, 0)) * 0.32
                 let base: Double = useMotionBreath ? 0.60 : 0.50
@@ -376,10 +393,10 @@ final class SleepPhaseClassifier {
 
         // ── Zone B: Deep sleep (20–65 min into cycle) ──────────────────────────
         if cyclePos < 65 {
-            // Sensor override: clearly irregular breathing in a "deep" zone means
-            // the cycle prior is wrong here → light sleep / arousal. Breathing
-            // (robust) wins over the time-based default.
-            if breathValid && breathREM {
+            // Sensor override (only when sustained): clearly irregular breathing
+            // held over several measurements in a "deep" zone → light/arousal.
+            // A single noisy sample does NOT override the cycle backbone.
+            if breathREMSustained {
                 let irregBonus = Double(max(0.45 - breathReg, 0)) * 0.25
                 return (.light, min(0.60 + irregBonus, 0.74))
             }
@@ -395,9 +412,9 @@ final class SleepPhaseClassifier {
         }
 
         // ── Zone C: REM (65–90 min into cycle) ─────────────────────────────────
-        // Sensor override: slow + very regular breathing in a "REM" zone means the
-        // sleeper is actually still in deep sleep → breathing wins over the cycle.
-        if breathValid && breathDeep {
+        // Sensor override (only when sustained): slow + very regular breathing
+        // held over several measurements in a "REM" zone → still deep sleep.
+        if breathDeepSustained {
             let regBonus = Double(max(breathReg - 0.60, 0)) * 0.25
             return (.deep, min(0.60 + regBonus, 0.76))
         }

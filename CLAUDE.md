@@ -1154,10 +1154,12 @@ Falls weder HR-Override noch Atem-Override ausgelöst haben:
 
 **Zone A (0–20 min nach Onset):** → `.light`, Konfidenz 0.55–0.65
 
-> **Sensor-Override schreibt die Phase um (bindend):** In Zone B & C bestimmt nicht mehr nur die Zeit die Phase — die robuste **Atmung** kann die Zyklus-Vorgabe überschreiben (ShutEye-Stil, aber sensor-gestützt). So folgt die Kurve den Sensoren statt einem starren Zeitmuster, auch wenn der Herzschlag (BCG) fehlt:
-> - **Zone B (Default Tief):** `breathValid && breathREM` (unregelmäßige Atmung) → `.light` (Arousal), nicht Tief.
-> - **Zone C (Default REM):** `breathValid && breathDeep` (langsam+regelmäßig) → `.deep`, nicht REM.
-> - Atmung ist robuster als BCG (große, langsame Bewegung überlebt Unruhe). Der Restless-Bias greift nur noch, wenn **weder** HR **noch** gültige Atmung vorliegt.
+> **Zyklus = Rückgrat, Sensoren adaptieren (bindend, ShutEye-Stil):** Das 90-min-Zyklusmuster ist das **Gerüst** (garantiert eine plausible Nacht-Architektur). Die robuste **Atmung** überschreibt die Zyklus-Vorgabe **nur, wenn das Signal anhält** — `breathOverrideMin = 3` aufeinanderfolgende Messungen (`breathDeepStreak`/`breathREMStreak`). Ein einzelner verrauschter Messwert kippt die Phase **nicht**:
+> - **Zone B (Default Tief):** `breathREMSustained` (unregelmäßige Atmung ≥ 3×) → `.light` (Arousal).
+> - **Zone C (Default REM):** `breathDeepSustained` (langsam+regelmäßig ≥ 3×) → `.deep`.
+> - Step 2b (kein HR): Atem-Override ebenfalls nur `…Sustained`.
+> - Streaks werden in `reset()` genullt. Atmung ist robuster als BCG; der Restless-Bias greift nur, wenn **weder** HR **noch** gültige Atmung vorliegt.
+> - So bleibt die Kurve plausibel (Muster als Skelett) und wird nur dort verfeinert, wo die Sensoren **sicher** sind — kein zappeliges Sensor-Chaos.
 
 **Zone B (20–65 min) — Tiefschlaf-Wahrscheinlichkeit:**
 ```swift
