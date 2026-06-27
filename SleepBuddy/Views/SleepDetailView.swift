@@ -865,7 +865,7 @@ struct SleepDetailView: View {
                     .font(.caption2).foregroundStyle(Color.gray.opacity(0.8))
             }
 
-            Text("Quelle: Ballistokardiographie (Beschleunigungssensor) oder Apple Watch. Unzuverlässige Abschnitte werden geglättet und als „geschätzt" markiert.")
+            Text("Quelle: Ballistokardiographie (Beschleunigungssensor) oder Apple Watch. Unzuverlässige Abschnitte werden geglättet und als „geschätzt“ markiert.")
                 .font(.caption2).foregroundStyle(.secondary)
         }
         .padding()
