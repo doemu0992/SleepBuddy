@@ -2,6 +2,7 @@ import SoundAnalysis
 import AVFoundation
 import Observation
 import CoreMedia
+import Accelerate
 
 @Observable
 final class SoundClassificationService: NSObject {
@@ -29,9 +30,33 @@ final class SoundClassificationService: NSObject {
         guard let analyzer else { return }
         bufferCounter += 1
         guard bufferCounter % analyzeEveryN == 0 else { return }
+        // The AVAudioSession runs in .measurement mode (AGC off) for accurate
+        // breathing analysis — this yields a very low input level. A phone on the
+        // mattress muffles it further. Without a gain boost the ML classifier
+        // never reaches confidence, so NO sounds (incl. external) are detected.
+        // Boost a copy fed to the ML analyzer only; raw signal stays for breathing.
+        let boosted = Self.applyGain(buffer, gain: 8.0) ?? buffer
+        let sampleTime = time.sampleTime
         analysisQueue.async {
-            analyzer.analyze(buffer, atAudioFramePosition: time.sampleTime)
+            analyzer.analyze(boosted, atAudioFramePosition: sampleTime)
         }
+    }
+
+    /// Returns a gain-scaled copy of the buffer, hard-clipped to [-1, 1].
+    private static func applyGain(_ buffer: AVAudioPCMBuffer, gain: Float) -> AVAudioPCMBuffer? {
+        guard let inCh = buffer.floatChannelData,
+              let out = AVAudioPCMBuffer(pcmFormat: buffer.format, frameCapacity: buffer.frameCapacity),
+              let outCh = out.floatChannelData else { return nil }
+        out.frameLength = buffer.frameLength
+        let n = vDSP_Length(buffer.frameLength)
+        var g = gain
+        var lo: Float = -1.0
+        var hi: Float = 1.0
+        for c in 0..<Int(buffer.format.channelCount) {
+            vDSP_vsmul(inCh[c], 1, &g, outCh[c], 1, n)
+            vDSP_vclip(outCh[c], 1, &lo, &hi, outCh[c], 1, n)
+        }
+        return out
     }
 
     func stop() {
