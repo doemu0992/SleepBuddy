@@ -200,6 +200,10 @@ final class SleepTrackingViewModel {
             classifier.flushSessionBuffer(to: context)
         }
 
+        // Post-hoc HR-based phase correction: re-type clear mislabels using the
+        // cleaned full-night heart rate (only where real measured HR dominates).
+        applyHeartRatePhaseCorrection(to: session)
+
         // Post-hoc plausibility correction: remove/merge implausibly short isolated phases
         applyPlausibilityCorrection(to: session)
 
@@ -359,6 +363,93 @@ final class SleepTrackingViewModel {
         )
         session.phases?.append(phase)
         modelContext?.insert(phase)
+    }
+
+    // MARK: - Post-hoc HR-based phase correction
+    // Uses the cleaned full-night heart rate (same robust filter as the display)
+    // to fix CLEAR mislabels — only where real measured HR dominates the phase,
+    // never on awake or on estimated (held) spans. Conservative: only corrects
+    // when the existing label clearly contradicts the heart rate.
+    private func applyHeartRatePhaseCorrection(to session: SleepSession) {
+        let pts = cleanedHeartRate(session)
+        guard !pts.isEmpty, let onset = session.sleepOnsetDate else { return }
+        let onsetMin = onset.timeIntervalSince(session.startDate) / 60.0
+
+        func median(_ a: [Double]) -> Double { let s = a.sorted(); return s.isEmpty ? 0 : s[s.count / 2] }
+
+        var changed = false
+        for phase in session.phasesArray where phase.phaseType != .awake {
+            let startMin = Int(phase.startDate.timeIntervalSince(session.startDate) / 60)
+            let endMin   = Int(phase.endDate.timeIntervalSince(session.startDate) / 60)
+            guard endMin > startMin else { continue }
+
+            let span = pts.filter { $0.index >= startMin && $0.index < endMin }
+            let measured = span.filter { !$0.estimated }.map { $0.bpm }
+            // Only act when real measured HR covers at least half the phase.
+            guard measured.count >= 3, Double(measured.count) / Double(max(1, span.count)) >= 0.5 else { continue }
+
+            let m = median(measured)
+            let midMin = Double(startMin + endMin) / 2.0
+            let cyclePos = (midMin - onsetMin).truncatingRemainder(dividingBy: 90)
+            let inREMWindow = cyclePos >= 60
+
+            switch phase.phaseType {
+            case .deep:
+                // Deep sleep has a distinctly low HR. Clearly elevated → not deep.
+                if m >= 65 { phase.phaseType = inREMWindow ? .rem : .light; changed = true }
+            case .light:
+                // Distinctly low + steady HR → actually deep.
+                if m < 54 { phase.phaseType = .deep; changed = true }
+            case .rem:
+                // Very low HR contradicts REM → deep.
+                if m < 54 { phase.phaseType = .deep; changed = true }
+            case .awake:
+                break
+            }
+        }
+        if changed { try? modelContext?.save() }
+    }
+
+    /// Robust per-minute heart rate (plausibility + median-5 + delta-limit) with
+    /// Variante-B held gaps flagged `estimated`. Mirrors SleepDetailView.heartRatePoints.
+    private func cleanedHeartRate(_ session: SleepSession) -> [(index: Int, bpm: Double, estimated: Bool)] {
+        let raw = session.heartRateSamples
+        guard !raw.isEmpty else { return [] }
+        func median(_ a: [Double]) -> Double { let s = a.sorted(); return s.isEmpty ? 0 : s[s.count / 2] }
+
+        let vals: [Double?] = raw.map { ($0 >= 40 && $0 <= 110) ? $0 : nil }
+        var smoothed: [Double?] = Array(repeating: nil, count: vals.count)
+        for i in vals.indices where vals[i] != nil {
+            var win: [Double] = []
+            for j in max(0, i - 2)...min(vals.count - 1, i + 2) { if let x = vals[j] { win.append(x) } }
+            smoothed[i] = win.isEmpty ? vals[i] : median(win)
+        }
+        var accepted: [Double?] = Array(repeating: nil, count: smoothed.count)
+        var last: Double? = nil
+        var rejectRun: [Double] = []
+        for i in smoothed.indices {
+            guard let v = smoothed[i] else { continue }
+            if let l = last {
+                if abs(v - l) <= 12 { accepted[i] = v; last = v; rejectRun.removeAll() }
+                else {
+                    rejectRun.append(v)
+                    if rejectRun.count >= 3 { let mm = median(rejectRun); accepted[i] = mm; last = mm; rejectRun.removeAll() }
+                }
+            } else { accepted[i] = v; last = v }
+        }
+        guard let firstIdx = accepted.firstIndex(where: { $0 != nil }),
+              let lastIdx = accepted.lastIndex(where: { $0 != nil }) else { return [] }
+
+        var out: [(index: Int, bpm: Double, estimated: Bool)] = []
+        var hold = accepted[firstIdx]!
+        for i in firstIdx...lastIdx {
+            let measured = accepted[i]
+            let est = measured == nil
+            let bpm = measured ?? hold
+            if let mm = measured { hold = mm }
+            out.append((index: i, bpm: bpm, estimated: est))
+        }
+        return out
     }
 
     // MARK: - Post-hoc plausibility correction

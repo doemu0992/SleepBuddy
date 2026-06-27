@@ -911,6 +911,15 @@ if Date().timeIntervalSince(lastBCGSampleDate) >= 60, let session = currentSessi
 >
 > Darstellung: durchgehende pinke Catmull-Rom-Linie (gemessen + gehalten) + **graue gestrichelte Overlay-Linie** auf den `estimated`-Abschnitten (gruppiert per `segment`). Legende: „┄ geschätzt". So bleibt die Kurve glatt und plausibel, kennzeichnet aber ehrlich, wo geschätzt wurde.
 
+**Post-hoc HR-Phasenkorrektur (`applyHeartRatePhaseCorrection`, bindend):**
+
+> Die bereinigte Herzfrequenz korrigiert nicht nur die Anzeige, sondern auch die **Phasen**. In `stopTracking()` läuft `applyHeartRatePhaseCorrection(to:)` **vor** `applyPlausibilityCorrection`. Sie nutzt dieselbe bereinigte Reihe (`cleanedHeartRate`, spiegelt `SleepDetailView.heartRatePoints`) und korrigiert pro Phase nur **klare Widersprüche**, und nur wenn echte **gemessene** HR ≥ 50 % der Phase abdeckt (geschätzte/gehaltene Abschnitte werden ignoriert):
+> - `.deep` mit Median ≥ 65 BPM → `.rem` (im REM-Fenster) bzw. `.light`
+> - `.light`/`.rem` mit Median < 54 BPM (klar niedrig) → `.deep`
+> - `.awake` wird nie überschrieben (bewegungsbasiert, zuverlässiger)
+>
+> So sind die Phasen nicht nur optisch plausibel, sondern folgen dort, wo verlässliche HR vorliegt, der echten Herzfrequenz — statt dem reinen Zyklusmuster.
+
 ---
 
 ## Sensor-System
