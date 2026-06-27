@@ -349,12 +349,13 @@ final class SleepPhaseClassifier {
             }
         }
 
-        // ── BCG lock lost while still on mattress + some movement → restless ──
-        // A previously clean BCG signal that degrades usually means the sleeper
-        // became restless (movement corrupts BCG). In that case bias toward
-        // light sleep instead of confidently drawing the deep/REM cycle.
+        // ── BCG lock lost + movement + no usable breathing → restless ──────────
+        // Only when we have NO robust signal at all (no HR, no valid breathing)
+        // and the previously clean BCG degraded with movement do we fall back to
+        // a light-sleep restlessness bias. If breathing is valid it drives the
+        // phase below instead (keeps the curve smooth & sensor-grounded).
         let bcgDegraded = motion.isOnMattress && bcgWasReliable && !bcgReliable && !hasHR
-        if bcgDegraded && mov > awakeMotionThreshold * 0.25 {
+        if bcgDegraded && !breathValid && mov > awakeMotionThreshold * 0.25 {
             return (.light, 0.58)
         }
 
@@ -375,27 +376,38 @@ final class SleepPhaseClassifier {
 
         // ── Zone B: Deep sleep (20–65 min into cycle) ──────────────────────────
         if cyclePos < 65 {
+            // Sensor override: clearly irregular breathing in a "deep" zone means
+            // the cycle prior is wrong here → light sleep / arousal. Breathing
+            // (robust) wins over the time-based default.
+            if breathValid && breathREM {
+                let irregBonus = Double(max(0.45 - breathReg, 0)) * 0.25
+                return (.light, min(0.60 + irregBonus, 0.74))
+            }
             let hrBoost:         Double = (hasHR && hrLow)  ? 0.08 * hrConfScale : 0.0
             let hrPenalty:       Double = (hasHR && hrREM && !usingBCG) ? -0.08 : 0.0
             let hrvBoost:        Double = hrvHigh ? 0.05 : 0.0
             let firstCycleBoost: Double = elapsed < 90 ? 0.07 : 0.0
             let snoringBoost:    Double = audio.snoringIntensity > 0.3 ? 0.05 : 0.0
-            // Slow + regular breathing confirms deep; irregular breathing in REM window is suspicious
-            let breathBoost:   Double = breathDeep                ? 0.08 * breathScale : 0.0
-            let breathPenalty: Double = (breathREM && inREMCycle) ? -0.05             : 0.0
-            let conf = min(0.70 + hrBoost + hrPenalty + hrvBoost + firstCycleBoost + snoringBoost + breathBoost + breathPenalty, 0.92)
+            // Slow + regular breathing confirms deep
+            let breathBoost:   Double = breathDeep ? 0.08 * breathScale : 0.0
+            let conf = min(0.70 + hrBoost + hrPenalty + hrvBoost + firstCycleBoost + snoringBoost + breathBoost, 0.92)
             return (.deep, conf)
         }
 
         // ── Zone C: REM (65–90 min into cycle) ─────────────────────────────────
+        // Sensor override: slow + very regular breathing in a "REM" zone means the
+        // sleeper is actually still in deep sleep → breathing wins over the cycle.
+        if breathValid && breathDeep {
+            let regBonus = Double(max(breathReg - 0.60, 0)) * 0.25
+            return (.deep, min(0.60 + regBonus, 0.76))
+        }
         let hrREMBoost:      Double = (hasHR && hrREM && !hrvHigh) ? 0.10 * hrConfScale : 0.0
         let hrvREMBoost:     Double = (hrvFalling && hasHR)         ? 0.06 : 0.0
         let lateNightBoost:  Double = elapsed > 270                  ? 0.06 : 0.0
-        // Irregular breathing confirms REM; slow+regular suggests we're still in deep
+        // Irregular breathing confirms REM
         let breathREMBoost:   Double = breathREM  ? 0.08 * breathScale : 0.0
-        let breathDeepPenalty: Double = breathDeep ? -0.06             : 0.0
         let userREMBoost = UserDefaults.standard.double(forKey: "calibration.remConfBoost")
-        let conf = min(0.68 + hrREMBoost + hrvREMBoost + lateNightBoost + breathREMBoost + breathDeepPenalty + userREMBoost, 0.90)
+        let conf = min(0.68 + hrREMBoost + hrvREMBoost + lateNightBoost + breathREMBoost + userREMBoost, 0.90)
         return (.rem, conf)
     }
 

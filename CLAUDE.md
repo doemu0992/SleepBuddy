@@ -1143,20 +1143,28 @@ Falls weder HR-Override noch Atem-Override ausgelöst haben:
 
 **Zone A (0–20 min nach Onset):** → `.light`, Konfidenz 0.55–0.65
 
+> **Sensor-Override schreibt die Phase um (bindend):** In Zone B & C bestimmt nicht mehr nur die Zeit die Phase — die robuste **Atmung** kann die Zyklus-Vorgabe überschreiben (ShutEye-Stil, aber sensor-gestützt). So folgt die Kurve den Sensoren statt einem starren Zeitmuster, auch wenn der Herzschlag (BCG) fehlt:
+> - **Zone B (Default Tief):** `breathValid && breathREM` (unregelmäßige Atmung) → `.light` (Arousal), nicht Tief.
+> - **Zone C (Default REM):** `breathValid && breathDeep` (langsam+regelmäßig) → `.deep`, nicht REM.
+> - Atmung ist robuster als BCG (große, langsame Bewegung überlebt Unruhe). Der Restless-Bias greift nur noch, wenn **weder** HR **noch** gültige Atmung vorliegt.
+
 **Zone B (20–65 min) — Tiefschlaf-Wahrscheinlichkeit:**
 ```swift
-let breathBoost:   Double = breathDeep                ? 0.08 * breathScale : 0.0
-let breathPenalty: Double = (breathREM && inREMCycle) ? -0.05             : 0.0
-// hrBoost, hrPenalty, hrvBoost, firstCycleBoost, snoringBoost ebenfalls addiert
-let conf = min(0.70 + hrBoost + hrPenalty + hrvBoost + firstCycleBoost + snoringBoost + breathBoost + breathPenalty, 0.92)
+// Sensor-Override zuerst:
+if breathValid && breathREM { return (.light, min(0.60 + irregBonus, 0.74)) }
+// sonst Tief mit Boosts:
+let breathBoost: Double = breathDeep ? 0.08 * breathScale : 0.0
+let conf = min(0.70 + hrBoost + hrPenalty + hrvBoost + firstCycleBoost + snoringBoost + breathBoost, 0.92)
 return (.deep, conf)
 ```
 
 **Zone C (65–90 min) — REM-Wahrscheinlichkeit:**
 ```swift
-let breathREMBoost:    Double = breathREM  ? 0.08 * breathScale : 0.0
-let breathDeepPenalty: Double = breathDeep ? -0.06             : 0.0
-let conf = min(0.68 + hrREMBoost + hrvREMBoost + lateNightBoost + breathREMBoost + breathDeepPenalty, 0.90)
+// Sensor-Override zuerst:
+if breathValid && breathDeep { return (.deep, min(0.60 + regBonus, 0.76)) }
+// sonst REM mit Boosts:
+let breathREMBoost: Double = breathREM ? 0.08 * breathScale : 0.0
+let conf = min(0.68 + hrREMBoost + hrvREMBoost + lateNightBoost + breathREMBoost + userREMBoost, 0.90)
 return (.rem, conf)
 ```
 
