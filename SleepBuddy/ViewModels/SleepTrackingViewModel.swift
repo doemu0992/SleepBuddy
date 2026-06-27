@@ -96,6 +96,8 @@ final class SleepTrackingViewModel {
 
         motionService.onFeaturesUpdated = { [weak self] motion in
             self?.latestMotionFeatures = motion
+            // Lower the sound-event threshold while the phone rests on the mattress.
+            self?.soundEventService.isOnMattress = motion.isOnMattress
             if motion.isOnMattress && motion.bcgHeartRateBPM > 0 {
                 self?.liveBCGHeartRateBPM = motion.bcgHeartRateBPM
             } else if !(motion.isOnMattress) {

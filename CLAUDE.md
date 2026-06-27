@@ -556,11 +556,16 @@ FileManager.default.url(forUbiquityContainerIdentifier: "iCloud.DG-Software-Solu
 
 **Datei:** `Services/SoundEventService.swift`
 
-ShutEye verwendet **feste dB-Schwellen** — kein adaptiver EMA. Die Schwelle liegt bei ≈ 50 dB (Amplitude 0.010) und wird nur im Partner-Modus angehoben.
+ShutEye verwendet **feste dB-Schwellen** — kein adaptiver EMA. Die Schwelle liegt bei ≈ 50 dB (Amplitude 0.010, Nachttisch) bzw. ≈ 45 dB (0.006) wenn das Telefon auf der Matratze liegt (Mikrofon gedämpft), und wird nur im Partner-Modus angehoben.
 
 ```swift
+// isOnMattress wird vom SleepTrackingViewModel gesetzt (motion.isOnMattress).
+var isOnMattress = false
+
 private var amplitudeThreshold: Float {
-    guard UserDefaults.standard.bool(forKey: "partnerModus_aktiv") else { return 0.010 }
+    guard UserDefaults.standard.bool(forKey: "partnerModus_aktiv") else {
+        return isOnMattress ? 0.006 : 0.010   // 45 dB Matratze vs 50 dB Nachttisch
+    }
     switch UserDefaults.standard.integer(forKey: "partnerModus_stufe") {
     case 1: return 0.022   // Partner-Atmung / Bewegung ist lauter
     case 2: return 0.040   // Partner sehr nah — nur klare laute Events
@@ -571,9 +576,12 @@ private var amplitudeThreshold: Float {
 
 | Modus | Amplitude | ≈ dB |
 |-------|-----------|------|
-| Normal | 0.010 | 50 dB |
+| Normal (Matratze) | 0.006 | 45 dB |
+| Normal (Nachttisch) | 0.010 | 50 dB |
 | Partner Stufe 1 | 0.022 | 55 dB |
 | Partner Stufe 2 | 0.040 | 60 dB |
+
+> **Matratzen-Platzierung:** Liegt das Telefon auf der Matratze, ist das Mikrofon nach unten/ins Bett gerichtet und dämpft Schnarchen deutlich (oft < 50 dB). Daher senkt `isOnMattress` die Schwelle auf 0.006 — sonst werden keine Geräusch-Clips aufgezeichnet.
 
 > **Kein adaptiver Noise Floor** — ML-Konfidenz ist das primäre Gate für alle Sound-Typen (ShutEye-Stil). Die Amplitude dient nur als Fallback für nicht-ML-erkannte Sounds.
 
@@ -994,6 +1002,11 @@ if emitCounter >= windowSize {   // windowSize = 1500 (30s × 50Hz)
 5. BCG-RMS-Mindest-Schwelle: **0.00003** (war 0.00008 — gesenkt)
 6. BCG nur aktiv wenn `isOnMattress == true`
 
+> **BCG-Entrauschung im Klassifikator (bindend):** Das rohe BCG-Signal springt zwischen Samples stark (Artefakte bis ~145 BPM). `SleepPhaseClassifier` darf **niemals** den rohen Momentanwert für Phasen-Entscheidungen verwenden — sonst wird das Signal als unzuverlässig verworfen und der Klassifikator fällt auf das reine 90-min-Zyklusmodell zurück (identisches Muster jede Nacht). Stattdessen:
+> - **Median** über `bcgHRHistory` (Fenster 6) als `bcgMedian` — unterdrückt Einzel-Ausreißer.
+> - **Zuverlässigkeit per IQR** (mittlere 50 %): `bcgReliable = (hi - lo) < 22` statt voller `(max - min) < 20` — ein einzelner Ausreißer markiert nicht mehr das ganze Fenster als unbrauchbar.
+> - `effectiveHR` nutzt `bcgMedian`, nicht `motion.bcgHeartRateBPM`.
+
 **Breathing-Erkennungsschwelle:**
 - `rms > 0.0003` (war 0.0008 — gesenkt für bessere Matratzen-Erkennung)
 
@@ -1023,10 +1036,10 @@ Regelbasierter Klassifikator — kombiniert Audio + Motion + HR/HRV + Schlafzykl
 ```swift
 let useMotionBreath = motion.isOnMattress
                       && motion.breathingRateBPM > 0
-                      && motion.breathingRegularity > 0.30
+                      && motion.breathingRegularity > 0.25
 let breathBPM:   Float  = useMotionBreath ? motion.breathingRateBPM   : audio.breathingRateBPM
 let breathReg:   Float  = useMotionBreath ? motion.breathingRegularity : audio.breathingRegularity
-let breathValid          = breathBPM > 5 && breathBPM < 35 && breathReg > 0.30
+let breathValid          = breathBPM > 5 && breathBPM < 35 && breathReg > 0.25
 let breathScale: Double  = useMotionBreath ? 1.0 : 0.70
 let breathDeep = breathValid && breathBPM < 13 && breathReg > 0.60
 let breathREM  = breathValid && breathReg  < 0.45 && breathBPM > 11
@@ -1134,7 +1147,7 @@ return cycle >= 65
 | Deep-Threshold BCG | 60 BPM | HR-Override Tiefschlaf (erhöht) |
 | `breathDeep` BPM-Schwelle | < 13 BPM | Tiefschlaf-Atemfrequenz |
 | `breathREM` Regularitäts-Schwelle | < 0.45 | Unregelmäßige Atmung → REM |
-| `breathValid` Qualitäts-Gate | reg > 0.30 | Mindest-Signalqualität |
+| `breathValid` Qualitäts-Gate | reg > 0.25 | Mindest-Signalqualität (gesenkt für Atem-Fallback) |
 
 **Partner-Modus-Anpassungen:**
 

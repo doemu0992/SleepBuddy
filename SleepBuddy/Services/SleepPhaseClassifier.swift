@@ -148,6 +148,7 @@ final class SleepPhaseClassifier {
     private var bcgHRHistory: [Float] = []
     private let bcgHRHistorySize = 6
     private var bcgReliable = false
+    private var bcgMedian: Float = 0
 
     // MARK: - Phase transition matrix
     // Weights reflect physiological plausibility of phase-to-phase transitions.
@@ -173,6 +174,7 @@ final class SleepPhaseClassifier {
         hrvHistory.removeAll()
         bcgHRHistory.removeAll()
         bcgReliable      = false
+        bcgMedian        = 0
         sleepOnsetDate   = nil
         lastCommittedPhase = .awake
     }
@@ -228,10 +230,10 @@ final class SleepPhaseClassifier {
         // Only use when quality threshold (regularity > 0.30) is met.
         let useMotionBreath = motion.isOnMattress
                               && motion.breathingRateBPM > 0
-                              && motion.breathingRegularity > 0.30
+                              && motion.breathingRegularity > 0.25
         let breathBPM:   Float  = useMotionBreath ? motion.breathingRateBPM   : audio.breathingRateBPM
         let breathReg:   Float  = useMotionBreath ? motion.breathingRegularity : audio.breathingRegularity
-        let breathValid          = breathBPM > 5 && breathBPM < 35 && breathReg > 0.30
+        let breathValid          = breathBPM > 5 && breathBPM < 35 && breathReg > 0.25
         let breathScale: Double  = useMotionBreath ? 1.0 : 0.70
         // Deep sleep: slow (< 13 BPM) + very regular. REM: irregular (< 0.45) + not too slow.
         let breathDeep = breathValid && breathBPM < 13 && breathReg > 0.60
@@ -242,17 +244,25 @@ final class SleepPhaseClassifier {
             bcgHRHistory.append(Float(motion.bcgHeartRateBPM))
             if bcgHRHistory.count > bcgHRHistorySize { bcgHRHistory.removeFirst() }
             if bcgHRHistory.count >= 4 {
-                let mn = bcgHRHistory.min()!; let mx = bcgHRHistory.max()!
-                bcgReliable = (mx - mn) < 20
+                // Median rejects single-sample BCG artifacts (e.g. spikes to 145 BPM).
+                let sorted = bcgHRHistory.sorted()
+                bcgMedian = sorted[sorted.count / 2]
+                // IQR-based spread (middle 50%) instead of full min-max — a single
+                // outlier no longer marks the whole window unreliable.
+                let lo = sorted[sorted.count / 4]
+                let hi = sorted[(sorted.count * 3) / 4]
+                bcgReliable = (hi - lo) < 22
             }
         } else if !motion.isOnMattress {
             bcgHRHistory.removeAll()
             bcgReliable = false
+            bcgMedian = 0
         }
-        let bcgAvailable = motion.isOnMattress && motion.bcgHeartRateBPM > 0 && bcgReliable
+        // Use the median (denoised) BCG value, not the raw instantaneous reading.
+        let bcgAvailable = motion.isOnMattress && bcgMedian > 0 && bcgReliable
         let usingBCG     = currentHRBPM == 0 && bcgAvailable
         let effectiveHR: Double = currentHRBPM > 0 ? currentHRBPM
-                                : bcgAvailable ? Double(motion.bcgHeartRateBPM) : 0
+                                : bcgAvailable ? Double(bcgMedian) : 0
         let hrConfScale: Double = usingBCG ? 0.6 : 1.0
 
         // Update HR/HRV history

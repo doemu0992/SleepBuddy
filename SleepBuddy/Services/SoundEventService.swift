@@ -29,8 +29,15 @@ final class SoundEventService {
     // 45 dB ≈ amplitude 0.006, 50 dB ≈ 0.010, 55 dB ≈ 0.018
     // Use 0.010 as default (≈ 50 dB) — catches moderate snoring, not room hiss.
 
+    /// Set by the tracking VM. When the phone rests on the mattress the mic is
+    /// muffled (faces down / into the bedding), so the loudness threshold is
+    /// lowered to still catch snoring that would otherwise stay below 50 dB.
+    var isOnMattress = false
+
     private var amplitudeThreshold: Float {
-        guard UserDefaults.standard.bool(forKey: "partnerModus_aktiv") else { return 0.010 }
+        guard UserDefaults.standard.bool(forKey: "partnerModus_aktiv") else {
+            return isOnMattress ? 0.006 : 0.010   // 45 dB on mattress vs 50 dB nightstand
+        }
         switch UserDefaults.standard.integer(forKey: "partnerModus_stufe") {
         case 1: return 0.022   // partner's breathing / movement noise is louder
         case 2: return 0.040   // partner very close — only clear loud events
