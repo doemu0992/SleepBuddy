@@ -24,23 +24,40 @@ final class SoundEventService {
 
     // MARK: - Amplitude threshold (fixed, ShutEye-style)
     //
-    // We deliberately do NOT use an adaptive EMA multiplier here.
-    // ShutEye uses fixed dB thresholds: ~45 dB normal, raised in partner mode.
-    // 45 dB ≈ amplitude 0.006, 50 dB ≈ 0.010, 55 dB ≈ 0.018
-    // Use 0.010 as default (≈ 50 dB) — catches moderate snoring, not room hiss.
+    // Adaptive calibration: the first 60 s of tracking measure the actual ambient
+    // floor of THIS room/placement/mic. The event threshold is then set just
+    // above that measured ceiling — anything clearly louder counts as an event.
+    // This auto-adapts to mattress vs nightstand, quiet vs noisy rooms, and the
+    // device's relative (uncalibrated) dB scale.
 
-    /// Set by the tracking VM. When the phone rests on the mattress the mic is
-    /// muffled (faces down / into the bedding), so the loudness threshold is
-    /// lowered to still catch snoring that would otherwise stay below 50 dB.
+    /// Set by the tracking VM (kept for the pre-calibration fallback only).
     var isOnMattress = false
 
+    // Calibration state
+    private let calibrationDuration: TimeInterval = 60
+    private var calibrationSamples: [Float] = []
+    private var calibrationDeadline: Date?
+    private(set) var calibratedThreshold: Float?   // nil until first 60 s elapsed
+
     private var amplitudeThreshold: Float {
+        // Once calibrated, the measured ambient ceiling drives detection.
+        if let cal = calibratedThreshold {
+            if UserDefaults.standard.bool(forKey: "partnerModus_aktiv") {
+                switch UserDefaults.standard.integer(forKey: "partnerModus_stufe") {
+                case 1: return cal * 1.6   // raise further between partners
+                case 2: return cal * 2.4   // partner very close
+                default: return cal
+                }
+            }
+            return cal
+        }
+        // Pre-calibration fallback (fixed) — used only during the first 60 s.
         guard UserDefaults.standard.bool(forKey: "partnerModus_aktiv") else {
-            return isOnMattress ? 0.006 : 0.010   // 45 dB on mattress vs 50 dB nightstand
+            return isOnMattress ? 0.006 : 0.010
         }
         switch UserDefaults.standard.integer(forKey: "partnerModus_stufe") {
-        case 1: return 0.022   // partner's breathing / movement noise is louder
-        case 2: return 0.040   // partner very close — only clear loud events
+        case 1: return 0.022
+        case 2: return 0.040
         default: return 0.010
         }
     }
@@ -119,6 +136,18 @@ final class SoundEventService {
     /// Feed instantaneous 125 ms RMS amplitude + classification scores (8 Hz tick).
     /// Uses instantAmplitude (NOT the 30 s average) so single snoring bursts are detected.
     func tick(instantAmplitude: Float, snoringScore: Float, speechLikelihood: Float) {
+        // ── Calibration window: first 60 s measure the ambient floor ───────────
+        if calibratedThreshold == nil {
+            if calibrationDeadline == nil {
+                calibrationDeadline = Date().addingTimeInterval(calibrationDuration)
+            }
+            calibrationSamples.append(instantAmplitude)
+            if let dl = calibrationDeadline, Date() >= dl {
+                finishCalibration()
+            }
+            return  // no event detection while calibrating
+        }
+
         if isInCooldown { return }
 
         // Snoring has a strong low-frequency spectral signature that survives
@@ -154,6 +183,23 @@ final class SoundEventService {
         mlHintType = nil
         mlHintConfidence = 0
         mlHintDate = nil
+        // Restart calibration for the new session
+        calibrationSamples.removeAll()
+        calibrationDeadline = nil
+        calibratedThreshold = nil
+    }
+
+    /// Finalises calibration: threshold = 95th-percentile ambient ceiling × margin,
+    /// clamped to a sane floor so a dead-silent room still ignores mic hiss.
+    private func finishCalibration() {
+        defer { calibrationSamples.removeAll() }
+        guard !calibrationSamples.isEmpty else { calibratedThreshold = 0.010; return }
+        let sorted = calibrationSamples.sorted()
+        // 95th percentile = robust "loudest normal" (ignores a single bump while
+        // placing the phone), then +5 dB margin (×1.8) for a clear event.
+        let idx = min(sorted.count - 1, Int(Double(sorted.count) * 0.95))
+        let ceiling = sorted[idx]
+        calibratedThreshold = max(ceiling * 1.8, 0.004)   // never below ≈ 42 dB
     }
 
     // MARK: - Audio file URL for playback

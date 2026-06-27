@@ -546,7 +546,7 @@ FileManager.default.url(forUbiquityContainerIdentifier: "iCloud.DG-Software-Solu
 
 **Ring-Buffer:** 35 Sekunden Rohaudio im RAM (35s bei nativer Sample Rate). Bei Ereignis: letzten 30s als Clip speichern → RAM löschen.
 
-**Schwellenwert:** Fest (ShutEye-Stil) — 0.010 normal, 0.022 Partner Stufe 1, 0.040 Partner Stufe 2. Kein adaptiver EMA.
+**Schwellenwert:** Adaptiv — die ersten 60 s kalibrieren den Geräuschboden, danach Schwelle knapp darüber (siehe „Adaptive Kalibrierung" unten). Partner-Modus erhöht zusätzlich (× 1.6 / × 2.4).
 
 ---
 
@@ -556,34 +556,34 @@ FileManager.default.url(forUbiquityContainerIdentifier: "iCloud.DG-Software-Solu
 
 **Datei:** `Services/SoundEventService.swift`
 
-ShutEye verwendet **feste dB-Schwellen** — kein adaptiver EMA. Die Schwelle liegt bei ≈ 50 dB (Amplitude 0.010, Nachttisch) bzw. ≈ 45 dB (0.006) wenn das Telefon auf der Matratze liegt (Mikrofon gedämpft), und wird nur im Partner-Modus angehoben.
+**Adaptive Kalibrierung (bindend):** Die ersten **60 Sekunden** des Trackings messen den **tatsächlichen Geräuschboden** dieser Umgebung/Platzierung/Mikrofon. Die Event-Schwelle wird dann knapp über diesen gemessenen Boden gesetzt — alles, was klar lauter ist, gilt als Event. Das passt sich automatisch an Matratze vs. Nachttisch, leise vs. laute Räume und die relative (unkalibrierte) dB-Skala des Geräts an.
 
 ```swift
-// isOnMattress wird vom SleepTrackingViewModel gesetzt (motion.isOnMattress).
-var isOnMattress = false
+private let calibrationDuration: TimeInterval = 60
+private var calibratedThreshold: Float?   // nil bis erste 60 s vorbei
 
-private var amplitudeThreshold: Float {
-    guard UserDefaults.standard.bool(forKey: "partnerModus_aktiv") else {
-        return isOnMattress ? 0.006 : 0.010   // 45 dB Matratze vs 50 dB Nachttisch
-    }
-    switch UserDefaults.standard.integer(forKey: "partnerModus_stufe") {
-    case 1: return 0.022   // Partner-Atmung / Bewegung ist lauter
-    case 2: return 0.040   // Partner sehr nah — nur klare laute Events
-    default: return 0.010
-    }
+// In tick(): während der ersten 60 s nur sammeln, keine Event-Erkennung.
+private func finishCalibration() {
+    let sorted = calibrationSamples.sorted()
+    // 95. Perzentil = robuster "lautester Normalwert" (ignoriert einen einzelnen
+    // Stoß beim Ablegen), dann +5 dB Marge (×1.8) für ein klares Event.
+    let ceiling = sorted[min(sorted.count - 1, Int(Double(sorted.count) * 0.95))]
+    calibratedThreshold = max(ceiling * 1.8, 0.004)   // nie unter ≈ 42 dB
 }
+
+// amplitudeThreshold: nutzt calibratedThreshold (× Partner-Faktor 1.6/2.4),
+// vor Kalibrierung Fallback 0.006 (Matratze) / 0.010 (Nachttisch).
 ```
 
-| Modus | Amplitude | ≈ dB |
-|-------|-----------|------|
-| Normal (Matratze) | 0.006 | 45 dB |
-| Normal (Nachttisch) | 0.010 | 50 dB |
-| Partner Stufe 1 | 0.022 | 55 dB |
-| Partner Stufe 2 | 0.040 | 60 dB |
+| Phase | Schwelle |
+|-------|----------|
+| Erste 60 s (Kalibrierung) | Fallback 0.006/0.010, **keine** Erkennung |
+| Nach Kalibrierung | `max(ambientCeiling95 × 1.8, 0.004)` |
+| + Partner Stufe 1 / 2 | × 1.6 / × 2.4 |
 
-> **Matratzen-Platzierung:** Liegt das Telefon auf der Matratze, ist das Mikrofon nach unten/ins Bett gerichtet und dämpft Schnarchen deutlich (oft < 50 dB). Daher senkt `isOnMattress` die Schwelle auf 0.006 — sonst werden keine Geräusch-Clips aufgezeichnet.
+> **`reset()` muss die Kalibrierung zurücksetzen** (`calibrationSamples`, `calibrationDeadline`, `calibratedThreshold`) — jede Nacht neu kalibrieren.
 
-> **Kein adaptiver Noise Floor** — ML-Konfidenz ist das primäre Gate für alle Sound-Typen (ShutEye-Stil). Die Amplitude dient nur als Fallback für nicht-ML-erkannte Sounds.
+> **ML bleibt primärer Trigger** (amplitudenunabhängig, gain-verstärkt). Die kalibrierte Amplitude ist das Gate für nicht-ML-Sounds + Spektral-Schnarchen.
 
 > **Spektral-Schnarchen-Trigger (bindend):** Schnarchen auf der Matratze ist oft gedämpft und bleibt unter der Lautstärke-Schwelle (gemessene Peaks ~30 dB ≈ Amplitude 0.001 vs. Schwelle 0.006–0.010). Da Schnarchen aber eine starke Tieffrequenz-Signatur hat (`snoringIntensity`, 80–500 Hz), löst `tick()` ein Event auch aus, wenn `snoringScore > 0.55` **und** `instantAmplitude > 0.0008` (≈ 28 dB, niedriges Absolut-Gate gegen Raumrauschen) — unabhängig von der normalen Lautstärke-Schwelle. So wird leises Schnarchen erfasst, ohne die globale Schwelle für alle Typen abzusenken.
 
