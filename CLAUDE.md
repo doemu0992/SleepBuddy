@@ -1007,6 +1007,8 @@ if emitCounter >= windowSize {   // windowSize = 1500 (30s × 50Hz)
 > - **Zuverlässigkeit per IQR** (mittlere 50 %): `bcgReliable = (hi - lo) < 22` statt voller `(max - min) < 20` — ein einzelner Ausreißer markiert nicht mehr das ganze Fenster als unbrauchbar.
 > - `effectiveHR` nutzt `bcgMedian`, nicht `motion.bcgHeartRateBPM`.
 
+> **BCG-Degradation → Unruhe-Bias (bindend):** Sobald einmal ein sauberer BCG-Lock bestand (`bcgWasReliable` latcht auf `true`) und das Signal später kippt (`!bcgReliable`, weiterhin `isOnMattress`, kein Watch-HR), deutet das meist auf **Unruhe/Bewegung** hin — Bewegung zerstört das BCG-Signal. Bei zusätzlich leichter Bewegung (`mov > awakeMotionThreshold * 0.25`) gibt der Klassifikator **`.light` (0.58)** zurück, statt das ruhige Tief-/REM-Zyklusmodell weiterzuzeichnen. So bildet die zweite Nachthälfte echte Unruhe ab, statt einen sauberen Verlauf zu „malen". Bei völliger Ruhe (keine Bewegung) bleibt das Zyklusmodell aktiv (BCG-Aussetzer könnte auch ein reiner Sensor-Glitch sein).
+
 **Breathing-Erkennungsschwelle:**
 - `rms > 0.0003` (war 0.0008 — gesenkt für bessere Matratzen-Erkennung)
 

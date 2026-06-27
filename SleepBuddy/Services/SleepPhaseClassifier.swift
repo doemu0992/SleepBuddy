@@ -149,6 +149,9 @@ final class SleepPhaseClassifier {
     private let bcgHRHistorySize = 6
     private var bcgReliable = false
     private var bcgMedian: Float = 0
+    /// Latches once a clean BCG lock was achieved — used to detect signal
+    /// degradation (lock lost = likely restlessness) later in the night.
+    private var bcgWasReliable = false
 
     // MARK: - Phase transition matrix
     // Weights reflect physiological plausibility of phase-to-phase transitions.
@@ -175,6 +178,7 @@ final class SleepPhaseClassifier {
         bcgHRHistory.removeAll()
         bcgReliable      = false
         bcgMedian        = 0
+        bcgWasReliable   = false
         sleepOnsetDate   = nil
         lastCommittedPhase = .awake
     }
@@ -258,6 +262,7 @@ final class SleepPhaseClassifier {
             bcgReliable = false
             bcgMedian = 0
         }
+        if bcgReliable { bcgWasReliable = true }
         // Use the median (denoised) BCG value, not the raw instantaneous reading.
         let bcgAvailable = motion.isOnMattress && bcgMedian > 0 && bcgReliable
         let usingBCG     = currentHRBPM == 0 && bcgAvailable
@@ -342,6 +347,15 @@ final class SleepPhaseClassifier {
                 let cap:  Double = useMotionBreath ? 0.70 : 0.60
                 return (.rem, min(base + irregBonus, cap))
             }
+        }
+
+        // ── BCG lock lost while still on mattress + some movement → restless ──
+        // A previously clean BCG signal that degrades usually means the sleeper
+        // became restless (movement corrupts BCG). In that case bias toward
+        // light sleep instead of confidently drawing the deep/REM cycle.
+        let bcgDegraded = motion.isOnMattress && bcgWasReliable && !bcgReliable && !hasHR
+        if bcgDegraded && mov > awakeMotionThreshold * 0.25 {
+            return (.light, 0.58)
         }
 
         // ── Step 3: Person is asleep — use cycle position ──────────────────────
