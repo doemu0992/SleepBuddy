@@ -187,7 +187,7 @@ NavigationStack (via NavigationLink aus StatistikView)
     ├── verlaufChart       → Linechart mit AreaMark + Gradient
     ├── soundEventsSection → Geräusch-Ereignisse mit Play-Button + Korrektur-Button
     ├── noiseSection       → Umgebungslautstärke als Wellen-Chart (LineMark + AreaMark, Farbgradient)
-    ├── heartRateCard      → Herzfrequenz-Verlauf (nur wenn heartRateSamples vorhanden)
+    ├── heartRateCard      → Herzfrequenz-Verlauf (robuster Filter + Variante B: gehaltene Lücken als „geschätzt")
     ├── phaseListSection   → Alle Phasen als Timeline-Liste
     └── morgenBewertung    → Subj. Qualitäts-Rating 1–5
 ```
@@ -878,7 +878,9 @@ finalizeCurrentPhase(endDate: .now, session: session)
 ### Herzrate-Sampling im ViewModel
 
 Ein Herzrate-Wert pro Minute wird in `session.heartRateSamples` gespeichert.
-Priorität: Apple Watch HR → BCG (Akkelerometer) → 0 (kein Wert):
+Priorität: Apple Watch HR → BCG (Akkelerometer) → 0 (kein Wert).
+
+> **Source-Gate (bindend):** Nur physiologisch plausible Werte (40–110 BPM im Schlaf) werden gespeichert. Implausible BCG-Artefakte (z.B. Spikes auf 140) werden als **0** abgelegt — sie sollen die gespeicherte Reihe nicht verschmutzen. Der Display-Filter hält dann den letzten guten Wert (Variante B, siehe `heartRateCard`).
 
 ```swift
 // Private State (muss als Property deklariert sein):
@@ -886,14 +888,28 @@ private var lastBCGSampleDate = Date.distantPast
 
 // In handleFeatures() — alle 60 Sekunden:
 if Date().timeIntervalSince(lastBCGSampleDate) >= 60, let session = currentSession {
-    let hr = liveBCGHeartRateBPM > 0 ? Double(liveBCGHeartRateBPM)
-           : liveHeartRateBPM > 0 ? liveHeartRateBPM : 0
+    let watchHR = liveHeartRateBPM
+    let bcgHR = Double(liveBCGHeartRateBPM)
+    let hr: Double
+    if watchHR >= 40 && watchHR <= 110 { hr = watchHR }       // Watch ist autoritativ
+    else if bcgHR >= 40 && bcgHR <= 110 { hr = bcgHR }         // plausibles BCG
+    else { hr = 0 }                                            // implausibel / kein Wert
     session.heartRateSamples.append(hr)
     lastBCGSampleDate = Date()
 }
 ```
 
 `lastBCGSampleDate` muss in `startTracking()` auf `.distantPast` zurückgesetzt werden.
+
+**Display-Filter + Variante B (`SleepDetailView.heartRatePoints`, bindend):**
+
+> Die rohe `heartRateSamples`-Reihe wird **nicht** direkt gezeichnet. Stattdessen ein robuster Filter (kein LLM):
+> 1. **Plausibilitätsbereich** 40–110 BPM (sonst fehlend).
+> 2. **Median-of-5-Glättung** über vorhandene Nachbarn.
+> 3. **Delta-Limit:** Sprünge > 12 BPM/min werden verworfen; 3 aufeinanderfolgende Verwürfe = echter Niveau-Wechsel → deren Median wird übernommen.
+> 4. **Variante B:** Lücken werden mit dem letzten guten Wert **gehalten** und als `estimated` markiert.
+>
+> Darstellung: durchgehende pinke Catmull-Rom-Linie (gemessen + gehalten) + **graue gestrichelte Overlay-Linie** auf den `estimated`-Abschnitten (gruppiert per `segment`). Legende: „┄ geschätzt". So bleibt die Kurve glatt und plausibel, kennzeichnet aber ehrlich, wo geschätzt wurde.
 
 ---
 

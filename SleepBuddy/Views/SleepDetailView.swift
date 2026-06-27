@@ -707,17 +707,76 @@ struct SleepDetailView: View {
 
     // MARK: - Heart Rate Chart
 
-    private struct HRSample: Identifiable {
+    private struct HRPoint: Identifiable {
         let id: Int
         let time: Date
         let bpm: Double
+        let estimated: Bool   // true = held value (BCG signal was unreliable here)
+        let segment: Int      // contiguous run id (for dashed-overlay grouping)
     }
 
-    private var heartRateData: [HRSample] {
-        session.heartRateSamples.enumerated().compactMap { i, bpm in
-            guard bpm > 0 else { return nil }
-            return HRSample(id: i, time: session.startDate.addingTimeInterval(Double(i) * 60), bpm: bpm)
+    private static func hrMedian(_ a: [Double]) -> Double {
+        let s = a.sorted(); return s.isEmpty ? 0 : s[s.count / 2]
+    }
+
+    /// Robust HR series: plausibility range + median-of-5 smoothing + delta
+    /// limiting (reject jumps > 12 BPM/min), then Variante B — fill gaps by
+    /// holding the last good value, flagged `estimated` for dashed display.
+    private var heartRatePoints: [HRPoint] {
+        let raw = session.heartRateSamples
+        guard !raw.isEmpty else { return [] }
+
+        // 1. plausibility mask (40–110 BPM during sleep)
+        let vals: [Double?] = raw.map { ($0 >= 40 && $0 <= 110) ? $0 : nil }
+
+        // 2. median-of-5 smoothing over available neighbours
+        var smoothed: [Double?] = Array(repeating: nil, count: vals.count)
+        for i in vals.indices where vals[i] != nil {
+            var win: [Double] = []
+            for j in max(0, i - 2)...min(vals.count - 1, i + 2) { if let x = vals[j] { win.append(x) } }
+            smoothed[i] = win.isEmpty ? vals[i] : Self.hrMedian(win)
         }
+
+        // 3. delta-limit: reject jumps > 12 BPM from last accepted value;
+        //    3 consecutive rejects = genuine level shift → adopt their median.
+        var accepted: [Double?] = Array(repeating: nil, count: smoothed.count)
+        var last: Double? = nil
+        var rejectRun: [Double] = []
+        for i in smoothed.indices {
+            guard let v = smoothed[i] else { continue }
+            if let l = last {
+                if abs(v - l) <= 12 {
+                    accepted[i] = v; last = v; rejectRun.removeAll()
+                } else {
+                    rejectRun.append(v)
+                    if rejectRun.count >= 3 {
+                        let m = Self.hrMedian(rejectRun); accepted[i] = m; last = m; rejectRun.removeAll()
+                    }
+                }
+            } else {
+                accepted[i] = v; last = v
+            }
+        }
+
+        guard let firstIdx = accepted.firstIndex(where: { $0 != nil }),
+              let lastIdx = accepted.lastIndex(where: { $0 != nil }) else { return [] }
+
+        // 4. Variante B: hold last good value across gaps, flag as estimated.
+        var points: [HRPoint] = []
+        var hold = accepted[firstIdx]!
+        var seg = 0
+        var prevEstimated: Bool? = nil
+        for i in firstIdx...lastIdx {
+            let measured = accepted[i]
+            let estimated = measured == nil
+            let bpm = measured ?? hold
+            if let m = measured { hold = m }
+            if prevEstimated != estimated { seg += 1; prevEstimated = estimated }
+            points.append(HRPoint(id: i,
+                                  time: session.startDate.addingTimeInterval(Double(i) * 60),
+                                  bpm: bpm, estimated: estimated, segment: seg))
+        }
+        return points
     }
 
     private var heartRateCard: some View {
@@ -726,11 +785,11 @@ struct SleepDetailView: View {
 
             trackerTimeRow
 
-            let data = heartRateData
+            let data = heartRatePoints
             let minBPM = (data.map(\.bpm).min() ?? 40) - 5
             let maxBPM = (data.map(\.bpm).max() ?? 100) + 5
 
-            Chart(data) { sample in
+            Chart {
                 // Resting HR reference zone: dashed boundary lines at 50 and 70 BPM
                 if maxBPM > 50 {
                     RuleMark(y: .value("Ruhepuls min", 50.0))
@@ -743,22 +802,28 @@ struct SleepDetailView: View {
                         .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 3]))
                 }
 
-                LineMark(
-                    x: .value("Zeit", sample.time),
-                    y: .value("BPM", sample.bpm)
-                )
-                .foregroundStyle(.pink)
-                .interpolationMethod(.catmullRom)
-                AreaMark(
-                    x: .value("Zeit", sample.time),
-                    yStart: .value("Boden", minBPM),
-                    yEnd: .value("BPM", sample.bpm)
-                )
-                .foregroundStyle(LinearGradient(
-                    colors: [.pink.opacity(0.25), .pink.opacity(0.05)],
-                    startPoint: .top, endPoint: .bottom
-                ))
-                .interpolationMethod(.catmullRom)
+                // Continuous smoothed line + area (measured + held values)
+                ForEach(data) { p in
+                    LineMark(x: .value("Zeit", p.time), y: .value("BPM", p.bpm))
+                        .foregroundStyle(.pink)
+                        .interpolationMethod(.catmullRom)
+                    AreaMark(x: .value("Zeit", p.time),
+                             yStart: .value("Boden", minBPM),
+                             yEnd: .value("BPM", p.bpm))
+                        .foregroundStyle(LinearGradient(
+                            colors: [.pink.opacity(0.25), .pink.opacity(0.05)],
+                            startPoint: .top, endPoint: .bottom))
+                        .interpolationMethod(.catmullRom)
+                }
+
+                // Grey dashed overlay on estimated (held) spans — grouped per run
+                ForEach(data.filter { $0.estimated }) { p in
+                    LineMark(x: .value("Zeit", p.time), y: .value("BPM", p.bpm),
+                             series: .value("Segment", p.segment))
+                        .foregroundStyle(Color.gray.opacity(0.7))
+                        .lineStyle(StrokeStyle(lineWidth: 1.5, dash: [3, 3]))
+                        .interpolationMethod(.catmullRom)
+                }
 
                 RuleMark(x: .value("Start", session.startDate))
                     .foregroundStyle(Color.indigo.opacity(0.5))
@@ -796,9 +861,11 @@ struct SleepDetailView: View {
                 Text("Ruhepuls-Zone (50–70 BPM)")
                     .font(.caption2).foregroundStyle(.secondary)
                 Spacer()
+                Text("┄ geschätzt")
+                    .font(.caption2).foregroundStyle(Color.gray.opacity(0.8))
             }
 
-            Text("Quelle: Ballistokardiographie (Beschleunigungssensor) oder Apple Watch")
+            Text("Quelle: Ballistokardiographie (Beschleunigungssensor) oder Apple Watch. Unzuverlässige Abschnitte werden geglättet und als „geschätzt" markiert.")
                 .font(.caption2).foregroundStyle(.secondary)
         }
         .padding()

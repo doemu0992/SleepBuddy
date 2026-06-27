@@ -314,10 +314,22 @@ final class SleepTrackingViewModel {
             lastNoiseSampleDate = Date()
         }
 
-        // BCG heart rate: store one sample per minute (0 = no data this minute)
+        // BCG heart rate: store one sample per minute (0 = no data this minute).
+        // Source gate: only accept physiologically plausible values (40–110 BPM
+        // during sleep). Implausible BCG artifacts (e.g. spikes to 140) are
+        // stored as 0 so they don't pollute the stored series; the display
+        // filter then holds the last good value (Variante B).
         if Date().timeIntervalSince(lastBCGSampleDate) >= 60, let session = currentSession {
-            let hr = liveBCGHeartRateBPM > 0 ? Double(liveBCGHeartRateBPM)
-                   : liveHeartRateBPM > 0 ? liveHeartRateBPM : 0
+            let watchHR = liveHeartRateBPM
+            let bcgHR = Double(liveBCGHeartRateBPM)
+            let hr: Double
+            if watchHR >= 40 && watchHR <= 110 {
+                hr = watchHR                       // Apple Watch is authoritative
+            } else if bcgHR >= 40 && bcgHR <= 110 {
+                hr = bcgHR                         // plausible BCG
+            } else {
+                hr = 0                             // implausible / no data
+            }
             session.heartRateSamples.append(hr)
             lastBCGSampleDate = Date()
         }
