@@ -585,6 +585,8 @@ private var amplitudeThreshold: Float {
 
 > **Kein adaptiver Noise Floor** — ML-Konfidenz ist das primäre Gate für alle Sound-Typen (ShutEye-Stil). Die Amplitude dient nur als Fallback für nicht-ML-erkannte Sounds.
 
+> **Spektral-Schnarchen-Trigger (bindend):** Schnarchen auf der Matratze ist oft gedämpft und bleibt unter der Lautstärke-Schwelle (gemessene Peaks ~30 dB ≈ Amplitude 0.001 vs. Schwelle 0.006–0.010). Da Schnarchen aber eine starke Tieffrequenz-Signatur hat (`snoringIntensity`, 80–500 Hz), löst `tick()` ein Event auch aus, wenn `snoringScore > 0.55` **und** `instantAmplitude > 0.0008` (≈ 28 dB, niedriges Absolut-Gate gegen Raumrauschen) — unabhängig von der normalen Lautstärke-Schwelle. So wird leises Schnarchen erfasst, ohne die globale Schwelle für alle Typen abzusenken.
+
 ---
 
 ### Umgebungslautstärke-Messung (dB/Minute)
@@ -675,7 +677,8 @@ SoundClassificationService (ML) → hintMLDetection(type:confidence:)
     → classifyEvent() → ML-Typ übernehmen
 
 AudioFeatures (8 Hz) → tick(instantAmplitude:snoringScore:speechLikelihood:)
-    → isLoud = instantAmplitude > amplitudeThreshold  ← Fallback ohne ML-Hint
+    → isLoud = instantAmplitude > amplitudeThreshold       ← Fallback ohne ML-Hint
+            OR snoringScore > 0.55 && instantAmplitude > 0.0008  ← Spektral-Schnarchen (leise/gedämpft)
     → 4 aufeinanderfolgende laute Ticks (0.5s) → eventStartDate setzen
     → classifyEvent() → snoringScore / speechLikelihood / .other
     → 8 aufeinanderfolgende ruhige Ticks (1s) → finaliseEvent()

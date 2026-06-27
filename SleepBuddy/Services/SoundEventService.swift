@@ -121,7 +121,13 @@ final class SoundEventService {
     func tick(instantAmplitude: Float, snoringScore: Float, speechLikelihood: Float) {
         if isInCooldown { return }
 
-        let isLoud = instantAmplitude > amplitudeThreshold
+        // Snoring has a strong low-frequency spectral signature that survives
+        // mattress muffling even when the absolute level stays well below the
+        // loudness threshold. Trigger on the spectral score with only a low
+        // absolute floor (≈ 28 dB) to keep room hiss out.
+        let snoringBySpectrum = snoringScore > 0.55 && instantAmplitude > 0.0008
+
+        let isLoud = instantAmplitude > amplitudeThreshold || snoringBySpectrum
 
         if isLoud {
             consecutiveQuietTicks = 0
