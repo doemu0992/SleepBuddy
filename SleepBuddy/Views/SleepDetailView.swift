@@ -1020,8 +1020,10 @@ struct SleepDetailView: View {
                     try? await Task.sleep(for: .seconds(1))
                     let v = try? url.resourceValues(forKeys: [.ubiquitousItemDownloadingStatusKey])
                     if v?.ubiquitousItemDownloadingStatus == .current {
-                        await MainActor.run { downloadingEventID = nil }
-                        playFile(at: url, event: event)
+                        await MainActor.run {
+                            downloadingEventID = nil
+                            playFile(at: url, event: event)
+                        }
                         return
                     }
                 }
@@ -1034,6 +1036,9 @@ struct SleepDetailView: View {
     }
 
     private func playFile(at url: URL, event: SleepSoundEvent) {
+        // Stop any currently playing clip first so we never overlap / lose the handle.
+        audioPlayer?.stop()
+        audioPlayer = nil
         guard FileManager.default.fileExists(atPath: url.path) else {
             print("⚠️ Audio playback: file not found at \(url.path)")
             playingEventID = nil
