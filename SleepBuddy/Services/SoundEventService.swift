@@ -107,8 +107,10 @@ final class SoundEventService {
         mlHintConfidence = confidence
         mlHintDate = Date()
 
-        // External sounds require slightly higher confidence to compensate for ambient noise
-        let minConf: Double = type.isExternal ? 0.55 : 0.45
+        // External sounds require slightly higher confidence to compensate for ambient noise.
+        // Lowered 0.55 → 0.50 now that the ML path receives gain-boosted audio —
+        // the per-class thresholds in SoundClassificationService still gate false positives.
+        let minConf: Double = type.isExternal ? 0.50 : 0.45
         if confidence >= minConf && eventStartDate == nil && !isInCooldown {
             eventStartDate = Date()
             pendingEventType = type

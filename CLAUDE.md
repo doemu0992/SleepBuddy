@@ -789,7 +789,7 @@ request.overlapFactor = 0.75  // mehr Overlap = häufigere Ergebnisse = weniger 
 
 ```swift
 // SoundEventService.hintMLDetection — alle Typen gleichbehandelt:
-let minConf: Double = type.isExternal ? 0.55 : 0.45
+let minConf: Double = type.isExternal ? 0.50 : 0.45
 if confidence >= minConf && eventStartDate == nil && !isInCooldown {
     eventStartDate = Date()
     pendingEventType = type
