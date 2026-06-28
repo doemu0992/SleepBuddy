@@ -931,6 +931,13 @@ if Date().timeIntervalSince(lastBCGSampleDate) >= 60, let session = currentSessi
 >
 > So sind die Phasen nicht nur optisch plausibel, sondern folgen dort, wo verlässliche HR vorliegt, der echten Herzfrequenz — statt dem reinen Zyklusmuster.
 
+**Edge-Wake-Erkennung (`applyEdgeWakeCorrection`, bindend):**
+
+> Wachliegen (abends einschlafen, morgens aufwachen) zeigt wenig Bewegung, aber **klar erhöhte Herzfrequenz**. In `stopTracking()` (nach der HR-Phasenkorrektur) markiert `applyEdgeWakeCorrection` mit der bereinigten **gemessenen** HR die Ränder:
+> - **Abend:** führender Lauf mit HR ≥ 72 BPM (≥ 3 min) → Einschlaf-Latenz = `.awake`.
+> - **Morgen:** abschließender Lauf mit HR ≥ 72 BPM (≥ 5 min) → Morgen-Wachphase = `.awake`.
+> - Phasen werden per Mittelpunkt im Wach-Fenster umtypisiert (kein Splitting). Greift nur bei echter gemessener HR; ohne HR bleibt die bestehende Terminal-Awake-Regel (15 min) als Fallback.
+
 ---
 
 ## Sensor-System

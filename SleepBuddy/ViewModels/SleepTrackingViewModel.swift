@@ -204,6 +204,10 @@ final class SleepTrackingViewModel {
         // cleaned full-night heart rate (only where real measured HR dominates).
         applyHeartRatePhaseCorrection(to: session)
 
+        // Post-hoc edge-wake detection: elevated HR at the start/end means the
+        // user was lying awake (falling asleep / morning wake) — mark as awake.
+        applyEdgeWakeCorrection(to: session)
+
         // Post-hoc plausibility correction: remove/merge implausibly short isolated phases
         applyPlausibilityCorrection(to: session)
 
@@ -450,6 +454,57 @@ final class SleepTrackingViewModel {
             out.append((index: i, bpm: bpm, estimated: est))
         }
         return out
+    }
+
+    // MARK: - Post-hoc edge-wake detection
+    // Lying awake (falling asleep at night, waking in the morning) shows little
+    // movement but a clearly elevated heart rate. Using the cleaned measured HR,
+    // mark the leading/trailing stretches with awake-level HR (≥ 72 BPM) as awake.
+    private func applyEdgeWakeCorrection(to session: SleepSession) {
+        let pts = cleanedHeartRate(session)
+        guard !pts.isEmpty else { return }
+        var hrByMin: [Int: Double] = [:]
+        for p in pts where !p.estimated { hrByMin[p.index] = p.bpm }
+        guard !hrByMin.isEmpty, let maxIdx = hrByMin.keys.max() else { return }
+
+        let awakeHR = 72.0   // resting-awake level; sleep HR sits clearly below
+
+        // Evening: leading run of elevated HR = sleep-onset latency.
+        var eveningEnd: Int? = nil
+        var gap = 0
+        for i in 0...maxIdx {
+            if let hr = hrByMin[i] {
+                if hr >= awakeHR { eveningEnd = i; gap = 0 } else { break }
+            } else { gap += 1; if gap > 3 { break } }
+        }
+
+        // Morning: trailing run of elevated HR = morning wake before stopping.
+        var morningStart: Int? = nil
+        gap = 0
+        for i in stride(from: maxIdx, through: 0, by: -1) {
+            if let hr = hrByMin[i] {
+                if hr >= awakeHR { morningStart = i; gap = 0 } else { break }
+            } else { gap += 1; if gap > 3 { break } }
+        }
+
+        let phases = session.phasesArray.sorted { $0.startDate < $1.startDate }
+        func markAwake(fromMinute startMin: Int, toMinute endMinExclusive: Int) {
+            guard endMinExclusive > startMin else { return }
+            let rangeStart = session.startDate.addingTimeInterval(Double(startMin) * 60)
+            let rangeEnd   = session.startDate.addingTimeInterval(Double(endMinExclusive) * 60)
+            for phase in phases {
+                let mid = phase.startDate.addingTimeInterval(phase.endDate.timeIntervalSince(phase.startDate) / 2)
+                if mid >= rangeStart && mid < rangeEnd { phase.phaseType = .awake }
+            }
+        }
+
+        var changed = false
+        // Evening: at least 3 min of awake-level HR to count as latency.
+        if let e = eveningEnd, e >= 3 { markAwake(fromMinute: 0, toMinute: e + 1); changed = true }
+        // Morning: at least 5 min of awake-level HR before stopping.
+        if let m = morningStart, (maxIdx - m) >= 5 { markAwake(fromMinute: m, toMinute: maxIdx + 1); changed = true }
+
+        if changed { try? modelContext?.save() }
     }
 
     // MARK: - Post-hoc plausibility correction

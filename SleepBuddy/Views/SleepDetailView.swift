@@ -20,18 +20,29 @@ struct SleepDetailView: View {
     @Environment(\.dismiss) private var dismiss
 
     private func resolveAudioURL(for fileName: String) -> URL? {
-        if fileName.hasPrefix("local://") {
-            let name = String(fileName.dropFirst("local://".count))
-            return FileManager.default
-                .urls(for: .documentDirectory, in: .userDomainMask).first?
-                .appendingPathComponent(soundsFolder)
-                .appendingPathComponent(name)
-        }
-        return FileManager.default
+        let local = FileManager.default
+            .urls(for: .documentDirectory, in: .userDomainMask).first?
+            .appendingPathComponent(soundsFolder)
+        let iCloud = FileManager.default
             .url(forUbiquityContainerIdentifier: iCloudContainerID)?
             .appendingPathComponent("Documents")
             .appendingPathComponent(soundsFolder)
-            .appendingPathComponent(fileName)
+
+        let bareName = fileName.hasPrefix("local://")
+            ? String(fileName.dropFirst("local://".count))
+            : fileName
+        let preferICloud = !fileName.hasPrefix("local://")
+
+        // Primary location based on the stored prefix, with a fallback to the
+        // other location — the file may have been saved before iCloud was ready.
+        let primary = (preferICloud ? iCloud : local)?.appendingPathComponent(bareName)
+        let fallback = (preferICloud ? local : iCloud)?.appendingPathComponent(bareName)
+
+        if let p = primary, FileManager.default.fileExists(atPath: p.path) { return p }
+        if let f = fallback, FileManager.default.fileExists(atPath: f.path) { return f }
+        // Neither exists locally yet — return the iCloud URL so the download
+        // path in togglePlayback can try to materialise it.
+        return primary ?? fallback
     }
 
     var body: some View {
@@ -1023,12 +1034,23 @@ struct SleepDetailView: View {
     }
 
     private func playFile(at url: URL, event: SleepSoundEvent) {
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            print("⚠️ Audio playback: file not found at \(url.path)")
+            playingEventID = nil
+            return
+        }
         let session = AVAudioSession.sharedInstance()
-        try? session.setCategory(.playback)
-        try? session.setActive(true)
+        do {
+            try session.setCategory(.playback, mode: .default)
+            try session.setActive(true)
+        } catch {
+            print("⚠️ Audio playback: session error \(error)")
+        }
 
         do {
             let player = try AVAudioPlayer(contentsOf: url)
+            player.prepareToPlay()
+            player.volume = 1.0
             player.play()
             audioPlayer = player
             playingEventID = event.timestamp
@@ -1044,6 +1066,7 @@ struct SleepDetailView: View {
                 }
             }
         } catch {
+            print("⚠️ Audio playback: AVAudioPlayer error \(error)")
             playingEventID = nil
         }
     }
