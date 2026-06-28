@@ -938,10 +938,10 @@ if Date().timeIntervalSince(lastBCGSampleDate) >= 60, let session = currentSessi
 **Edge-Wake-Erkennung (`applyEdgeWakeCorrection`, bindend):**
 
 > Wachliegen (abends einschlafen, morgens aufwachen) zeigt wenig Bewegung, aber **klar erhöhte Herzfrequenz**. In `stopTracking()` (nach der HR-Phasenkorrektur) markiert `applyEdgeWakeCorrection` mit der bereinigten **gemessenen** HR die Ränder:
-> - Schwelle **adaptiv**: `awakeHR = clamp(Schlaf-Median + 8, 62…78)` — fängt auch einen moderaten Morgenanstieg (nicht nur fix 72 BPM).
+> - Schwelle **adaptiv**: Detektion `awakeHR = clamp(Schlaf-Median + 8, 62…78)`, Rückwärts-Erweiterung mit niedrigerer `extendThreshold = max(Schlaf-Median + 3, 60)` — so wird der ganze allmähliche Anstieg erfasst, nicht nur die 1 Spitzenminute.
 > - **Abend:** führender Lauf mit HR ≥ `awakeHR` (≥ 2 min) → Einschlaf-Latenz = `.awake`.
-> - **Morgen:** abschließender Lauf mit HR ≥ `awakeHR` (≥ 3 min) → Morgen-Wachphase = `.awake`.
-> - Phasen werden per Mittelpunkt im Wach-Fenster umtypisiert (kein Splitting). Greift nur bei echter gemessener HR; ohne HR bleibt die bestehende Terminal-Awake-Regel (15 min) als Fallback.
+> - **Morgen:** Wake erkannt, wenn die letzten Minuten erhöhte HR zeigen **oder** das BCG-Signal in den letzten ≥ 2 min abreißt (= aufgestanden/bewegt). Dann rückwärts erweitern (HR ≥ `extendThreshold`, Signalverlust zählt als wach), gedeckelt auf 30 min. Bei manuellem Stopp mind. ~8 min.
+> - **`markAwake` splittet Phasen** an der Wach-Grenze (kein Mittelpunkt-Retyping) — sonst würde eine lange letzte Phase nie eine kurze Morgen-Wachphase erzeugen. Greift nur bei gemessener HR / Signalverlust; ohne alles bleibt die Terminal-Awake-Regel (15 min) als Fallback.
 
 ---
 

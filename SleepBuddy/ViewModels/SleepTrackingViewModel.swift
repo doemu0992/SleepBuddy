@@ -499,31 +499,82 @@ final class SleepTrackingViewModel {
             } else { gap += 1; if gap > 3 { break } }
         }
 
-        // Morning: trailing run of elevated HR = morning wake before stopping.
-        var morningStart: Int? = nil
-        gap = 0
-        for i in stride(from: maxIdx, through: 0, by: -1) {
-            if let hr = hrByMin[i] {
-                if hr >= awakeHR { morningStart = i; gap = 0 } else { break }
-            } else { gap += 1; if gap > 3 { break } }
+        // Morning wake before stopping. Detect a wake near the end (elevated HR or
+        // a lost BCG signal = movement/getting up), then extend backward using a
+        // LOWER threshold so the whole gradual rise is captured — not just the 1
+        // peak minute. Signal-loss minutes count as awake during this trailing run.
+        let sessionMaxMin = max(0, Int(session.totalDuration / 60))
+        let extendThreshold = max(sleepMedian + 3.0, 60.0)
+        let manualStop = session.alarmFiredDate == nil
+
+        // Wake detected if any of the last 4 measured minutes are clearly elevated,
+        // or the BCG signal dropped out in the last 2 min (≈ got up / moved).
+        var morningDetected = (sessionMaxMin - maxIdx) >= 2
+        for i in stride(from: maxIdx, through: max(0, maxIdx - 4), by: -1) {
+            if let hr = hrByMin[i], hr >= awakeHR { morningDetected = true; break }
         }
 
-        let phases = session.phasesArray.sorted { $0.startDate < $1.startDate }
+        var morningStart: Int? = nil
+        if morningDetected {
+            var start = sessionMaxMin
+            var asleepRun = 0
+            var i = sessionMaxMin - 1
+            while i >= 0 {
+                if let hr = hrByMin[i] {
+                    if hr >= extendThreshold { start = i; asleepRun = 0 }
+                    else { asleepRun += 1; if asleepRun >= 2 { break } }
+                } else {
+                    start = i   // signal lost → likely awake/moving
+                }
+                if sessionMaxMin - start >= 30 { break }   // cap morning wake at 30 min
+                i -= 1
+            }
+            // Manual stop with a detected wake → ensure at least ~8 min.
+            if manualStop { start = min(start, max(0, sessionMaxMin - 8)) }
+            morningStart = start
+        }
+
         func markAwake(fromMinute startMin: Int, toMinute endMinExclusive: Int) {
             guard endMinExclusive > startMin else { return }
             let rangeStart = session.startDate.addingTimeInterval(Double(startMin) * 60)
             let rangeEnd   = session.startDate.addingTimeInterval(Double(endMinExclusive) * 60)
-            for phase in phases {
-                let mid = phase.startDate.addingTimeInterval(phase.endDate.timeIntervalSince(phase.startDate) / 2)
-                if mid >= rangeStart && mid < rangeEnd { phase.phaseType = .awake }
+            // Snapshot — we may append new phases while splitting.
+            for phase in session.phasesArray where !(phase.endDate <= rangeStart || phase.startDate >= rangeEnd) {
+                if phase.startDate >= rangeStart && phase.endDate <= rangeEnd {
+                    phase.phaseType = .awake                                   // fully inside
+                } else if phase.startDate < rangeStart && phase.endDate <= rangeEnd {
+                    // straddles start: keep [start, rangeStart], add awake [rangeStart, end]
+                    let awake = SleepPhase(startDate: rangeStart, endDate: phase.endDate, phaseType: .awake, confidence: 0.7)
+                    phase.endDate = rangeStart
+                    awake.session = session
+                    modelContext?.insert(awake)
+                    session.phases?.append(awake)
+                } else if phase.startDate >= rangeStart && phase.endDate > rangeEnd {
+                    // straddles end: add awake [start, rangeEnd], keep [rangeEnd, end]
+                    let awake = SleepPhase(startDate: phase.startDate, endDate: rangeEnd, phaseType: .awake, confidence: 0.7)
+                    phase.startDate = rangeEnd
+                    awake.session = session
+                    modelContext?.insert(awake)
+                    session.phases?.append(awake)
+                } else {
+                    // range fully inside phase: split into before / awake / after
+                    let after = SleepPhase(startDate: rangeEnd, endDate: phase.endDate, phaseType: phase.phaseType, confidence: phase.confidence)
+                    let awake = SleepPhase(startDate: rangeStart, endDate: rangeEnd, phaseType: .awake, confidence: 0.7)
+                    phase.endDate = rangeStart
+                    after.session = session; awake.session = session
+                    modelContext?.insert(after); modelContext?.insert(awake)
+                    session.phases?.append(after); session.phases?.append(awake)
+                }
             }
         }
 
         var changed = false
         // Evening: at least 2 min of awake-level HR to count as latency.
         if let e = eveningEnd, e >= 2 { markAwake(fromMinute: 0, toMinute: e + 1); changed = true }
-        // Morning: at least 3 min of awake-level HR before stopping.
-        if let m = morningStart, (maxIdx - m) >= 3 { markAwake(fromMinute: m, toMinute: maxIdx + 1); changed = true }
+        // Morning: mark from the detected wake start to the end of the session.
+        if let m = morningStart, (sessionMaxMin - m) >= 2 {
+            markAwake(fromMinute: m, toMinute: sessionMaxMin + 1); changed = true
+        }
 
         if changed { try? modelContext?.save() }
     }
