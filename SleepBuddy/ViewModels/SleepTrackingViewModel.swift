@@ -376,8 +376,7 @@ final class SleepTrackingViewModel {
     // when the existing label clearly contradicts the heart rate.
     private func applyHeartRatePhaseCorrection(to session: SleepSession) {
         let pts = cleanedHeartRate(session)
-        guard !pts.isEmpty, let onset = session.sleepOnsetDate else { return }
-        let onsetMin = onset.timeIntervalSince(session.startDate) / 60.0
+        guard !pts.isEmpty else { return }
 
         func median(_ a: [Double]) -> Double { let s = a.sorted(); return s.isEmpty ? 0 : s[s.count / 2] }
 
@@ -393,14 +392,13 @@ final class SleepTrackingViewModel {
             guard measured.count >= 3, Double(measured.count) / Double(max(1, span.count)) >= 0.5 else { continue }
 
             let m = median(measured)
-            let midMin = Double(startMin + endMin) / 2.0
-            let cyclePos = (midMin - onsetMin).truncatingRemainder(dividingBy: 90)
-            let inREMWindow = cyclePos >= 60
 
             switch phase.phaseType {
             case .deep:
                 // Deep sleep has a distinctly low HR. Clearly elevated → not deep.
-                if m >= 65 { phase.phaseType = inREMWindow ? .rem : .light; changed = true }
+                // Use light (not REM) — creating REM from "deep had high HR" caused
+                // implausible short REM hops; REM should come from the cycle/breathing.
+                if m >= 65 { phase.phaseType = .light; changed = true }
             case .light:
                 // Distinctly low + steady HR → actually deep.
                 if m < 54 { phase.phaseType = .deep; changed = true }
@@ -467,7 +465,11 @@ final class SleepTrackingViewModel {
         for p in pts where !p.estimated { hrByMin[p.index] = p.bpm }
         guard !hrByMin.isEmpty, let maxIdx = hrByMin.keys.max() else { return }
 
-        let awakeHR = 72.0   // resting-awake level; sleep HR sits clearly below
+        // Adaptive awake threshold: relative to the night's sleeping heart rate
+        // so a modest morning rise is still caught (not just a fixed 72 BPM).
+        let allHR = hrByMin.values.sorted()
+        let sleepMedian = allHR[allHR.count / 2]
+        let awakeHR = min(max(sleepMedian + 8.0, 62.0), 78.0)
 
         // Evening: leading run of elevated HR = sleep-onset latency.
         var eveningEnd: Int? = nil
@@ -499,10 +501,10 @@ final class SleepTrackingViewModel {
         }
 
         var changed = false
-        // Evening: at least 3 min of awake-level HR to count as latency.
-        if let e = eveningEnd, e >= 3 { markAwake(fromMinute: 0, toMinute: e + 1); changed = true }
-        // Morning: at least 5 min of awake-level HR before stopping.
-        if let m = morningStart, (maxIdx - m) >= 5 { markAwake(fromMinute: m, toMinute: maxIdx + 1); changed = true }
+        // Evening: at least 2 min of awake-level HR to count as latency.
+        if let e = eveningEnd, e >= 2 { markAwake(fromMinute: 0, toMinute: e + 1); changed = true }
+        // Morning: at least 3 min of awake-level HR before stopping.
+        if let m = morningStart, (maxIdx - m) >= 3 { markAwake(fromMinute: m, toMinute: maxIdx + 1); changed = true }
 
         if changed { try? modelContext?.save() }
     }
@@ -532,6 +534,20 @@ final class SleepTrackingViewModel {
             // immediately followed by REM is physiologically unlikely — call it light sleep.
             if curr.phaseType == .deep && next.phaseType == .rem && duration < 240 {
                 curr.phaseType = .light
+                changed = true
+            }
+            // REM "hops": a short REM island (< 6 min) not flanked by REM is implausible.
+            // REM almost never abuts deep sleep (transition goes deep→light→REM). Replace
+            // with light if adjacent to deep, otherwise with the longer neighbour's type.
+            if curr.phaseType == .rem && duration < 360
+                && prev.phaseType != .rem && next.phaseType != .rem {
+                if prev.phaseType == .deep || next.phaseType == .deep {
+                    curr.phaseType = .light
+                } else {
+                    let prevDur = prev.endDate.timeIntervalSince(prev.startDate)
+                    let nextDur = next.endDate.timeIntervalSince(next.startDate)
+                    curr.phaseType = prevDur >= nextDur ? prev.phaseType : next.phaseType
+                }
                 changed = true
             }
         }

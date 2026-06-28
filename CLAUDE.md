@@ -929,7 +929,7 @@ if Date().timeIntervalSince(lastBCGSampleDate) >= 60, let session = currentSessi
 **Post-hoc HR-Phasenkorrektur (`applyHeartRatePhaseCorrection`, bindend):**
 
 > Die bereinigte Herzfrequenz korrigiert nicht nur die Anzeige, sondern auch die **Phasen**. In `stopTracking()` läuft `applyHeartRatePhaseCorrection(to:)` **vor** `applyPlausibilityCorrection`. Sie nutzt dieselbe bereinigte Reihe (`cleanedHeartRate`, spiegelt `SleepDetailView.heartRatePoints`) und korrigiert pro Phase nur **klare Widersprüche**, und nur wenn echte **gemessene** HR ≥ 50 % der Phase abdeckt (geschätzte/gehaltene Abschnitte werden ignoriert):
-> - `.deep` mit Median ≥ 65 BPM → `.rem` (im REM-Fenster) bzw. `.light`
+> - `.deep` mit Median ≥ 65 BPM → `.light` (nicht REM — REM-Erzeugung aus „Tief hatte hohen Puls" verursachte unplausible kurze REM-Hüpfer)
 > - `.light`/`.rem` mit Median < 54 BPM (klar niedrig) → `.deep`
 > - `.awake` wird nie überschrieben (bewegungsbasiert, zuverlässiger)
 >
@@ -938,8 +938,9 @@ if Date().timeIntervalSince(lastBCGSampleDate) >= 60, let session = currentSessi
 **Edge-Wake-Erkennung (`applyEdgeWakeCorrection`, bindend):**
 
 > Wachliegen (abends einschlafen, morgens aufwachen) zeigt wenig Bewegung, aber **klar erhöhte Herzfrequenz**. In `stopTracking()` (nach der HR-Phasenkorrektur) markiert `applyEdgeWakeCorrection` mit der bereinigten **gemessenen** HR die Ränder:
-> - **Abend:** führender Lauf mit HR ≥ 72 BPM (≥ 3 min) → Einschlaf-Latenz = `.awake`.
-> - **Morgen:** abschließender Lauf mit HR ≥ 72 BPM (≥ 5 min) → Morgen-Wachphase = `.awake`.
+> - Schwelle **adaptiv**: `awakeHR = clamp(Schlaf-Median + 8, 62…78)` — fängt auch einen moderaten Morgenanstieg (nicht nur fix 72 BPM).
+> - **Abend:** führender Lauf mit HR ≥ `awakeHR` (≥ 2 min) → Einschlaf-Latenz = `.awake`.
+> - **Morgen:** abschließender Lauf mit HR ≥ `awakeHR` (≥ 3 min) → Morgen-Wachphase = `.awake`.
 > - Phasen werden per Mittelpunkt im Wach-Fenster umtypisiert (kein Splitting). Greift nur bei echter gemessener HR; ohne HR bleibt die bestehende Terminal-Awake-Regel (15 min) als Fallback.
 
 ---
