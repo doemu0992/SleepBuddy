@@ -369,6 +369,25 @@ final class SleepTrackingViewModel {
         modelContext?.insert(phase)
     }
 
+    // MARK: - Retroactive re-correction of existing sessions
+
+    /// Re-runs the post-hoc phase corrections (HR-based, edge-wake, plausibility)
+    /// on already-recorded nights — used after the correction logic was improved.
+    /// Returns the number of sessions processed.
+    @discardableResult
+    func reapplyPhaseCorrections(to sessions: [SleepSession], context: ModelContext) -> Int {
+        modelContext = context
+        var count = 0
+        for session in sessions where !session.isActive && !session.phasesArray.isEmpty {
+            applyHeartRatePhaseCorrection(to: session)
+            applyEdgeWakeCorrection(to: session)
+            applyPlausibilityCorrection(to: session)
+            count += 1
+        }
+        try? context.save()
+        return count
+    }
+
     // MARK: - Post-hoc HR-based phase correction
     // Uses the cleaned full-night heart rate (same robust filter as the display)
     // to fix CLEAR mislabels — only where real measured HR dominates the phase,

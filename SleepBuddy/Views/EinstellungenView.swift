@@ -25,6 +25,8 @@ struct EinstellungenView: View {
     @State private var zeigeCSVShare = false
     @State private var normalisiereLaeuft = false
     @State private var normalisiereErgebnis: String?
+    @State private var phasenLaeuft = false
+    @State private var phasenErgebnis: String?
 
     var body: some View {
         List {
@@ -53,6 +55,14 @@ struct EinstellungenView: View {
         } message: {
             Text(normalisiereErgebnis ?? "")
         }
+        .alert("Schlafphasen", isPresented: Binding(
+            get: { phasenErgebnis != nil },
+            set: { if !$0 { phasenErgebnis = nil } }
+        )) {
+            Button("OK", role: .cancel) { phasenErgebnis = nil }
+        } message: {
+            Text(phasenErgebnis ?? "")
+        }
     }
 
     private func normalisiereAufnahmen() {
@@ -66,6 +76,18 @@ struct EinstellungenView: View {
                     : "Keine leisen Aufnahmen gefunden (bereits laut genug oder noch nicht aus iCloud geladen)."
             }
         }
+    }
+
+    private func korrigierePhasen() {
+        phasenLaeuft = true
+        let descriptor = FetchDescriptor<SleepSession>()
+        let sessions = (try? modelContext.fetch(descriptor)) ?? []
+        let vm = SleepTrackingViewModel()
+        let n = vm.reapplyPhaseCorrections(to: sessions, context: modelContext)
+        phasenLaeuft = false
+        phasenErgebnis = n > 0
+            ? "\(n) Nacht/Nächte wurden mit der aktuellen Logik neu korrigiert."
+            : "Keine abgeschlossenen Nächte mit Phasen gefunden."
     }
 
     // MARK: - Aufzeichnung
@@ -194,6 +216,20 @@ struct EinstellungenView: View {
                 }
             }
             .disabled(normalisiereLaeuft)
+
+            Button {
+                korrigierePhasen()
+            } label: {
+                HStack {
+                    Label("Schlafphasen neu berechnen", systemImage: "wand.and.stars")
+                        .foregroundStyle(.indigo)
+                    if phasenLaeuft {
+                        Spacer()
+                        ProgressView()
+                    }
+                }
+            }
+            .disabled(phasenLaeuft)
 
             Button {
                 SampleDataService.insertSampleNight(into: modelContext)
