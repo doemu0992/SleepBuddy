@@ -23,6 +23,8 @@ struct EinstellungenView: View {
     @State private var zeigeTestdatenLoeschenBestaetigung = false
     @State private var csvShareItem: URL?
     @State private var zeigeCSVShare = false
+    @State private var normalisiereLaeuft = false
+    @State private var normalisiereErgebnis: String?
 
     var body: some View {
         List {
@@ -42,6 +44,27 @@ struct EinstellungenView: View {
             Button("Abbrechen", role: .cancel) {}
         } message: {
             Text("Alle Schlafnächte und Phasen werden permanent gelöscht. Dieser Vorgang kann nicht rückgängig gemacht werden.")
+        }
+        .alert("Aufnahmen", isPresented: Binding(
+            get: { normalisiereErgebnis != nil },
+            set: { if !$0 { normalisiereErgebnis = nil } }
+        )) {
+            Button("OK", role: .cancel) { normalisiereErgebnis = nil }
+        } message: {
+            Text(normalisiereErgebnis ?? "")
+        }
+    }
+
+    private func normalisiereAufnahmen() {
+        normalisiereLaeuft = true
+        Task.detached {
+            let count = SoundEventService().normalizeExistingClips()
+            await MainActor.run {
+                normalisiereLaeuft = false
+                normalisiereErgebnis = count > 0
+                    ? "\(count) Aufnahme(n) wurden lauter gemacht."
+                    : "Keine leisen Aufnahmen gefunden (bereits laut genug oder noch nicht aus iCloud geladen)."
+            }
         }
     }
 
@@ -157,6 +180,20 @@ struct EinstellungenView: View {
                     ShareSheet(items: [url])
                 }
             }
+
+            Button {
+                normalisiereAufnahmen()
+            } label: {
+                HStack {
+                    Label("Aufnahmen lauter machen", systemImage: "speaker.wave.3.fill")
+                        .foregroundStyle(.indigo)
+                    if normalisiereLaeuft {
+                        Spacer()
+                        ProgressView()
+                    }
+                }
+            }
+            .disabled(normalisiereLaeuft)
 
             Button {
                 SampleDataService.insertSampleNight(into: modelContext)

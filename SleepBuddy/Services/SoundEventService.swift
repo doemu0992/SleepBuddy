@@ -365,25 +365,7 @@ final class SoundEventService {
         let tmpURL = FileManager.default.temporaryDirectory.appendingPathComponent(fileName)
         defer { try? FileManager.default.removeItem(at: tmpURL) }
 
-        guard let format = AVAudioFormat(commonFormat: .pcmFormatFloat32,
-                                         sampleRate: sampleRate, channels: 1,
-                                         interleaved: false) else { return nil }
-        do {
-            let settings: [String: Any] = [
-                AVFormatIDKey: kAudioFormatMPEG4AAC,
-                AVSampleRateKey: sampleRate,
-                AVNumberOfChannelsKey: 1,
-                AVEncoderAudioQualityKey: AVAudioQuality.medium.rawValue
-            ]
-            let file = try AVAudioFile(forWriting: tmpURL, settings: settings)
-            let frameCount = AVAudioFrameCount(samples.count)
-            guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount) else { return nil }
-            buffer.frameLength = frameCount
-            samples.withUnsafeBufferPointer { ptr in
-                buffer.floatChannelData?[0].update(from: ptr.baseAddress!, count: samples.count)
-            }
-            try file.write(from: buffer)
-        } catch { return nil }
+        guard writeAAC(samples: samples, sampleRate: sampleRate, to: tmpURL) else { return nil }
 
         let destFolder = iCloudDocumentsURL?.appendingPathComponent(Self.soundsFolder)
         guard let folder = destFolder else { return saveLocally(from: tmpURL, fileName: fileName) }
@@ -405,5 +387,88 @@ final class SoundEventService {
         let dest = folder.appendingPathComponent(fileName)
         try? FileManager.default.copyItem(at: src, to: dest)
         return "local://\(fileName)"
+    }
+
+    /// Encodes mono float samples to an AAC .m4a file at `url`. Returns success.
+    private func writeAAC(samples: [Float], sampleRate: Double, to url: URL) -> Bool {
+        guard let format = AVAudioFormat(commonFormat: .pcmFormatFloat32,
+                                         sampleRate: sampleRate, channels: 1,
+                                         interleaved: false) else { return false }
+        do {
+            let settings: [String: Any] = [
+                AVFormatIDKey: kAudioFormatMPEG4AAC,
+                AVSampleRateKey: sampleRate,
+                AVNumberOfChannelsKey: 1,
+                AVEncoderAudioQualityKey: AVAudioQuality.medium.rawValue
+            ]
+            let file = try AVAudioFile(forWriting: url, settings: settings)
+            let frameCount = AVAudioFrameCount(samples.count)
+            guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount) else { return false }
+            buffer.frameLength = frameCount
+            samples.withUnsafeBufferPointer { ptr in
+                buffer.floatChannelData?[0].update(from: ptr.baseAddress!, count: samples.count)
+            }
+            try file.write(from: buffer)
+            return true
+        } catch { return false }
+    }
+
+    // MARK: - Retroactive normalisation of existing clips
+
+    /// Re-normalises already-saved (quiet) clips so they become audible.
+    /// Scans the local + iCloud SleepSounds folders. Safe to run repeatedly
+    /// (clips already loud enough are skipped). Returns the number changed.
+    @discardableResult
+    func normalizeExistingClips() -> Int {
+        var folders: [URL] = []
+        if let f = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first?
+            .appendingPathComponent(Self.soundsFolder) { folders.append(f) }
+        if let f = iCloudDocumentsURL?.appendingPathComponent(Self.soundsFolder) { folders.append(f) }
+
+        var count = 0
+        for folder in folders {
+            guard let files = try? FileManager.default.contentsOfDirectory(
+                at: folder, includingPropertiesForKeys: nil) else { continue }
+            for url in files where url.pathExtension.lowercased() == "m4a" {
+                if normalizeClipInPlace(at: url) { count += 1 }
+            }
+        }
+        return count
+    }
+
+    private func normalizeClipInPlace(at url: URL) -> Bool {
+        // Make sure iCloud files are materialised before reading.
+        let vals = try? url.resourceValues(forKeys: [.ubiquitousItemDownloadingStatusKey])
+        if vals?.ubiquitousItemDownloadingStatus == .notDownloaded {
+            try? FileManager.default.startDownloadingUbiquitousItem(at: url)
+            return false   // not ready this pass
+        }
+        guard let file = try? AVAudioFile(forReading: url) else { return false }
+        let format = file.processingFormat
+        let frames = AVAudioFrameCount(file.length)
+        guard frames > 0, let buf = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frames) else { return false }
+        do { try file.read(into: buf) } catch { return false }
+        guard let ch = buf.floatChannelData else { return false }
+        let n = Int(buf.frameLength)
+        guard n > 0 else { return false }
+
+        var samples = [Float](repeating: 0, count: n)
+        samples.withUnsafeMutableBufferPointer { $0.baseAddress!.update(from: ch[0], count: n) }
+
+        // Skip clips that are already loud enough (idempotent — don't re-clip).
+        var peak: Float = 0
+        vDSP_maxmgv(samples, 1, &peak, vDSP_Length(n))
+        if peak >= 0.7 { return false }
+
+        let boosted = normalized(samples)
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".m4a")
+        guard writeAAC(samples: boosted, sampleRate: format.sampleRate, to: tmp) else { return false }
+        do {
+            _ = try FileManager.default.replaceItemAt(url, withItemAt: tmp)
+            return true
+        } catch {
+            try? FileManager.default.removeItem(at: tmp)
+            return false
+        }
     }
 }

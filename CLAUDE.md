@@ -548,6 +548,8 @@ FileManager.default.url(forUbiquityContainerIdentifier: "iCloud.DG-Software-Solu
 
 > **Clip-Normalisierung (bindend):** Aufnahme läuft im `.measurement`-Modus (AGC aus) + auf der Matratze gedämpft → sehr leiser Pegel. `AVAudioPlayer` kann nicht über das Original hinaus verstärken, daher wäre der Clip bei voller Lautstärke kaum hörbar. `saveToICloud` normalisiert deshalb vor dem AAC-Encoding via `normalized(_:)` (vDSP: Peak ermitteln, auf Ziel-Peak 0.9 skalieren, Gain auf max 60× begrenzt, auf [-1,1] geclippt). Gilt für iCloud- **und** lokalen Speicherpfad (gemeinsame tmp-Datei).
 
+> **Rückwirkende Normalisierung:** `normalizeExistingClips()` (Button „Aufnahmen lauter machen" in EinstellungenView) liest bereits gespeicherte, leise Clips neu ein, normalisiert sie und überschreibt sie (lokal + iCloud-Ordner). Idempotent — Clips mit Peak ≥ 0.7 werden übersprungen. AAC-Schreiben ist im Helper `writeAAC(samples:sampleRate:to:)` gekapselt (genutzt von Live-Save **und** Migration).
+
 **Schwellenwert:** Adaptiv — die ersten 60 s kalibrieren den Geräuschboden, danach Schwelle knapp darüber (siehe „Adaptive Kalibrierung" unten). Partner-Modus erhöht zusätzlich (× 1.6 / × 2.4).
 
 ---
@@ -1324,6 +1326,7 @@ List
 ├── Section "Daten"
 │   ├── Mit PainDiary & Health synchronisieren
 │   ├── Schlafdaten als CSV exportieren
+│   ├── Aufnahmen lauter machen           (SoundEventService.normalizeExistingClips, einmalige Migration)
 │   ├── Beispielnacht hinzufügen          (cycles Night 1→2→3)
 │   ├── Alle 3 Beispielnächte hinzufügen
 │   ├── Langzeitverlauf-Testdaten (6 Monate)   ← ~60 Nächte für Filter-Tests
