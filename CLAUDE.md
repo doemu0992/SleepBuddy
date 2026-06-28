@@ -546,6 +546,8 @@ FileManager.default.url(forUbiquityContainerIdentifier: "iCloud.DG-Software-Solu
 
 **Ring-Buffer:** 35 Sekunden Rohaudio im RAM (35s bei nativer Sample Rate). Bei Ereignis: letzten 30s als Clip speichern → RAM löschen.
 
+> **Clip-Normalisierung (bindend):** Aufnahme läuft im `.measurement`-Modus (AGC aus) + auf der Matratze gedämpft → sehr leiser Pegel. `AVAudioPlayer` kann nicht über das Original hinaus verstärken, daher wäre der Clip bei voller Lautstärke kaum hörbar. `saveToICloud` normalisiert deshalb vor dem AAC-Encoding via `normalized(_:)` (vDSP: Peak ermitteln, auf Ziel-Peak 0.9 skalieren, Gain auf max 60× begrenzt, auf [-1,1] geclippt). Gilt für iCloud- **und** lokalen Speicherpfad (gemeinsame tmp-Datei).
+
 **Schwellenwert:** Adaptiv — die ersten 60 s kalibrieren den Geräuschboden, danach Schwelle knapp darüber (siehe „Adaptive Kalibrierung" unten). Partner-Modus erhöht zusätzlich (× 1.6 / × 2.4).
 
 ---

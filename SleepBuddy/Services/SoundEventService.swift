@@ -1,6 +1,7 @@
 import AVFoundation
 import Foundation
 import Observation
+import Accelerate
 
 /// Detects sound events during sleep (snoring, talking, coughing, bruxism, other) and saves
 /// 30-second audio clips to iCloud Documents on opt-in.
@@ -339,7 +340,24 @@ final class SoundEventService {
             .appendingPathComponent("Documents")
     }
 
-    private func saveToICloud(samples: [Float], sampleRate: Double, timestamp: Date) -> String? {
+    /// Normalises a clip so its peak reaches a clearly audible level. Recording
+    /// happens in .measurement mode (AGC off) + muffled on the mattress → very
+    /// low level; without this the saved clip is barely audible at full volume.
+    private func normalized(_ samples: [Float], targetPeak: Float = 0.9, maxGain: Float = 60) -> [Float] {
+        guard !samples.isEmpty else { return samples }
+        var peak: Float = 0
+        vDSP_maxmgv(samples, 1, &peak, vDSP_Length(samples.count))
+        guard peak > 1e-5 else { return samples }      // essentially silent → leave as is
+        var gain = min(targetPeak / peak, maxGain)
+        var out = [Float](repeating: 0, count: samples.count)
+        vDSP_vsmul(samples, 1, &gain, &out, 1, vDSP_Length(samples.count))
+        var lo: Float = -1, hi: Float = 1
+        vDSP_vclip(out, 1, &lo, &hi, &out, 1, vDSP_Length(out.count))
+        return out
+    }
+
+    private func saveToICloud(samples rawSamples: [Float], sampleRate: Double, timestamp: Date) -> String? {
+        let samples = normalized(rawSamples)   // boost quiet clip to an audible level
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd_HH-mm-ss"
         let fileName = "sleep_\(formatter.string(from: timestamp)).m4a"
