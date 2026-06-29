@@ -566,6 +566,14 @@ final class SleepTrackingViewModel {
             }
         }
 
+        // Fallback: visualise the known sleep-onset latency as evening awake even
+        // when the user lay calm (low HR) — the app already computes "Einschlafen X
+        // min" from sleepOnsetDate, so show that period as awake at the start.
+        if let onset = session.sleepOnsetDate {
+            let latencyMin = Int(onset.timeIntervalSince(session.startDate) / 60)
+            if latencyMin >= 3 { eveningEnd = max(eveningEnd ?? 0, latencyMin - 1) }
+        }
+
         // Morning wake before stopping. Detect a wake near the end (elevated HR or
         // a lost BCG signal = movement/getting up), then extend backward using a
         // LOWER threshold so the whole gradual rise is captured — not just the 1
