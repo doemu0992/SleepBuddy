@@ -951,10 +951,6 @@ if Date().timeIntervalSince(lastBCGSampleDate) >= 60, let session = currentSessi
 > - **`markAwake` splittet Phasen** an der Wach-Grenze (kein Mittelpunkt-Retyping) — sonst würde eine lange letzte Phase nie eine kurze Morgen-Wachphase erzeugen. Greift nur bei gemessener HR / Signalverlust; ohne alles bleibt die Terminal-Awake-Regel (15 min) als Fallback.
 > - **`mergeAdjacentSamePhases`** (am Ende von `applyPlausibilityCorrection`) verschmilzt aufeinanderfolgende gleichtypige Phasen zu einer — sonst zeigt das Splitting mehrere benachbarte `.awake`-Segmente als getrennte Einträge im Verlauf.
 
-**Mittnächtliche Wachphase / Out-of-Bed (`applyOutOfBedWake`, bindend):**
-
-> Aufstehen (z.B. WC-Gang) mit Telefon auf der Matratze ist schwer zu erkennen: leeres Bett = keine Bewegung/Atmung → sieht wie ruhiger Schlaf aus. ABER der BCG-Puls ist dann **0** (niemand auf der Matratze). `applyOutOfBedWake` markiert eine **zusammenhängende Null-Puls-Strecke ≥ 8 min** mitten in der Nacht (durch gültige HR davor **und** danach flankiert) als `.awake`. Zusätzlich: Wach committet live schneller (30 s statt 60 s) für die Aufsteh-Bewegung, und die Plausibilitäts-Korrektur **merged `.awake` nie weg** (kurze echte Unterbrechungen bleiben erhalten).
-
 ---
 
 ## Sensor-System

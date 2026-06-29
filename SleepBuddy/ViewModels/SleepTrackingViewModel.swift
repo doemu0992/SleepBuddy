@@ -208,10 +208,6 @@ final class SleepTrackingViewModel {
         // user was lying awake (falling asleep / morning wake) — mark as awake.
         applyEdgeWakeCorrection(to: session)
 
-        // Post-hoc out-of-bed detection: a long mid-night run of zero BCG = nobody
-        // on the mattress (e.g. a toilet trip) — mark as awake.
-        applyOutOfBedWake(to: session)
-
         // Post-hoc plausibility correction: remove/merge implausibly short isolated phases
         applyPlausibilityCorrection(to: session)
 
@@ -306,9 +302,7 @@ final class SleepTrackingViewModel {
             pendingPhase = result.phase
             pendingPhaseStartDate = now
         } else if result.phase != currentPhase,
-                  // Awake commits faster (30 s) — getting up to use the toilet is a
-                  // brief but strong movement that should register as a wake.
-                  now.timeIntervalSince(pendingPhaseStartDate) >= (result.phase == .awake ? 30 : minPhaseDuration),
+                  now.timeIntervalSince(pendingPhaseStartDate) >= minPhaseDuration,
                   isSleepOnsetDetected || result.phase == .awake {
             guard let session = currentSession else { return }
             finalizeCurrentPhase(endDate: now, session: session)
@@ -387,7 +381,6 @@ final class SleepTrackingViewModel {
         for session in sessions where !session.isActive && !session.phasesArray.isEmpty {
             applyHeartRatePhaseCorrection(to: session)
             applyEdgeWakeCorrection(to: session)
-            applyOutOfBedWake(to: session)
             applyPlausibilityCorrection(to: session)
             count += 1
         }
@@ -541,75 +534,48 @@ final class SleepTrackingViewModel {
             morningStart = start
         }
 
-        var changed = false
-        // Evening: at least 2 min of awake-level HR to count as latency.
-        if let e = eveningEnd, e >= 2 { markAwake(in: session, fromMinute: 0, toMinute: e + 1); changed = true }
-        // Morning: mark from the detected wake start to the end of the session.
-        if let m = morningStart, (sessionMaxMin - m) >= 2 {
-            markAwake(in: session, fromMinute: m, toMinute: sessionMaxMin + 1); changed = true
-        }
-
-        if changed { try? modelContext?.save() }
-    }
-
-    /// Marks the minute range [startMin, endMinExclusive) as awake, splitting any
-    /// phases that straddle the boundaries so short awake segments are preserved.
-    private func markAwake(in session: SleepSession, fromMinute startMin: Int, toMinute endMinExclusive: Int) {
-        guard endMinExclusive > startMin else { return }
-        let rangeStart = session.startDate.addingTimeInterval(Double(startMin) * 60)
-        let rangeEnd   = session.startDate.addingTimeInterval(Double(endMinExclusive) * 60)
-        for phase in session.phasesArray where !(phase.endDate <= rangeStart || phase.startDate >= rangeEnd) {
-            if phase.startDate >= rangeStart && phase.endDate <= rangeEnd {
-                phase.phaseType = .awake
-            } else if phase.startDate < rangeStart && phase.endDate <= rangeEnd {
-                let awake = SleepPhase(startDate: rangeStart, endDate: phase.endDate, phaseType: .awake, confidence: 0.7)
-                phase.endDate = rangeStart
-                awake.session = session
-                modelContext?.insert(awake)
-                session.phases?.append(awake)
-            } else if phase.startDate >= rangeStart && phase.endDate > rangeEnd {
-                let awake = SleepPhase(startDate: phase.startDate, endDate: rangeEnd, phaseType: .awake, confidence: 0.7)
-                phase.startDate = rangeEnd
-                awake.session = session
-                modelContext?.insert(awake)
-                session.phases?.append(awake)
-            } else {
-                let after = SleepPhase(startDate: rangeEnd, endDate: phase.endDate, phaseType: phase.phaseType, confidence: phase.confidence)
-                let awake = SleepPhase(startDate: rangeStart, endDate: rangeEnd, phaseType: .awake, confidence: 0.7)
-                phase.endDate = rangeStart
-                after.session = session; awake.session = session
-                modelContext?.insert(after); modelContext?.insert(awake)
-                session.phases?.append(after); session.phases?.append(awake)
+        func markAwake(fromMinute startMin: Int, toMinute endMinExclusive: Int) {
+            guard endMinExclusive > startMin else { return }
+            let rangeStart = session.startDate.addingTimeInterval(Double(startMin) * 60)
+            let rangeEnd   = session.startDate.addingTimeInterval(Double(endMinExclusive) * 60)
+            // Snapshot — we may append new phases while splitting.
+            for phase in session.phasesArray where !(phase.endDate <= rangeStart || phase.startDate >= rangeEnd) {
+                if phase.startDate >= rangeStart && phase.endDate <= rangeEnd {
+                    phase.phaseType = .awake                                   // fully inside
+                } else if phase.startDate < rangeStart && phase.endDate <= rangeEnd {
+                    // straddles start: keep [start, rangeStart], add awake [rangeStart, end]
+                    let awake = SleepPhase(startDate: rangeStart, endDate: phase.endDate, phaseType: .awake, confidence: 0.7)
+                    phase.endDate = rangeStart
+                    awake.session = session
+                    modelContext?.insert(awake)
+                    session.phases?.append(awake)
+                } else if phase.startDate >= rangeStart && phase.endDate > rangeEnd {
+                    // straddles end: add awake [start, rangeEnd], keep [rangeEnd, end]
+                    let awake = SleepPhase(startDate: phase.startDate, endDate: rangeEnd, phaseType: .awake, confidence: 0.7)
+                    phase.startDate = rangeEnd
+                    awake.session = session
+                    modelContext?.insert(awake)
+                    session.phases?.append(awake)
+                } else {
+                    // range fully inside phase: split into before / awake / after
+                    let after = SleepPhase(startDate: rangeEnd, endDate: phase.endDate, phaseType: phase.phaseType, confidence: phase.confidence)
+                    let awake = SleepPhase(startDate: rangeStart, endDate: rangeEnd, phaseType: .awake, confidence: 0.7)
+                    phase.endDate = rangeStart
+                    after.session = session; awake.session = session
+                    modelContext?.insert(after); modelContext?.insert(awake)
+                    session.phases?.append(after); session.phases?.append(awake)
+                }
             }
         }
-    }
-
-    // MARK: - Post-hoc out-of-bed (mid-night) wake detection
-    // A long run of zero BCG heart rate mid-night = nobody on the mattress
-    // (toilet trip). Flanked by valid HR (so not an edge), it is marked awake.
-    private func applyOutOfBedWake(to session: SleepSession) {
-        let raw = session.heartRateSamples
-        guard raw.count > 20 else { return }
-        let outOfBedMin = 8                    // ≥ 8 min absence
-        func valid(_ v: Double) -> Bool { v >= 40 && v <= 110 }
 
         var changed = false
-        var i = 0
-        while i < raw.count {
-            if raw[i] == 0 {
-                var j = i
-                while j < raw.count && raw[j] == 0 { j += 1 }
-                let runLen = j - i
-                // Flanked by valid HR before AND after → genuine mid-night absence.
-                let hasBefore = raw[..<i].contains(where: valid)
-                let hasAfter  = raw[j...].contains(where: valid)
-                if runLen >= outOfBedMin && hasBefore && hasAfter {
-                    markAwake(in: session, fromMinute: i, toMinute: j)
-                    changed = true
-                }
-                i = j
-            } else { i += 1 }
+        // Evening: at least 2 min of awake-level HR to count as latency.
+        if let e = eveningEnd, e >= 2 { markAwake(fromMinute: 0, toMinute: e + 1); changed = true }
+        // Morning: mark from the detected wake start to the end of the session.
+        if let m = morningStart, (sessionMaxMin - m) >= 2 {
+            markAwake(fromMinute: m, toMinute: sessionMaxMin + 1); changed = true
         }
+
         if changed { try? modelContext?.save() }
     }
 
@@ -629,11 +595,8 @@ final class SleepTrackingViewModel {
             let curr = phases[i]
             let next = phases[i + 1]
             let duration = curr.endDate.timeIntervalSince(curr.startDate)
-            // Short phase flanked by the same type on both sides → merge into neighbours.
-            // Never merge away .awake — a brief mid-night wake (e.g. toilet trip) is a
-            // real, meaningful interruption even if short.
-            if duration < minPlausibleDuration && prev.phaseType == next.phaseType
-                && curr.phaseType != prev.phaseType && curr.phaseType != .awake {
+            // Short phase flanked by the same type on both sides → merge into neighbours
+            if duration < minPlausibleDuration && prev.phaseType == next.phaseType && curr.phaseType != prev.phaseType {
                 curr.phaseType = prev.phaseType
                 changed = true
             }
