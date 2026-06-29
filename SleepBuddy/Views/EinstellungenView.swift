@@ -27,6 +27,8 @@ struct EinstellungenView: View {
     @State private var normalisiereErgebnis: String?
     @State private var phasenLaeuft = false
     @State private var phasenErgebnis: String?
+    @State private var zeigeSoundAudit = false
+    @State private var soundAuditText = ""
 
     var body: some View {
         List {
@@ -127,6 +129,21 @@ struct EinstellungenView: View {
             }
             .sheet(isPresented: $zeigeICloudTest) {
                 ICloudAudioTestView()
+            }
+
+            Button {
+                if #available(iOS 15, *) {
+                    soundAuditText = SoundClassificationService.auditText()
+                } else {
+                    soundAuditText = "Erfordert iOS 15 oder neuer."
+                }
+                zeigeSoundAudit = true
+            } label: {
+                Label("Geräusch-Klassen prüfen", systemImage: "checklist")
+                    .foregroundStyle(.indigo)
+            }
+            .sheet(isPresented: $zeigeSoundAudit) {
+                SoundAuditView(report: soundAuditText)
             }
         } header: {
             Text("Aufzeichnung")
@@ -1007,6 +1024,44 @@ struct ICloudAudioTestView: View {
             DispatchQueue.main.async {
                 status = .fehler("Speichern fehlgeschlagen: \(error.localizedDescription)")
                 laeuft = false
+            }
+        }
+    }
+}
+
+// MARK: - Sound taxonomy audit report
+
+/// Shows the Apple sound-taxonomy audit (dead identifiers + full class list) with a
+/// copy button so the report can be shared for correcting the mappings.
+struct SoundAuditView: View {
+    let report: String
+    @Environment(\.dismiss) private var dismiss
+    @State private var kopiert = false
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                Text(report)
+                    .font(.system(.caption, design: .monospaced))
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding()
+            }
+            .navigationTitle("Geräusch-Klassen")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Fertig") { dismiss() }
+                }
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        UIPasteboard.general.string = report
+                        kopiert = true
+                    } label: {
+                        Label(kopiert ? "Kopiert ✓" : "Kopieren",
+                              systemImage: kopiert ? "checkmark" : "doc.on.doc")
+                    }
+                }
             }
         }
     }

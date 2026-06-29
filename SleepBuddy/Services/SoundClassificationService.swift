@@ -12,6 +12,114 @@ final class SoundClassificationService: NSObject {
     /// Higher = more (and quieter) detections. Single knob to tune overall recall.
     static let sensitivityOffset: Double = 0.12
 
+    /// Apple identifier → our event type + base confidence threshold.
+    /// IMPORTANT: each `id` must EXACTLY match a string in Apple's `.version1` taxonomy
+    /// (`SNClassifySoundRequest(.version1).knownClassifications`). A mismatch means
+    /// `classification(forIdentifier:)` returns nil and the class NEVER fires — verify with
+    /// `auditText()` (Einstellungen → "Geräusch-Klassen prüfen").
+    static let mappings: [(id: String, type: SoundEventType, minConf: Double)] = [
+        // Personal sleep sounds
+        ("snoring",              .snoring,    0.40),
+        ("snoring_breathing",    .snoring,    0.40),
+        ("speech",               .talking,    0.45),
+        ("cough",                .coughing,   0.40),
+        ("coughing",             .coughing,   0.40),
+        ("sneezing",             .sneezing,   0.45),
+        ("sneeze",               .sneezing,   0.45),
+        ("teeth_chattering",     .bruxism,    0.35),
+        ("teeth_grinding",       .bruxism,    0.35),
+        // Gasping / heavy breathing
+        ("breathing",            .gasping,    0.50),
+        ("breathing_heavily",    .gasping,    0.45),
+        ("gasping",              .gasping,    0.40),
+        ("choking",              .gasping,    0.40),
+        // Laughing / giggling
+        ("laughing",             .laughing,   0.50),
+        ("laughter",             .laughing,   0.50),
+        ("giggling",             .laughing,   0.45),
+        // External disturbances — dog (Apple's classifier uses "dog_bark")
+        ("dog",                  .dogBarking, 0.30),
+        ("dog_bark",             .dogBarking, 0.30),
+        ("dog_barking",          .dogBarking, 0.30),
+        ("bark",                 .dogBarking, 0.30),
+        ("barking",              .dogBarking, 0.30),
+        ("dog_howl",             .dogBarking, 0.40),
+        ("yip",                  .dogBarking, 0.40),
+        ("growling",             .dogBarking, 0.45),
+        // Cat
+        ("cat",                  .cat,        0.40),
+        ("meow",                 .cat,        0.40),
+        ("cat_meowing",          .cat,        0.40),
+        ("purring",              .cat,        0.45),
+        // Bird
+        ("bird",                 .bird,       0.45),
+        ("bird_song",            .bird,       0.45),
+        ("bird_vocalization",    .bird,       0.45),
+        ("chirping",             .bird,       0.45),
+        ("crow",                 .bird,       0.50),
+        // Music / TV — higher threshold: AC/fan noise is often misclassified as music
+        ("music",                .music,      0.65),
+        ("musical_instrument",   .music,      0.65),
+        ("singing",              .music,      0.60),
+        ("television",           .music,      0.60),
+        // Alarms — distinct sounds, moderate threshold
+        ("alarm_clock",          .alarm,      0.50),
+        ("alarm",                .alarm,      0.50),
+        ("smoke_detector",       .alarm,      0.50),
+        ("siren",                .alarm,      0.50),
+        ("fire_alarm",           .alarm,      0.50),
+        ("bell",                 .alarm,      0.55),
+        // Doorbell
+        ("doorbell",             .doorbell,   0.45),
+        ("door_bell",            .doorbell,   0.45),
+        ("chime",                .doorbell,   0.50),
+        // Phone
+        ("telephone",            .phone,      0.50),
+        ("phone_ringing",        .phone,      0.50),
+        ("ringtone",             .phone,      0.50),
+        ("cell_phone",           .phone,      0.50),
+        // Traffic — ambient engines misclassify easily, keep threshold moderate
+        ("car_horn",             .traffic,    0.50),
+        ("honking",              .traffic,    0.50),
+        ("vehicle",              .traffic,    0.55),
+        ("engine",               .traffic,    0.60),
+        ("motorcycle",           .traffic,    0.55),
+        ("train",                .traffic,    0.55),
+        // Baby
+        ("baby_cry",             .baby,       0.45),
+        ("crying",               .baby,       0.45),
+        ("infant_cry",           .baby,       0.45),
+        // Thunder / rain — rain on window can be confused with traffic
+        ("thunder",              .thunder,    0.50),
+        ("thunderstorm",         .thunder,    0.50),
+        ("rain",                 .thunder,    0.55),
+        ("raindrop",             .thunder,    0.55),
+        // Wind
+        ("wind",                 .wind,       0.50),
+        ("wind_noise",           .wind,       0.50),
+        ("gust_of_wind",         .wind,       0.50),
+        // Knock / door — ML-primary, keep low
+        ("knock",                .knock,      0.40),
+        ("door_knock",           .knock,      0.40),
+        ("door",                 .knock,      0.50),
+        // Glass break — ML-primary, very distinct sound
+        ("glass_breaking",       .glassBreak, 0.35),
+        ("glass_break",          .glassBreak, 0.35),
+        ("breaking",             .glassBreak, 0.45),
+        ("shatter",              .glassBreak, 0.40),
+        // Crowd / voices
+        ("crowd",                .crowd,      0.55),
+        ("applause",             .crowd,      0.55),
+        ("cheering",             .crowd,      0.55),
+        ("chatter",              .crowd,      0.50),
+        // Water
+        ("water",                .water,      0.50),
+        ("running_water",        .water,      0.50),
+        ("dripping",             .water,      0.50),
+        ("toilet_flush",         .water,      0.50),
+        ("water_tap",            .water,      0.50),
+    ]
+
     private var analyzer: SNAudioStreamAnalyzer?
     private let analysisQueue = DispatchQueue(label: "com.sleepbuddy.soundanalysis", qos: .utility)
     private var bufferCounter = 0
@@ -67,115 +175,42 @@ final class SoundClassificationService: NSObject {
         analyzer = nil
         bufferCounter = 0
     }
+
+    // MARK: - Taxonomy audit
+
+    /// Compares our mapped identifiers against Apple's actual `.version1` taxonomy and
+    /// returns a human-readable report. Identifiers Apple does not know are DEAD — they
+    /// can never fire. Run from Einstellungen → "Geräusch-Klassen prüfen", then send the
+    /// report so the dead mappings can be corrected to the real Apple class names.
+    @available(iOS 15, *)
+    static func auditText() -> String {
+        guard let request = try? SNClassifySoundRequest(classifierIdentifier: .version1) else {
+            return "Fehler: Apple-Klassifikator konnte nicht geladen werden."
+        }
+        let known = Set(request.knownClassifications)
+        let ours = Array(Set(mappings.map { $0.id })).sorted()
+        let unknown = ours.filter { !known.contains($0) }
+        let valid = ours.filter { known.contains($0) }
+
+        var s = "APPLE SOUND-TAXONOMIE ABGLEICH\n"
+        s += "Apple .version1 kennt \(known.count) Klassen.\n"
+        s += "Unsere Identifier: \(ours.count) — gültig: \(valid.count), TOT: \(unknown.count)\n\n"
+        s += "❌ TOTE Identifier (Apple kennt sie NICHT → feuern NIE):\n"
+        s += unknown.isEmpty ? "   (keine — alle Mappings gültig!)\n"
+                             : unknown.map { "   ✗ \($0)" }.joined(separator: "\n") + "\n"
+        s += "\n✅ Gültige Identifier:\n"
+        s += valid.map { "   ✓ \($0)" }.joined(separator: "\n") + "\n"
+        s += "\n— — — ALLE \(known.count) APPLE-KLASSEN (an Claude schicken) — — —\n"
+        s += known.sorted().joined(separator: ", ")
+        return s
+    }
 }
 
 @available(iOS 15, *)
 extension SoundClassificationService: SNResultsObserving {
     func request(_ request: SNRequest, didProduce result: SNResult) {
         guard let classifications = result as? SNClassificationResult else { return }
-
-        let mappings: [(id: String, type: SoundEventType, minConf: Double)] = [
-            // Personal sleep sounds
-            ("snoring",              .snoring,    0.40),
-            ("snoring_breathing",    .snoring,    0.40),
-            ("speech",               .talking,    0.45),
-            ("cough",                .coughing,   0.40),
-            ("coughing",             .coughing,   0.40),
-            ("sneezing",             .sneezing,   0.45),
-            ("sneeze",               .sneezing,   0.45),
-            ("teeth_chattering",     .bruxism,    0.35),
-            ("teeth_grinding",       .bruxism,    0.35),
-            // Gasping / heavy breathing
-            ("breathing",            .gasping,    0.50),
-            ("breathing_heavily",    .gasping,    0.45),
-            ("gasping",              .gasping,    0.40),
-            ("choking",              .gasping,    0.40),
-            // Laughing / giggling
-            ("laughing",             .laughing,   0.50),
-            ("laughter",             .laughing,   0.50),
-            ("giggling",             .laughing,   0.45),
-            // External disturbances — dog (Apple's classifier uses "dog_bark")
-            ("dog",                  .dogBarking, 0.30),
-            ("dog_bark",             .dogBarking, 0.30),
-            ("dog_barking",          .dogBarking, 0.30),
-            ("bark",                 .dogBarking, 0.30),
-            ("barking",              .dogBarking, 0.30),
-            ("dog_howl",             .dogBarking, 0.40),
-            ("yip",                  .dogBarking, 0.40),
-            ("growling",             .dogBarking, 0.45),
-            // Cat
-            ("cat",                  .cat,        0.40),
-            ("meow",                 .cat,        0.40),
-            ("cat_meowing",          .cat,        0.40),
-            ("purring",              .cat,        0.45),
-            // Bird
-            ("bird",                 .bird,       0.45),
-            ("bird_song",            .bird,       0.45),
-            ("bird_vocalization",    .bird,       0.45),
-            ("chirping",             .bird,       0.45),
-            ("crow",                 .bird,       0.50),
-            // Music / TV — higher threshold: AC/fan noise is often misclassified as music
-            ("music",                .music,      0.65),
-            ("musical_instrument",   .music,      0.65),
-            ("singing",              .music,      0.60),
-            ("television",           .music,      0.60),
-            // Alarms — distinct sounds, moderate threshold
-            ("alarm_clock",          .alarm,      0.50),
-            ("alarm",                .alarm,      0.50),
-            ("smoke_detector",       .alarm,      0.50),
-            ("siren",                .alarm,      0.50),
-            ("fire_alarm",           .alarm,      0.50),
-            ("bell",                 .alarm,      0.55),
-            // Doorbell
-            ("doorbell",             .doorbell,   0.45),
-            ("door_bell",            .doorbell,   0.45),
-            ("chime",                .doorbell,   0.50),
-            // Phone
-            ("telephone",            .phone,      0.50),
-            ("phone_ringing",        .phone,      0.50),
-            ("ringtone",             .phone,      0.50),
-            ("cell_phone",           .phone,      0.50),
-            // Traffic — ambient engines misclassify easily, keep threshold moderate
-            ("car_horn",             .traffic,    0.50),
-            ("honking",              .traffic,    0.50),
-            ("vehicle",              .traffic,    0.55),
-            ("engine",               .traffic,    0.60),
-            ("motorcycle",           .traffic,    0.55),
-            ("train",                .traffic,    0.55),
-            // Baby
-            ("baby_cry",             .baby,       0.45),
-            ("crying",               .baby,       0.45),
-            ("infant_cry",           .baby,       0.45),
-            // Thunder / rain — rain on window can be confused with traffic
-            ("thunder",              .thunder,    0.50),
-            ("thunderstorm",         .thunder,    0.50),
-            ("rain",                 .thunder,    0.55),
-            ("raindrop",             .thunder,    0.55),
-            // Wind
-            ("wind",                 .wind,       0.50),
-            ("wind_noise",           .wind,       0.50),
-            ("gust_of_wind",         .wind,       0.50),
-            // Knock / door — ML-primary, keep low
-            ("knock",                .knock,      0.40),
-            ("door_knock",           .knock,      0.40),
-            ("door",                 .knock,      0.50),
-            // Glass break — ML-primary, very distinct sound
-            ("glass_breaking",       .glassBreak, 0.35),
-            ("glass_break",          .glassBreak, 0.35),
-            ("breaking",             .glassBreak, 0.45),
-            ("shatter",              .glassBreak, 0.40),
-            // Crowd / voices
-            ("crowd",                .crowd,      0.55),
-            ("applause",             .crowd,      0.55),
-            ("cheering",             .crowd,      0.55),
-            ("chatter",              .crowd,      0.50),
-            // Water
-            ("water",                .water,      0.50),
-            ("running_water",        .water,      0.50),
-            ("dripping",             .water,      0.50),
-            ("toilet_flush",         .water,      0.50),
-            ("water_tap",            .water,      0.50),
-        ]
+        let mappings = SoundClassificationService.mappings
 
         // Pick the highest-confidence match — threshold nudged by user feedback stored in UserDefaults.
         // A global sensitivity offset lowers ALL thresholds uniformly (single tuning
