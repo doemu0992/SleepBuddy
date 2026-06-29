@@ -85,6 +85,7 @@ final class SoundEventService {
 
     private var eventStartDate: Date?
     private var pendingEventType: SoundEventType = .other
+    private var pendingMLLabel: String?   // specific German name for .ambient catch-all events
     private var consecutiveLoudTicks = 0
     private var consecutiveQuietTicks = 0
 
@@ -107,7 +108,7 @@ final class SoundEventService {
     /// false-positive gate (e.g. dog 0.30, music 0.65). This method must NOT impose
     /// a higher floor on top — that previously suppressed quiet/distant external
     /// sounds (e.g. dog barking never registered). Only a tiny sanity floor remains.
-    func hintMLDetection(type: SoundEventType, confidence: Double) {
+    func hintMLDetection(type: SoundEventType, confidence: Double, label: String? = nil) {
         mlHintType = type
         mlHintConfidence = confidence
         mlHintDate = Date()
@@ -115,6 +116,7 @@ final class SoundEventService {
         if confidence >= 0.25 && eventStartDate == nil && !isInCooldown {
             eventStartDate = Date()
             pendingEventType = type
+            pendingMLLabel = label
             consecutiveLoudTicks = loudTicksToStart
             consecutiveQuietTicks = 0
         }
@@ -122,7 +124,7 @@ final class SoundEventService {
 
     // MARK: - Callback (fires on main actor)
 
-    var onEventCaptured: ((Date, SoundEventType, TimeInterval, String?, Double, Double) -> Void)?
+    var onEventCaptured: ((Date, SoundEventType, TimeInterval, String?, Double, Double, String?) -> Void)?
 
     // MARK: - Public API
 
@@ -195,6 +197,7 @@ final class SoundEventService {
             if eventStartDate == nil && consecutiveLoudTicks >= loudTicksToStart {
                 eventStartDate = Date().addingTimeInterval(-Double(loudTicksToStart) / 8.0)
                 pendingEventType = classifyEvent(snoringScore: snoringScore, speechLikelihood: speechLikelihood)
+                pendingMLLabel = nil   // amplitude fallback → named/heuristic type, no catch-all label
             }
         } else {
             consecutiveLoudTicks = 0
@@ -328,11 +331,13 @@ final class SoundEventService {
         let sr = sampleRate
         let timestamp = start
         let capturedConfidence = mlHintConfidence
+        let label = pendingMLLabel
         let decibelLevel = computeDecibelLevel(samples)
 
         mlHintType = nil
         mlHintConfidence = 0
         mlHintDate = nil
+        pendingMLLabel = nil
 
         Task.detached(priority: .background) { [weak self] in
             guard let self else { return }
@@ -340,7 +345,7 @@ final class SoundEventService {
                 ? self.saveToICloud(samples: samples, sampleRate: sr, timestamp: timestamp)
                 : nil
             await MainActor.run {
-                self.onEventCaptured?(timestamp, type, duration, fileName, decibelLevel, capturedConfidence)
+                self.onEventCaptured?(timestamp, type, duration, fileName, decibelLevel, capturedConfidence, label)
             }
         }
     }

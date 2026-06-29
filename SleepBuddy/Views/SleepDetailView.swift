@@ -905,7 +905,7 @@ struct SleepDetailView: View {
                     }
 
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(event.type.rawValue).font(.subheadline.bold())
+                        Text(event.displayName).font(.subheadline.bold())
                         Text(event.timestamp.formatted(date: .omitted, time: .shortened))
                             .font(.caption).foregroundStyle(.secondary)
                     }
@@ -1268,7 +1268,7 @@ struct SoundCorrectionSheet: View {
                             Image(systemName: event.type.icon).foregroundStyle(event.type.color)
                         }
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("Erkannt als: \(event.type.rawValue)")
+                            Text("Erkannt als: \(event.displayName)")
                                 .font(.subheadline.bold())
                             if let orig = event.originalType, orig != event.type {
                                 Text("Ursprünglich: \(orig.rawValue)").font(.caption).foregroundStyle(.secondary)

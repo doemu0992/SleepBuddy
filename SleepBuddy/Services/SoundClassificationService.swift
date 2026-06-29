@@ -6,7 +6,9 @@ import Accelerate
 
 @Observable
 final class SoundClassificationService: NSObject {
-    var onSoundDetected: ((SoundEventType, Double) -> Void)?
+    /// (type, confidence, label) — `label` carries the specific German sound name for
+    /// catch-all `.ambient` events, nil for the 24 named categories.
+    var onSoundDetected: ((SoundEventType, Double, String?) -> Void)?
 
     /// Global sensitivity: subtracted from every per-class confidence threshold.
     /// Higher = more (and quieter) detections. Single knob to tune overall recall.
@@ -157,6 +159,41 @@ final class SoundClassificationService: NSObject {
     /// Identifiers that have an explicit mapping above (so the catch-all skips them).
     static let mappedIDs: Set<String> = Set(mappings.map { $0.id })
 
+    /// German display names for catch-all (.ambient) sounds. Curated for the classes most
+    /// likely at night; anything else falls back to a humanised version of the identifier.
+    private static let germanNames: [String: String] = [
+        "typing": "Tippen", "typing_computer_keyboard": "Tastatur-Tippen", "keyboard_musical": "Keyboard",
+        "writing": "Schreiben", "clapping": "Klatschen", "footsteps": "Schritte",
+        "person_walking": "Schritte", "person_running": "Laufen", "person_shuffling": "Schlurfen",
+        "cutlery_silverware": "Besteck", "dishes_pots_pans": "Geschirr", "coin_dropping": "Münze",
+        "keys_jangling": "Schlüssel", "zipper": "Reißverschluss", "drawer_open_close": "Schublade",
+        "door_sliding": "Schiebetür", "scissors": "Schere", "camera": "Kamera",
+        "snoring": "Schnarchen", "burp": "Rülpsen", "hiccup": "Schluckauf", "sigh": "Seufzen",
+        "nose_blowing": "Naseschnäuzen", "gargling": "Gurgeln", "slurp": "Schlürfen",
+        "humming": "Summen", "whistling": "Pfeifen", "yodeling": "Jodeln",
+        "duck_quack": "Ente", "frog_croak": "Frosch", "owl_hoot": "Eule", "cricket_chirp": "Grille",
+        "insect": "Insekt", "bee_buzz": "Biene", "mosquito_buzz": "Mücke", "fly_buzz": "Fliege",
+        "horse_neigh": "Pferd", "sheep_bleat": "Schaf", "pig_oink": "Schwein", "cow_moo": "Kuh",
+        "chicken_cluck": "Huhn", "rooster_crow": "Hahn", "snake_hiss": "Schlange",
+        "gunshot_gunfire": "Schuss", "fireworks": "Feuerwerk", "firecracker": "Knaller",
+        "boom": "Knall", "thump_thud": "Dumpfer Schlag", "wood_cracking": "Holzknacken",
+        "tearing": "Reißen", "crumpling_crinkling": "Knistern", "squeak": "Quietschen",
+        "hammer": "Hammer", "click": "Klicken", "beep": "Piepton", "boiling": "Kochen",
+        "liquid_pouring": "Eingießen", "frying_food": "Braten", "chopping_food": "Schneiden",
+        "helicopter": "Hubschrauber", "airplane": "Flugzeug", "aircraft": "Flugzeug",
+        "train_horn": "Zughupe", "train_whistle": "Zugpfiff", "church_bell": "Kirchenglocke",
+        "wind_chime": "Windspiel", "singing_bowl": "Klangschale",
+    ]
+
+    static func germanName(for identifier: String) -> String {
+        if let g = germanNames[identifier] { return g }
+        // Humanise: "typing_computer_keyboard" -> "Typing Computer Keyboard"
+        return identifier
+            .split(separator: "_")
+            .map { $0.prefix(1).uppercased() + $0.dropFirst() }
+            .joined(separator: " ")
+    }
+
     private var analyzer: SNAudioStreamAnalyzer?
     private let analysisQueue = DispatchQueue(label: "com.sleepbuddy.soundanalysis", qos: .utility)
     private var bufferCounter = 0
@@ -252,7 +289,7 @@ extension SoundClassificationService: SNResultsObserving {
         // Pick the highest-confidence match — threshold nudged by user feedback stored in UserDefaults.
         // A global sensitivity offset lowers ALL thresholds uniformly (single tuning
         // knob) — raise it to catch more / quieter sounds, lower it to reduce noise.
-        var best: (type: SoundEventType, confidence: Double)? = nil
+        var best: (type: SoundEventType, confidence: Double, label: String?)? = nil
         for (id, type, baseConf) in mappings {
             // Snoring already detects well — keep its proven threshold; lower the rest.
             let offset = type == .snoring ? 0.0 : Self.sensitivityOffset
@@ -260,25 +297,26 @@ extension SoundClassificationService: SNResultsObserving {
             if let c = classifications.classification(forIdentifier: id),
                c.confidence >= minConf,
                c.confidence > (best?.confidence ?? 0) {
-                best = (type, c.confidence)
+                best = (type, c.confidence, nil)
             }
         }
         // Catch-all: no explicit mapping fired → capture any other recognised, abgrenzbares
-        // sound as .other (so effectively all ~300 Apple classes are active), skipping the
-        // excluded continuous/noise classes that would spam events all night.
+        // sound as .ambient ("Umgebungsgeräusch") WITH its specific German name (so it is not
+        // mislabelled as generic "Geräusch"). Effectively all ~300 Apple classes are active,
+        // skipping the excluded continuous/noise classes that would spam events all night.
         if best == nil, Self.catchAllEnabled {
             for c in classifications.classifications
             where c.confidence >= Self.catchAllThreshold
                 && !Self.mappedIDs.contains(c.identifier)
                 && !Self.catchAllExcluded.contains(c.identifier) {
-                best = (.other, c.confidence)
+                best = (.ambient, c.confidence, Self.germanName(for: c.identifier))
                 break   // classifications are sorted by confidence → first is the top
             }
         }
 
         if let best {
             DispatchQueue.main.async { [weak self] in
-                self?.onSoundDetected?(best.type, best.confidence)
+                self?.onSoundDetected?(best.type, best.confidence, best.label)
             }
         }
     }

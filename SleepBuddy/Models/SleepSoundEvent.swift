@@ -13,6 +13,7 @@ enum SoundEventType: String, Codable, CaseIterable {
     case laughing  = "Lachen"
     case other     = "Geräusch"
     // External / ambient disturbances
+    case ambient    = "Umgebungsgeräusch"   // catch-all for recognised but uncategorised external sounds
     case dogBarking = "Hundebellen"
     case cat        = "Katze"
     case bird       = "Vogel"
@@ -34,6 +35,7 @@ enum SoundEventType: String, Codable, CaseIterable {
         case .snoring:    return "waveform"
         case .talking:    return "bubble.left.fill"
         case .other:      return "speaker.wave.2.fill"
+        case .ambient:    return "waveform.badge.magnifyingglass"
         case .bruxism:    return "mouth.fill"
         case .coughing:   return "lungs.fill"
         case .sneezing:   return "wind"
@@ -62,6 +64,7 @@ enum SoundEventType: String, Codable, CaseIterable {
         case .snoring:    return .orange
         case .talking:    return .blue
         case .other:      return .secondary
+        case .ambient:    return .gray
         case .bruxism:    return .pink
         case .coughing:   return .teal
         case .sneezing:   return .teal
@@ -88,7 +91,7 @@ enum SoundEventType: String, Codable, CaseIterable {
     /// External disturbances (from the environment, not the sleeping person).
     var isExternal: Bool {
         switch self {
-        case .dogBarking, .cat, .bird, .music, .alarm, .doorbell, .phone,
+        case .ambient, .dogBarking, .cat, .bird, .music, .alarm, .doorbell, .phone,
              .traffic, .baby, .thunder, .wind, .knock, .glassBreak, .crowd, .water:
             return true
         default:
@@ -110,18 +113,28 @@ final class SleepSoundEvent {
     // User feedback — nil = not yet reviewed
     var isUserCorrected: Bool = false
     var originalTypeRaw: String?    // original ML type before correction
+    /// For catch-all (.ambient) events: the specific recognised sound name (German),
+    /// e.g. "Tippen", "Staubsauger". nil for the 24 named categories.
+    var mlLabel: String?
 
-    init(timestamp: Date, type: SoundEventType, durationSeconds: Double, iCloudFileName: String? = nil, decibelLevel: Double = 0.0, confidenceScore: Double = 0.0) {
+    init(timestamp: Date, type: SoundEventType, durationSeconds: Double, iCloudFileName: String? = nil, decibelLevel: Double = 0.0, confidenceScore: Double = 0.0, mlLabel: String? = nil) {
         self.timestamp = timestamp
         self.typeRaw = type.rawValue
         self.durationSeconds = durationSeconds
         self.iCloudFileName = iCloudFileName
         self.decibelLevel = decibelLevel
         self.confidenceScore = confidenceScore
+        self.mlLabel = mlLabel
     }
 
     var type: SoundEventType {
         SoundEventType(rawValue: typeRaw) ?? .other
+    }
+
+    /// Name to show in the UI: the specific recognised sound when available, else the category.
+    var displayName: String {
+        if let mlLabel, !mlLabel.isEmpty { return mlLabel }
+        return type.rawValue
     }
 
     var originalType: SoundEventType? {

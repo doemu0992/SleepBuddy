@@ -121,13 +121,13 @@ final class SleepTrackingViewModel {
         audioService.onBufferReady = { [weak self] buffer, time in
             self?.soundClassifier.analyze(buffer: buffer, time: time)
         }
-        soundClassifier.onSoundDetected = { [weak self] type, confidence in
-            self?.soundEventService.hintMLDetection(type: type, confidence: confidence)
+        soundClassifier.onSoundDetected = { [weak self] type, confidence, label in
+            self?.soundEventService.hintMLDetection(type: type, confidence: confidence, label: label)
         }
 
-        soundEventService.onEventCaptured = { [weak self] timestamp, type, duration, fileName, decibelLevel, confidenceScore in
+        soundEventService.onEventCaptured = { [weak self] timestamp, type, duration, fileName, decibelLevel, confidenceScore, mlLabel in
             guard let self, let session = self.currentSession, let ctx = self.modelContext else { return }
-            let event = SleepSoundEvent(timestamp: timestamp, type: type, durationSeconds: duration, iCloudFileName: fileName, decibelLevel: decibelLevel, confidenceScore: confidenceScore)
+            let event = SleepSoundEvent(timestamp: timestamp, type: type, durationSeconds: duration, iCloudFileName: fileName, decibelLevel: decibelLevel, confidenceScore: confidenceScore, mlLabel: mlLabel)
             ctx.insert(event)
             session.soundEvents?.append(event)
             if type == .snoring {
