@@ -460,6 +460,23 @@ final class SleepTrackingViewModel {
 
         func median(_ a: [Double]) -> Double { let s = a.sorted(); return s.isEmpty ? 0 : s[s.count / 2] }
 
+        // Whole-night HR distribution → personalised (relative) thresholds, clamped
+        // to sane absolute ranges. Adapts to each person/night instead of fixed BPM.
+        let allMeasured = pts.filter { !$0.estimated }.map { $0.bpm }.sorted()
+        func clamp(_ v: Double, _ lo: Double, _ hi: Double) -> Double { min(max(v, lo), hi) }
+        let deepCeil:  Double   // above this in a "deep" phase → not deep
+        let deepFloor: Double   // below this in a "light/rem" phase → deep
+        let remFloor:  Double   // below this in a "rem" phase → deep
+        if allMeasured.count >= 10 {
+            func pct(_ p: Double) -> Double { allMeasured[min(allMeasured.count - 1, Int(Double(allMeasured.count) * p))] }
+            let p25 = pct(0.25), p50 = pct(0.50)
+            deepCeil  = clamp(p50 + 4, 60, 70)
+            deepFloor = clamp(p25,     48, 56)
+            remFloor  = clamp(p25 - 3, 44, 50)
+        } else {
+            deepCeil = 65; deepFloor = 54; remFloor = 48   // fallback (too little data)
+        }
+
         var changed = false
         for phase in session.phasesArray where phase.phaseType != .awake {
             let startMin = Int(phase.startDate.timeIntervalSince(session.startDate) / 60)
@@ -475,17 +492,16 @@ final class SleepTrackingViewModel {
 
             switch phase.phaseType {
             case .deep:
-                // Deep sleep has a distinctly low HR. Clearly elevated → not deep.
-                // Use light (not REM) — creating REM from "deep had high HR" caused
-                // implausible short REM hops; REM should come from the cycle/breathing.
-                if m >= 65 { phase.phaseType = .light; changed = true }
+                // Deep sleep sits in the lower part of the night's HR. Clearly above
+                // the night's median → not deep → light (not REM, avoids REM hops).
+                if m >= deepCeil { phase.phaseType = .light; changed = true }
             case .light:
-                // Distinctly low + steady HR → actually deep.
-                if m < 54 { phase.phaseType = .deep; changed = true }
+                // In the night's lowest quartile + steady → actually deep.
+                if m < deepFloor { phase.phaseType = .deep; changed = true }
             case .rem:
-                // Only a clearly deep-level HR contradicts REM → deep. Kept very
-                // conservative (< 48) so normal REM (HR similar to light) survives.
-                if m < 48 { phase.phaseType = .deep; changed = true }
+                // Only a clearly deep-level HR (below the night's low quartile)
+                // contradicts REM → deep. Conservative so normal REM survives.
+                if m < remFloor { phase.phaseType = .deep; changed = true }
             case .awake:
                 break
             }

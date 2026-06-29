@@ -936,8 +936,9 @@ if Date().timeIntervalSince(lastBCGSampleDate) >= 60, let session = currentSessi
 **Post-hoc HR-Phasenkorrektur (`applyHeartRatePhaseCorrection`, bindend):**
 
 > Die bereinigte Herzfrequenz korrigiert nicht nur die Anzeige, sondern auch die **Phasen**. In `stopTracking()` läuft `applyHeartRatePhaseCorrection(to:)` **vor** `applyPlausibilityCorrection`. Sie nutzt dieselbe bereinigte Reihe (`cleanedHeartRate`, spiegelt `SleepDetailView.heartRatePoints`) und korrigiert pro Phase nur **klare Widersprüche**, und nur wenn echte **gemessene** HR ≥ 50 % der Phase abdeckt (geschätzte/gehaltene Abschnitte werden ignoriert):
-> - `.deep` mit Median ≥ 65 BPM → `.light` (nicht REM — REM-Erzeugung aus „Tief hatte hohen Puls" verursachte unplausible kurze REM-Hüpfer)
-> - `.light` mit Median < 54 BPM → `.deep`; `.rem` nur bei Median < 48 BPM → `.deep` (konservativ, sonst verschwindet REM ganz)
+> - **Relative Schwellen (Ganznacht-Kontext, bindend):** statt fixer BPM werden `deepCeil`/`deepFloor`/`remFloor` aus der **Puls-Verteilung der jeweiligen Nacht** (p50/p25) abgeleitet und auf sichere Bereiche geklemmt (`deepCeil = clamp(p50+4, 60…70)`, `deepFloor = clamp(p25, 48…56)`, `remFloor = clamp(p25−3, 44…50)`). Passt sich automatisch an Person/Nacht an. Fallback auf 65/54/48 bei < 10 Messwerten.
+> - `.deep` mit Median ≥ `deepCeil` → `.light` (nicht REM — vermeidet REM-Hüpfer)
+> - `.light` mit Median < `deepFloor` → `.deep`; `.rem` nur bei Median < `remFloor` → `.deep`
 > - `.awake` wird nie überschrieben (bewegungsbasiert, zuverlässiger)
 >
 > So sind die Phasen nicht nur optisch plausibel, sondern folgen dort, wo verlässliche HR vorliegt, der echten Herzfrequenz — statt dem reinen Zyklusmuster.
