@@ -477,23 +477,20 @@ final class SleepTrackingViewModel {
         let allMeasured = pts.filter { !$0.estimated }.map { $0.bpm }.sorted()
         func clamp(_ v: Double, _ lo: Double, _ hi: Double) -> Double { min(max(v, lo), hi) }
         let deepCeil:  Double   // above this in a "deep" phase → not deep
-        let deepFloor: Double   // below this in a "light" phase → deep
         let cal = PersonalCalibrationService.shared
         if allMeasured.count >= 10 {
             func pct(_ p: Double) -> Double { allMeasured[min(allMeasured.count - 1, Int(Double(allMeasured.count) * p))] }
             let nightP50 = pct(0.50)
             let nightDeepFloor = clamp(pct(0.25), 48, 56)
-            // Learn the personal baseline, then blend night + personal for stability.
+            // Keep learning the personal baseline (still used elsewhere), then blend.
             cal.updateHRBaseline(median: nightP50, deepFloor: nightDeepFloor)
-            let blendedP50  = cal.hrMedian.map    { 0.5 * $0 + 0.5 * nightP50 } ?? nightP50
-            let blendedDeep = cal.hrDeepFloor.map { 0.5 * $0 + 0.5 * nightDeepFloor } ?? nightDeepFloor
-            deepCeil  = clamp(blendedP50 + 4, 60, 70)
-            deepFloor = clamp(blendedDeep,    48, 56)
-        } else if let pm = cal.hrMedian, let pd = cal.hrDeepFloor {
+            let blendedP50 = cal.hrMedian.map { 0.5 * $0 + 0.5 * nightP50 } ?? nightP50
+            deepCeil = clamp(blendedP50 + 4, 60, 70)
+        } else if let pm = cal.hrMedian {
             // Too little data tonight → fall back to the learned personal baseline.
-            deepCeil = clamp(pm + 4, 60, 70); deepFloor = clamp(pd, 48, 56)
+            deepCeil = clamp(pm + 4, 60, 70)
         } else {
-            deepCeil = 65; deepFloor = 54   // global fallback
+            deepCeil = 65   // global fallback
         }
 
         var changed = false
@@ -515,8 +512,13 @@ final class SleepTrackingViewModel {
                 // the night's median → not deep → light (not REM, avoids REM hops).
                 if m >= deepCeil { phase.phaseType = .light; changed = true }
             case .light:
-                // In the night's lowest quartile + steady → actually deep.
-                if m < deepFloor { phase.phaseType = .deep; changed = true }
+                // De-emphasised after PSG validation (Walch et al., n=20): a LOW absolute
+                // pulse is NOT predominantly deep sleep — real deep-sleep HR sits around the
+                // night's p60, basically at the median and indistinguishable from REM
+                // (offsets only ±1.4 BPM). Promoting light→deep on low HR therefore mislabels
+                // epochs and inflated deep. Deep is now decided by movement + breathing
+                // regularity + cycle structure, not by absolute HR level.
+                break
             case .rem:
                 // Do NOT convert REM→deep on low HR: BCG underestimates the pulse,
                 // and REM HR is similar to light — this was wiping out almost all REM
