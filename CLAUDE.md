@@ -937,7 +937,7 @@ if Date().timeIntervalSince(lastBCGSampleDate) >= 60, let session = currentSessi
 
 > Die bereinigte Herzfrequenz korrigiert nicht nur die Anzeige, sondern auch die **Phasen**. In `stopTracking()` läuft `applyHeartRatePhaseCorrection(to:)` **vor** `applyPlausibilityCorrection`. Sie nutzt dieselbe bereinigte Reihe (`cleanedHeartRate`, spiegelt `SleepDetailView.heartRatePoints`) und korrigiert pro Phase nur **klare Widersprüche**, und nur wenn echte **gemessene** HR ≥ 50 % der Phase abdeckt (geschätzte/gehaltene Abschnitte werden ignoriert):
 > - `.deep` mit Median ≥ 65 BPM → `.light` (nicht REM — REM-Erzeugung aus „Tief hatte hohen Puls" verursachte unplausible kurze REM-Hüpfer)
-> - `.light`/`.rem` mit Median < 54 BPM (klar niedrig) → `.deep`
+> - `.light` mit Median < 54 BPM → `.deep`; `.rem` nur bei Median < 48 BPM → `.deep` (konservativ, sonst verschwindet REM ganz)
 > - `.awake` wird nie überschrieben (bewegungsbasiert, zuverlässiger)
 >
 > So sind die Phasen nicht nur optisch plausibel, sondern folgen dort, wo verlässliche HR vorliegt, der echten Herzfrequenz — statt dem reinen Zyklusmuster.

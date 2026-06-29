@@ -460,8 +460,9 @@ final class SleepTrackingViewModel {
                 // Distinctly low + steady HR → actually deep.
                 if m < 54 { phase.phaseType = .deep; changed = true }
             case .rem:
-                // Very low HR contradicts REM → deep.
-                if m < 54 { phase.phaseType = .deep; changed = true }
+                // Only a clearly deep-level HR contradicts REM → deep. Kept very
+                // conservative (< 48) so normal REM (HR similar to light) survives.
+                if m < 48 { phase.phaseType = .deep; changed = true }
             case .awake:
                 break
             }
@@ -644,18 +645,13 @@ final class SleepTrackingViewModel {
                 curr.phaseType = .light
                 changed = true
             }
-            // REM "hops": a short REM island (< 6 min) not flanked by REM is implausible.
-            // REM almost never abuts deep sleep (transition goes deep→light→REM). Replace
-            // with light if adjacent to deep, otherwise with the longer neighbour's type.
-            if curr.phaseType == .rem && duration < 360
-                && prev.phaseType != .rem && next.phaseType != .rem {
-                if prev.phaseType == .deep || next.phaseType == .deep {
-                    curr.phaseType = .light
-                } else {
-                    let prevDur = prev.endDate.timeIntervalSince(prev.startDate)
-                    let nextDur = next.endDate.timeIntervalSince(next.startDate)
-                    curr.phaseType = prevDur >= nextDur ? prev.phaseType : next.phaseType
-                }
+            // REM "hops": only a VERY short REM island (< 3 min) that directly abuts
+            // deep sleep is implausible (transition goes deep→light→REM) → light.
+            // Conservative: real REM bouts are preserved (don't wipe all REM).
+            if curr.phaseType == .rem && duration < 180
+                && prev.phaseType != .rem && next.phaseType != .rem
+                && (prev.phaseType == .deep || next.phaseType == .deep) {
+                curr.phaseType = .light
                 changed = true
             }
         }
