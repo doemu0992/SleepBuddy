@@ -734,6 +734,10 @@ AudioFeatures (8 Hz) → tick(instantAmplitude:snoringScore:speechLikelihood:)
 
 **ML-Primär-Trigger:** `hintMLDetection()` löst Events für **alle** Typen aus (persönlich + extern) wenn Konfidenz ≥ Schwelle — kein `isMLPrimary`-Filter mehr.
 
+> **Identifier müssen exakt zu Apples Taxonomie passen (bindend):** Die Mapping-Strings in `SoundClassificationService.mappings` müssen **wörtlich** einer Klasse aus `SNClassifySoundRequest(.version1).knownClassifications` (303 Klassen) entsprechen — sonst gibt `classification(forIdentifier:)` `nil` zurück und die Klasse **feuert nie**. Ein Audit (Einstellungen → „Geräusch-Klassen prüfen" → `SoundClassificationService.auditText()`) listet tote Identifier + alle echten Apple-Klassen. **Ein früherer Abgleich ergab, dass 41 von 82 Identifiern tot waren** (z.B. `dog_barking`, `baby_cry`, `glass_break`, `sneezing`, `coughing`, `meow`, `purring`, `wind_noise`) — alle auf die echten Namen korrigiert (`dog_bark`/`dog_bow_wow`, `baby_crying`, `glass_breaking`, `sneeze`, `cough`, `cat_meow`, `cat_purr`, `wind_noise_microphone`, …). Nach jeder Mapping-Änderung erneut auditieren.
+>
+> **Bruxismus hat keine Apple-Klasse (bindend):** In Apples `.version1`-Taxonomie existiert **kein** Identifier für Zähneknirschen (`teeth_grinding`/`teeth_chattering` sind nicht vorhanden, `chewing`/`biting` sind ungeeignet). Bruxismus kann daher **nicht** per ML erkannt werden — nur über manuelle Nutzer-Korrektur. Niemals erfundene teeth-Identifier ins Mapping aufnehmen.
+
 ---
 
 ### Apple ML Sound Classification
