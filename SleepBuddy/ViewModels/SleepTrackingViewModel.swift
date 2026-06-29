@@ -645,7 +645,30 @@ final class SleepTrackingViewModel {
             changed = true
         }
 
+        if mergeAdjacentSamePhases(session) { changed = true }
+
         if changed { try? modelContext?.save() }
+    }
+
+    /// Merges consecutive phases of the same type into one (e.g. the edge-wake
+    /// split can leave several adjacent .awake segments → show as a single phase).
+    @discardableResult
+    private func mergeAdjacentSamePhases(_ session: SleepSession) -> Bool {
+        let sorted = session.phasesArray.sorted { $0.startDate < $1.startDate }
+        guard sorted.count >= 2 else { return false }
+        var changed = false
+        var keep = sorted[0]
+        for next in sorted.dropFirst() {
+            if next.phaseType == keep.phaseType && next.startDate <= keep.endDate.addingTimeInterval(1) {
+                // extend the kept phase, delete the redundant one
+                if next.endDate > keep.endDate { keep.endDate = next.endDate }
+                modelContext?.delete(next)
+                changed = true
+            } else {
+                keep = next
+            }
+        }
+        return changed
     }
 
 }

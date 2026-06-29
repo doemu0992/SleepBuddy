@@ -79,6 +79,9 @@ final class SoundEventService {
     // MARK: - Event detection state
 
     private let cooldownAfterEventSeconds: TimeInterval = 4.0
+    /// Continuous sound is cut into separate events of at most this length so a
+    /// long bout (e.g. dog barking) produces several meaningful 30 s clips.
+    private let maxEventDuration: TimeInterval = 30.0
 
     private var eventStartDate: Date?
     private var pendingEventType: SoundEventType = .other
@@ -178,6 +181,15 @@ final class SoundEventService {
         let snoringBySpectrum = snoringScore > 0.55 && instantAmplitude > 0.0008
 
         let isLoud = instantAmplitude > amplitudeThreshold || snoringBySpectrum
+
+        // Continuous sound (e.g. 2 h of dog barking) would otherwise never see a
+        // 1 s gap → one endless event whose clip is just the last 30 s. Cap the
+        // duration: finalise at maxEventDuration so a long sound becomes several
+        // events/clips, then the cooldown spaces them out before re-triggering.
+        if let start = eventStartDate, Date().timeIntervalSince(start) >= maxEventDuration {
+            finaliseEvent()
+            return
+        }
 
         if isLoud {
             consecutiveQuietTicks = 0

@@ -709,6 +709,7 @@ AudioFeatures (8 Hz) → tick(instantAmplitude:snoringScore:speechLikelihood:)
 | `loudTicksToStart` | 4 (0.5 s) | Konsekutive laute Ticks (Amplitude-Fallback) um Event zu starten |
 | `quietTicksToEnd` | 8 (1.0s) | Konsekutive ruhige Ticks um Event zu beenden |
 | `cooldownAfterEventSeconds` | 4.0s | Pause nach Event (verhindert Doppelerkennung) |
+| `maxEventDuration` | 30.0s | Dauergeräusch (z.B. Hundegebell) wird in ≤30s-Events zerschnitten → mehrere Clips statt einem 2h-Event |
 | `clipDuration` | 30s | Länge des gespeicherten Audio-Clips |
 | Ring-Buffer Größe | 35s × Samplerate | Genug Vorlauf für vollständigen Clip |
 
@@ -942,6 +943,7 @@ if Date().timeIntervalSince(lastBCGSampleDate) >= 60, let session = currentSessi
 > - **Abend:** führender Lauf mit HR ≥ `awakeHR` (≥ 2 min) → Einschlaf-Latenz = `.awake`.
 > - **Morgen:** Wake erkannt, wenn die letzten Minuten erhöhte HR zeigen **oder** das BCG-Signal in den letzten ≥ 2 min abreißt (= aufgestanden/bewegt). Dann rückwärts erweitern (HR ≥ `extendThreshold`, Signalverlust zählt als wach), gedeckelt auf 30 min. Bei manuellem Stopp mind. ~8 min.
 > - **`markAwake` splittet Phasen** an der Wach-Grenze (kein Mittelpunkt-Retyping) — sonst würde eine lange letzte Phase nie eine kurze Morgen-Wachphase erzeugen. Greift nur bei gemessener HR / Signalverlust; ohne alles bleibt die Terminal-Awake-Regel (15 min) als Fallback.
+> - **`mergeAdjacentSamePhases`** (am Ende von `applyPlausibilityCorrection`) verschmilzt aufeinanderfolgende gleichtypige Phasen zu einer — sonst zeigt das Splitting mehrere benachbarte `.awake`-Segmente als getrennte Einträge im Verlauf.
 
 ---
 
