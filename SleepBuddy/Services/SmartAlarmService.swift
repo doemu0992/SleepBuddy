@@ -33,7 +33,10 @@ enum AlarmTon: String, CaseIterable, Codable {
     }
 
     var notificationSound: UNNotificationSound {
-        .defaultCritical
+        // .defaultCritical requires Apple's Critical Alerts entitlement, which the app does
+        // not hold — using it makes the notification fall back to SILENT. The plain default
+        // sound is guaranteed to play and respects the ringer/volume.
+        .default
     }
 }
 
@@ -110,11 +113,14 @@ final class SmartAlarmService {
         guard isEnabled else { return }
         alarmFired = false
         alarmFiredDate = nil
+        // Make sure notification permission is granted so the failsafe burst can fire even
+        // if the app gets suspended; harmless if already authorised.
+        Task { await requestPermission() }
         scheduleFailsafeNotification()
     }
 
     func disarm() {
-        UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: [notificationID])
+        UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: failsafeIDs)
         snoozeTask?.cancel()
         snoozeTask = nil
         stopAlarm()
@@ -142,6 +148,17 @@ final class SmartAlarmService {
     func checkPhase(_ phase: SleepPhaseType) -> Bool {
         guard isEnabled, !alarmFired else { return false }
         let now = Date()
+
+        // Hard deadline: once the latest wake time is reached, the alarm MUST ring,
+        // regardless of the detected phase. This is the safety net that guarantees the
+        // user is woken — even if the cycle model never reports light/awake in the window
+        // (e.g. a night that goes straight from REM to wake with no light phase).
+        if isPastLatest(now) {
+            triggerAlarm(at: now)
+            return true
+        }
+
+        // Smart wake: inside the window, fire at the first light/awake moment.
         guard isInsideWindow(now) else { return false }
         guard phase == .light || phase == .awake else { return false }
 
@@ -154,7 +171,7 @@ final class SmartAlarmService {
     private func triggerAlarm(at date: Date) {
         alarmFired = true
         alarmFiredDate = date
-        UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: [notificationID])
+        UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: failsafeIDs)
         playAlarmTone()
     }
 
@@ -430,20 +447,56 @@ final class SmartAlarmService {
     // MARK: - Failsafe notification
 
     private func scheduleFailsafeNotification() {
-        let content = UNMutableNotificationContent()
-        content.title = "Zeit aufzuwachen"
-        content.body = "Dein Smart Alarm meldet sich."
-        content.sound = alarmTon.notificationSound
-        content.interruptionLevel = .timeSensitive
+        let center = UNUserNotificationCenter.current()
+        center.removePendingNotificationRequests(withIdentifiers: failsafeIDs)
 
-        let components = Calendar.current.dateComponents([.hour, .minute], from: latestWakeTime)
-        let trigger = UNCalendarNotificationTrigger(dateMatching: components, repeats: false)
+        // Backup for the case where the app was killed/suspended and the in-app tone can't
+        // play. A single local notification plays its sound only briefly and is easy to sleep
+        // through — so we schedule a short BURST of notifications around the latest wake time
+        // (at the deadline, then every 30 s for 5 minutes). Each plays the default sound.
+        let cal = Calendar.current
+        guard let baseLatest = cal.nextDate(after: Date(),
+                                            matching: cal.dateComponents([.hour, .minute], from: latestWakeTime),
+                                            matchingPolicy: .nextTime) else { return }
 
-        let request = UNNotificationRequest(identifier: notificationID, content: content, trigger: trigger)
-        UNUserNotificationCenter.current().add(request)
+        for (index, offset) in stride(from: 0, through: 300, by: 30).enumerated() {
+            let fireDate = baseLatest.addingTimeInterval(TimeInterval(offset))
+            let content = UNMutableNotificationContent()
+            content.title = "Zeit aufzuwachen ⏰"
+            content.body = "Dein Smart Alarm meldet sich."
+            content.sound = alarmTon.notificationSound
+            content.interruptionLevel = .timeSensitive
+
+            let comps = cal.dateComponents([.year, .month, .day, .hour, .minute, .second], from: fireDate)
+            let trigger = UNCalendarNotificationTrigger(dateMatching: comps, repeats: false)
+            let request = UNNotificationRequest(identifier: "\(notificationID).\(index)",
+                                                content: content, trigger: trigger)
+            center.add(request)
+        }
+    }
+
+    /// All failsafe notification identifiers (burst 0…10 → 0 s … 300 s).
+    private var failsafeIDs: [String] {
+        (0...10).map { "\(notificationID).\($0)" }
     }
 
     // MARK: - Helpers
+
+    /// True once the latest wake time for "today" has been reached.
+    /// Handles the over-midnight case: if the latest time is in the early morning and we
+    /// fell asleep before midnight, the relevant latest time is on the *next* calendar day.
+    private func isPastLatest(_ date: Date) -> Bool {
+        let cal = Calendar.current
+        var latest = cal.date(bySettingHour: cal.component(.hour, from: latestWakeTime),
+                              minute: cal.component(.minute, from: latestWakeTime),
+                              second: 0, of: date) ?? latestWakeTime
+        // If the computed latest is far in the future (more than 12h), it belongs to the
+        // previous day's window that already passed — pull it back a day.
+        if latest.timeIntervalSince(date) > 12 * 3600 {
+            latest = cal.date(byAdding: .day, value: -1, to: latest) ?? latest
+        }
+        return date >= latest
+    }
 
     private func isInsideWindow(_ date: Date) -> Bool {
         let cal = Calendar.current

@@ -1299,6 +1299,10 @@ if !isSleepOnsetDetected && onsetDetector.update(audio: audio, motion: motion) {
 
 Weckt in der Leichtschlaf- oder Wach-Phase innerhalb eines Zeitfensters.
 
+> **Garantiertes Klingeln (bindend):** Der Alarm muss zuverlässig auslösen. `checkPhase(_:)` (aus `SleepTrackingViewModel.handleFeatures`, jeder Update) hat eine **harte Deadline**: sobald `isPastLatest(now)` (spätestes Weckfenster erreicht), löst der Alarm **unabhängig von der Phase** aus — auch wenn das Zyklusmodell im Fenster nie `.light`/`.awake` meldet (z.B. Nacht geht direkt von REM → Wach). Innerhalb des Fensters davor: Smart-Wake beim ersten `.light`/`.awake`. `isPastLatest` behandelt den Über-Mitternacht-Fall (frühmorgens-Zeit gehört zum nächsten Kalendertag).
+>
+> **Failsafe-Burst statt Einzel-Notification (bindend):** Wenn die App im Hintergrund beendet/suspendiert wurde, kann der In-App-Ton (AVAudioEngine) nicht spielen. `scheduleFailsafeNotification()` plant deshalb einen **Burst** von Notifications (am Deadline, dann alle 30 s über 5 min, IDs `\(notificationID).0…10`) — eine einzelne Notification spielt ihren Sound nur kurz und wird leicht verschlafen. **Niemals `.defaultCritical`** als Sound — das braucht Apples Critical-Alerts-Entitlement (nicht vorhanden) und fällt sonst auf **stumm** zurück; immer `.default` + `interruptionLevel = .timeSensitive`. `arm()` fordert defensiv die Notification-Permission an. `disarm()`/`triggerAlarm()` entfernen alle Burst-IDs (`failsafeIDs`).
+
 **Keys (UserDefaults):**
 
 | Key | Typ | Beschreibung |
@@ -1332,7 +1336,7 @@ try session.setCategory(.playAndRecord, mode: .measurement, options: [.mixWithOt
 try session.overrideOutputAudioPort(.none)
 ```
 
-**Failsafe:** `UNCalendarNotificationTrigger` auf `latestWakeTime` als Absicherung.
+**Failsafe:** Burst aus `UNCalendarNotificationTrigger` ab `latestWakeTime` (alle 30 s / 5 min) mit `.default`-Sound als Absicherung — siehe Hinweis oben.
 
 ---
 
