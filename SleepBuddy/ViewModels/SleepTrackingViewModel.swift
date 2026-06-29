@@ -538,21 +538,22 @@ final class SleepTrackingViewModel {
     /// 90 when there isn't a clear rhythm or too little data.
     private func detectCycleLength(_ session: SleepSession) -> Int {
         let hr = cleanedHeartRate(session).map { $0.bpm }
-        // Fallback 95 min = real PSG median (Walch et al., n=20: Median 97, IQR 73–107),
-        // not the textbook 90.
-        guard hr.count >= 140 else { return 95 }          // need ≳ 2.5 h
+        // Fallback 100 min = real PSG median (Walch et al., n=31: Median 101, IQR 78–112),
+        // not the textbook 90. Search widened to 70…120 because real cycles routinely exceed
+        // 110 (the old ceiling cut them off).
+        guard hr.count >= 140 else { return 100 }         // need ≳ 2.5 h
         let mean = hr.reduce(0, +) / Double(hr.count)
         let sig = hr.map { mean - $0 }                    // high when HR low (deep)
         let denom = sig.reduce(0) { $0 + $1 * $1 }
-        guard denom > 0 else { return 95 }
-        var bestLag = 95, bestVal = -2.0
-        for lag in 70...110 where lag < sig.count {
+        guard denom > 0 else { return 100 }
+        var bestLag = 100, bestVal = -2.0
+        for lag in 70...120 where lag < sig.count {
             var num = 0.0
             for i in 0..<(sig.count - lag) { num += sig[i] * sig[i + lag] }
             let v = num / denom
             if v > bestVal { bestVal = v; bestLag = lag }
         }
-        return bestVal > 0.10 ? bestLag : 95              // require a meaningful peak
+        return bestVal > 0.10 ? bestLag : 100             // require a meaningful peak
     }
 
     /// REM almost never occurs in the first ~20 min after falling asleep (the first

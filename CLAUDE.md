@@ -947,7 +947,7 @@ if Date().timeIntervalSince(lastBCGSampleDate) >= 60, let session = currentSessi
 
 **Datengetriebene Zyklus-Länge (`detectCycleLength` / `applyCycleRemRefinement`, bindend):**
 
-> Statt fixer 90 min wird die **tatsächliche ultradiane Zyklus-Länge der Nacht** per Autokorrelation eines Tiefe-Proxys (niedriger Puls = tief) im Bereich 70–110 min geschätzt (**Fallback 95 min** = realer PSG-Median aus Walch et al., n=20: Median 97, IQR 73–107; früher 90). Genutzt für die REM-Fenster in der Tiefschlaf-Umverteilung + Atem-Verfeinerung. `applyCycleRemRefinement` degradiert nur **ganz frühes** REM (< 20 min nach Einschlafen) zu `.light` (das erste REM kommt physiologisch erst ~70–90 min nach Onset). **Nicht** mehr per Zyklus-Position — das kollidierte mit der Live-90-min-Platzierung und löschte legitimes REM.
+> Statt fixer 90 min wird die **tatsächliche ultradiane Zyklus-Länge der Nacht** per Autokorrelation eines Tiefe-Proxys (niedriger Puls = tief) im Bereich **70–120 min** geschätzt (**Fallback 100 min** = realer PSG-Median aus Walch et al., n=31: Median 101, IQR 78–112; früher 90/110). Suchbereich auf 120 erweitert, weil reale Zyklen die alte 110-Grenze regelmäßig überschreiten. Genutzt für die REM-Fenster in der Tiefschlaf-Umverteilung + Atem-Verfeinerung. `applyCycleRemRefinement` degradiert nur **ganz frühes** REM (< 20 min nach Einschlafen) zu `.light` (das erste REM kommt physiologisch erst ~70–90 min nach Onset). **Nicht** mehr per Zyklus-Position — das kollidierte mit der Live-90-min-Platzierung und löschte legitimes REM.
 
 **Tiefschlaf-Umverteilung (`applyDeepRedistribution`, bindend):**
 
@@ -960,6 +960,8 @@ if Date().timeIntervalSince(lastBCGSampleDate) >= 60, let session = currentSessi
 **Aktigraphie (Cole-Kripke-inspiriert, in `applyMovementWake`, bindend):**
 
 > Die Bewegung wird vor der Wach-Erkennung **nachbar-gewichtet** geglättet (Fenster [-2…+2], Gewichte 0.25/0.5/1/0.5/0.25), damit ein Bewegungs-Event über seine Umgebung zählt statt nur in einem Bin. Schwellen sind **relativ** zur Bewegungsverteilung der Nacht (Median × 2.5 / p90).
+>
+> **PSG-validiert (Walch et al., n=31):** Wach-Bewegung liegt real bei **4,5× Nacht-Median**, Schlaf bei **1,0×**, p90 bei **2,8×**. Die Schwelle `Median × 2.5` sitzt damit genau zwischen Schlaf und Wach (≈ p90) — bestätigt, keine Anpassung nötig.
 
 **Edge-Wake-Erkennung (`applyEdgeWakeCorrection`, bindend):**
 
