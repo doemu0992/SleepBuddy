@@ -939,14 +939,14 @@ if Date().timeIntervalSince(lastBCGSampleDate) >= 60, let session = currentSessi
 > - **Relative Schwellen (Ganznacht-Kontext, bindend):** statt fixer BPM werden `deepCeil`/`deepFloor`/`remFloor` aus der **Puls-Verteilung der jeweiligen Nacht** (p50/p25) abgeleitet und auf sichere Bereiche geklemmt (`deepCeil = clamp(p50+4, 60…70)`, `deepFloor = clamp(p25, 48…56)`, `remFloor = clamp(p25−3, 44…50)`). Passt sich automatisch an Person/Nacht an. Fallback auf 65/54/48 bei < 10 Messwerten.
 > - **Multi-Nacht-Personalisierung (bindend):** Die Nacht-Perzentile werden mit der über Nächte gelernten persönlichen Baseline (`PersonalCalibrationService`, EMA α=0.3) **50/50 geblendet** → stabile, personalisierte Schwellen. Bei zu wenig Nacht-Daten dient die persönliche Baseline als Fallback. Gilt analog für die Atem-Baseline (`brSlowRate`/`brRegHigh`/`brRegLow`).
 > - `.deep` mit Median ≥ `deepCeil` → `.light` (nicht REM — vermeidet REM-Hüpfer)
-> - `.light` mit Median < `deepFloor` → `.deep`; `.rem` nur bei Median < `remFloor` → `.deep`
+> - `.light` mit Median < `deepFloor` → `.deep`. **`.rem` wird NIE per niedrigem Puls zu `.deep`** — das BCG unterschätzt den Puls systematisch, REM-Puls ähnelt Leicht; die alte Regel löschte fast alles REM und blähte Tief auf.
 > - `.awake` wird nie überschrieben (bewegungsbasiert, zuverlässiger)
 >
 > So sind die Phasen nicht nur optisch plausibel, sondern folgen dort, wo verlässliche HR vorliegt, der echten Herzfrequenz — statt dem reinen Zyklusmuster.
 
 **Datengetriebene Zyklus-Länge (`detectCycleLength` / `applyCycleRemRefinement`, bindend):**
 
-> Statt fixer 90 min wird die **tatsächliche ultradiane Zyklus-Länge der Nacht** per Autokorrelation eines Tiefe-Proxys (niedriger Puls = tief) im Bereich 70–110 min geschätzt (Fallback 90 bei zu wenig Daten / keinem klaren Peak). `applyCycleRemRefinement` richtet REM daran aus: REM in der **frühen** Zyklus-Phase (< 35 % der erkannten Länge) ist physiologisch unplausibel (REM clustert spät im Zyklus) → wird zu `.light` degradiert. Konservativ — spätes REM bleibt unangetastet. Analog zu Sleep Cycle / ShutEye, die den Zyklus an die Nacht anpassen statt fix zu rechnen.
+> Statt fixer 90 min wird die **tatsächliche ultradiane Zyklus-Länge der Nacht** per Autokorrelation eines Tiefe-Proxys (niedriger Puls = tief) im Bereich 70–110 min geschätzt (Fallback 90). Genutzt für die REM-Fenster in der Tiefschlaf-Umverteilung + Atem-Verfeinerung. `applyCycleRemRefinement` degradiert nur **ganz frühes** REM (< 20 min nach Einschlafen) zu `.light` (das erste REM kommt physiologisch erst ~70–90 min nach Onset). **Nicht** mehr per Zyklus-Position — das kollidierte mit der Live-90-min-Platzierung und löschte legitimes REM.
 
 **Tiefschlaf-Umverteilung (`applyDeepRedistribution`, bindend):**
 

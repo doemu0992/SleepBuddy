@@ -477,8 +477,7 @@ final class SleepTrackingViewModel {
         let allMeasured = pts.filter { !$0.estimated }.map { $0.bpm }.sorted()
         func clamp(_ v: Double, _ lo: Double, _ hi: Double) -> Double { min(max(v, lo), hi) }
         let deepCeil:  Double   // above this in a "deep" phase → not deep
-        let deepFloor: Double   // below this in a "light/rem" phase → deep
-        let remFloor:  Double   // below this in a "rem" phase → deep
+        let deepFloor: Double   // below this in a "light" phase → deep
         let cal = PersonalCalibrationService.shared
         if allMeasured.count >= 10 {
             func pct(_ p: Double) -> Double { allMeasured[min(allMeasured.count - 1, Int(Double(allMeasured.count) * p))] }
@@ -490,12 +489,11 @@ final class SleepTrackingViewModel {
             let blendedDeep = cal.hrDeepFloor.map { 0.5 * $0 + 0.5 * nightDeepFloor } ?? nightDeepFloor
             deepCeil  = clamp(blendedP50 + 4, 60, 70)
             deepFloor = clamp(blendedDeep,    48, 56)
-            remFloor  = clamp(blendedDeep - 3, 44, 50)
         } else if let pm = cal.hrMedian, let pd = cal.hrDeepFloor {
             // Too little data tonight → fall back to the learned personal baseline.
-            deepCeil = clamp(pm + 4, 60, 70); deepFloor = clamp(pd, 48, 56); remFloor = clamp(pd - 3, 44, 50)
+            deepCeil = clamp(pm + 4, 60, 70); deepFloor = clamp(pd, 48, 56)
         } else {
-            deepCeil = 65; deepFloor = 54; remFloor = 48   // global fallback
+            deepCeil = 65; deepFloor = 54   // global fallback
         }
 
         var changed = false
@@ -520,9 +518,10 @@ final class SleepTrackingViewModel {
                 // In the night's lowest quartile + steady → actually deep.
                 if m < deepFloor { phase.phaseType = .deep; changed = true }
             case .rem:
-                // Only a clearly deep-level HR (below the night's low quartile)
-                // contradicts REM → deep. Conservative so normal REM survives.
-                if m < remFloor { phase.phaseType = .deep; changed = true }
+                // Do NOT convert REM→deep on low HR: BCG underestimates the pulse,
+                // and REM HR is similar to light — this was wiping out almost all REM
+                // and inflating deep. REM is left to the cycle/breathing logic.
+                break
             case .awake:
                 break
             }
@@ -552,20 +551,18 @@ final class SleepTrackingViewModel {
         return bestVal > 0.10 ? bestLag : 90              // require a meaningful peak
     }
 
-    /// Aligns REM to the detected cycle: REM in the early part of a cycle is
-    /// physiologically implausible (REM clusters late in each cycle). Such
-    /// mis-timed REM is demoted to light. Conservative — late REM is untouched.
+    /// REM almost never occurs in the first ~20 min after falling asleep (the first
+    /// REM bout is ~70–90 min in). Only that genuinely-too-early REM is demoted to
+    /// light. (Earlier this used the detected cycle position, which conflicted with
+    /// the live 90-min REM placement and wiped out legitimate REM.)
     private func applyCycleRemRefinement(to session: SleepSession) {
         guard let onset = session.sleepOnsetDate else { return }
-        let L = Double(detectCycleLength(session))
         let onsetMin = onset.timeIntervalSince(session.startDate) / 60
         var changed = false
         for phase in session.phasesArray where phase.phaseType == .rem {
             let centerMin = (phase.startDate.timeIntervalSince(session.startDate)
                              + phase.endDate.timeIntervalSince(session.startDate)) / 120
-            var pos = (centerMin - onsetMin).truncatingRemainder(dividingBy: L)
-            if pos < 0 { pos += L }
-            if pos < 0.35 * L { phase.phaseType = .light; changed = true }
+            if centerMin - onsetMin < 20 { phase.phaseType = .light; changed = true }
         }
         if changed { try? modelContext?.save() }
     }
