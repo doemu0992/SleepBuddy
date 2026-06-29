@@ -386,6 +386,7 @@ enum SampleDataService {
             case .gasping:    return Tone(freq: 180,  harmonics: [1, 0.5, 0.2],          modFreq: 2.0)
             case .laughing:   return Tone(freq: 260,  harmonics: [1, 0.7, 0.4, 0.2],     modFreq: 6.0)
             case .other:      return Tone(freq: 440,  harmonics: [1],                    modFreq: 0)
+            case .ambient:    return Tone(freq: 350,  harmonics: [1, 0.4, 0.2],          modFreq: 1.0)
             case .dogBarking: return Tone(freq: 150,  harmonics: [1, 0.8, 0.4, 0.2],     modFreq: 3.0)
             case .cat:        return Tone(freq: 700,  harmonics: [1, 0.5, 0.2],          modFreq: 5.0)
             case .bird:       return Tone(freq: 1800, harmonics: [1, 0.3],               modFreq: 8.0)
