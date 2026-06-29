@@ -8,6 +8,10 @@ import Accelerate
 final class SoundClassificationService: NSObject {
     var onSoundDetected: ((SoundEventType, Double) -> Void)?
 
+    /// Global sensitivity: subtracted from every per-class confidence threshold.
+    /// Higher = more (and quieter) detections. Single knob to tune overall recall.
+    static let sensitivityOffset: Double = 0.12
+
     private var analyzer: SNAudioStreamAnalyzer?
     private let analysisQueue = DispatchQueue(label: "com.sleepbuddy.soundanalysis", qos: .utility)
     private var bufferCounter = 0
@@ -174,9 +178,13 @@ extension SoundClassificationService: SNResultsObserving {
         ]
 
         // Pick the highest-confidence match — threshold nudged by user feedback stored in UserDefaults.
+        // A global sensitivity offset lowers ALL thresholds uniformly (single tuning
+        // knob) — raise it to catch more / quieter sounds, lower it to reduce noise.
         var best: (type: SoundEventType, confidence: Double)? = nil
         for (id, type, baseConf) in mappings {
-            let minConf = adjustedThreshold(for: type, base: baseConf)
+            // Snoring already detects well — keep its proven threshold; lower the rest.
+            let offset = type == .snoring ? 0.0 : Self.sensitivityOffset
+            let minConf = max(0.25, adjustedThreshold(for: type, base: baseConf) - offset)
             if let c = classifications.classification(forIdentifier: id),
                c.confidence >= minConf,
                c.confidence > (best?.confidence ?? 0) {

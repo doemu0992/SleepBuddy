@@ -112,7 +112,7 @@ final class SoundEventService {
         mlHintConfidence = confidence
         mlHintDate = Date()
 
-        if confidence >= 0.30 && eventStartDate == nil && !isInCooldown {
+        if confidence >= 0.25 && eventStartDate == nil && !isInCooldown {
             eventStartDate = Date()
             pendingEventType = type
             consecutiveLoudTicks = loudTicksToStart

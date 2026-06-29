@@ -784,6 +784,8 @@ request.overlapFactor = 0.75  // mehr Overlap = häufigere Ergebnisse = weniger 
 
 > **Adaptive Thresholds:** `adjustedThreshold(for:base:)` liest UserDefaults-Feedback (confirmed/rejected/missed) und passt Schwellen ±10% an (ab 5 Samples, min 0.20, max 0.90).
 
+> **Globaler Empfindlichkeits-Offset (bindend):** `sensitivityOffset` (aktuell 0.12) wird von **jeder** Pro-Klasse-Schwelle abgezogen (Floor 0.25) — eine zentrale Stellschraube für mehr/weniger Erkennungen. **Ausnahme `.snoring`** (kein Offset — funktioniert bereits gut, soll nicht über-triggern). `hintMLDetection`-Sanity-Floor entsprechend 0.25.
+
 **ML als primärer Trigger (ShutEye-Stil, alle Typen):**
 
 `SoundClassificationService.onSoundDetected` → `SoundEventService.hintMLDetection()` — ML-Konfidenz ist das primäre Gate für persönliche **und** externe Typen. Kein `isMLPrimary`-Filter.
