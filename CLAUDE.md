@@ -946,7 +946,7 @@ if Date().timeIntervalSince(lastBCGSampleDate) >= 60, let session = currentSessi
 
 > Wachliegen (abends einschlafen, morgens aufwachen) zeigt wenig Bewegung, aber **klar erhöhte Herzfrequenz**. In `stopTracking()` (nach der HR-Phasenkorrektur) markiert `applyEdgeWakeCorrection` mit der bereinigten **gemessenen** HR die Ränder:
 > - Schwelle **adaptiv**: Detektion `awakeHR = clamp(Schlaf-Median + 8, 62…78)`, Rückwärts-Erweiterung mit niedrigerer `extendThreshold = max(Schlaf-Median + 3, 60)` — so wird der ganze allmähliche Anstieg erfasst, nicht nur die 1 Spitzenminute.
-> - **Abend:** führender Lauf mit HR ≥ `awakeHR` (≥ 2 min) → Einschlaf-Latenz = `.awake`.
+> - **Abend:** erhöhte HR in den ersten 5 min detektiert, dann vorwärts mit `extendThreshold` erweitert → Einschlaf-Latenz = `.awake`.
 > - **Morgen:** Wake erkannt, wenn die letzten Minuten erhöhte HR zeigen **oder** das BCG-Signal in den letzten ≥ 2 min abreißt (= aufgestanden/bewegt). Dann rückwärts erweitern (HR ≥ `extendThreshold`, Signalverlust zählt als wach), gedeckelt auf 30 min. Bei manuellem Stopp mind. ~8 min.
 > - **`markAwake` splittet Phasen** an der Wach-Grenze (kein Mittelpunkt-Retyping) — sonst würde eine lange letzte Phase nie eine kurze Morgen-Wachphase erzeugen. Greift nur bei gemessener HR / Signalverlust; ohne alles bleibt die Terminal-Awake-Regel (15 min) als Fallback.
 > - **`mergeAdjacentSamePhases`** (am Ende von `applyPlausibilityCorrection`) verschmilzt aufeinanderfolgende gleichtypige Phasen zu einer — sonst zeigt das Splitting mehrere benachbarte `.awake`-Segmente als getrennte Einträge im Verlauf.
@@ -1336,7 +1336,7 @@ List
 │   ├── Mit PainDiary & Health synchronisieren
 │   ├── Schlafdaten als CSV exportieren
 │   ├── Aufnahmen lauter machen           (SoundEventService.normalizeExistingClips, einmalige Migration)
-│   ├── Schlafphasen neu berechnen        (reapplyPhaseCorrections: baut Phasen aus TrainingSample-Labels neu auf + korrigiert)
+│   ├── Schlafphasen neu berechnen        (reapplyPhaseCorrections: Phasen aus TrainingSample-Labels via Pro-Minute-Mehrheit+Glättung neu aufbauen + korrigieren)
 │   ├── Beispielnacht hinzufügen          (cycles Night 1→2→3)
 │   ├── Alle 3 Beispielnächte hinzufügen
 │   ├── Langzeitverlauf-Testdaten (6 Monate)   ← ~60 Nächte für Filter-Tests

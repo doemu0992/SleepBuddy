@@ -391,8 +391,10 @@ final class SleepTrackingViewModel {
     }
 
     /// Rebuilds a session's SleepPhase list from its TrainingSamples (raw live
-    /// labels, never touched by post-hoc corrections), grouping consecutive
-    /// same-label samples into phases. Returns false if there are too few samples.
+    /// labels, never touched by post-hoc corrections). Uses a per-minute majority
+    /// vote + a 5-minute smoothing window so the result is clean blocks (not the
+    /// choppy sub-minute fragments raw grouping would produce). Returns false if
+    /// there are too few samples.
     private func rebuildPhasesFromSamples(_ session: SleepSession, context: ModelContext) -> Bool {
         let start = session.startDate
         let end = session.endDate ?? Date()
@@ -402,27 +404,44 @@ final class SleepTrackingViewModel {
         )
         guard let samples = try? context.fetch(desc), samples.count >= 4 else { return false }
 
-        // Remove existing phases.
+        let totalMin = max(1, Int(end.timeIntervalSince(start) / 60))
+
+        // 1. Per-minute majority label from the samples in that minute.
+        var votes = Array(repeating: [SleepPhaseType: Int](), count: totalMin)
+        for s in samples {
+            let m = Int(s.timestamp.timeIntervalSince(start) / 60)
+            if m >= 0 && m < totalMin { votes[m][s.phase, default: 0] += 1 }
+        }
+        var minuteLabel = [SleepPhaseType?](repeating: nil, count: totalMin)
+        for m in 0..<totalMin { minuteLabel[m] = votes[m].max { $0.value < $1.value }?.key }
+        // Forward-fill minutes without samples.
+        var last: SleepPhaseType = minuteLabel.first(where: { $0 != nil }).flatMap { $0 } ?? .light
+        for m in 0..<totalMin { if let l = minuteLabel[m] { last = l } else { minuteLabel[m] = last } }
+
+        // 2. Smooth with a ±2-minute majority window to remove single-minute spikes.
+        let smoothed: [SleepPhaseType] = (0..<totalMin).map { m in
+            var w: [SleepPhaseType: Int] = [:]
+            for k in max(0, m - 2)...min(totalMin - 1, m + 2) { w[minuteLabel[k]!, default: 0] += 1 }
+            return w.max { $0.value < $1.value }!.key
+        }
+
+        // 3. Remove existing phases and group consecutive minutes into phases.
         for p in session.phasesArray { context.delete(p) }
         session.phases = []
-
-        var groupStart = samples[0].timestamp
-        var groupLabel = samples[0].phase
-        func commit(_ endDate: Date) {
-            guard endDate > groupStart else { return }
-            let phase = SleepPhase(startDate: groupStart, endDate: endDate, phaseType: groupLabel, confidence: 0.7)
-            phase.session = session
-            context.insert(phase)
-            session.phases?.append(phase)
-        }
-        for s in samples.dropFirst() {
-            if s.phase != groupLabel {
-                commit(s.timestamp)
-                groupStart = s.timestamp
-                groupLabel = s.phase
+        var gStart = 0
+        for m in 1...totalMin {
+            if m == totalMin || smoothed[m] != smoothed[gStart] {
+                let ps = start.addingTimeInterval(Double(gStart) * 60)
+                let pe = (m == totalMin) ? end : start.addingTimeInterval(Double(m) * 60)
+                if pe > ps {
+                    let phase = SleepPhase(startDate: ps, endDate: pe, phaseType: smoothed[gStart], confidence: 0.7)
+                    phase.session = session
+                    context.insert(phase)
+                    session.phases?.append(phase)
+                }
+                gStart = m
             }
         }
-        commit(end)
         return true
     }
 
@@ -529,13 +548,22 @@ final class SleepTrackingViewModel {
         let sleepMedian = allHR[allHR.count / 2]
         let awakeHR = min(max(sleepMedian + 8.0, 62.0), 78.0)
 
-        // Evening: leading run of elevated HR = sleep-onset latency.
+        let extendThresholdEve = max(sleepMedian + 3.0, 60.0)
+
+        // Evening: detect an elevated start (within the first 5 min), then extend
+        // forward with a lower threshold to capture the whole settling-down period.
         var eveningEnd: Int? = nil
-        var gap = 0
-        for i in 0...maxIdx {
-            if let hr = hrByMin[i] {
-                if hr >= awakeHR { eveningEnd = i; gap = 0 } else { break }
-            } else { gap += 1; if gap > 3 { break } }
+        var eveningDetected = false
+        for i in 0...min(maxIdx, 5) {
+            if let hr = hrByMin[i], hr >= awakeHR { eveningDetected = true; break }
+        }
+        if eveningDetected {
+            var gap = 0
+            for i in 0...maxIdx {
+                if let hr = hrByMin[i] {
+                    if hr >= extendThresholdEve { eveningEnd = i; gap = 0 } else { break }
+                } else { gap += 1; if gap > 3 { break } }
+            }
         }
 
         // Morning wake before stopping. Detect a wake near the end (elevated HR or
