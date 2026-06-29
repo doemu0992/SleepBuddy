@@ -949,6 +949,10 @@ if Date().timeIntervalSince(lastBCGSampleDate) >= 60, let session = currentSessi
 > - **Abend:** erhöhte HR in den ersten 5 min detektiert, dann vorwärts mit `extendThreshold` erweitert → Einschlaf-Latenz = `.awake`. **Fallback:** liegt der Nutzer ruhig (niedriger Puls), wird die bekannte Einschlaf-Latenz (`sleepOnsetDate`, identisch zur „Einschlafen X min"-Anzeige) trotzdem als Abend-Wachphase eingezeichnet.
 > - **Morgen:** Wake erkannt, wenn die letzten Minuten erhöhte HR zeigen **oder** das BCG-Signal in den letzten ≥ 2 min abreißt (= aufgestanden/bewegt). Dann rückwärts erweitern (HR ≥ `extendThreshold`, Signalverlust zählt als wach), gedeckelt auf 30 min. Bei manuellem Stopp mind. ~8 min.
 > - **`markAwake` splittet Phasen** an der Wach-Grenze (kein Mittelpunkt-Retyping) — sonst würde eine lange letzte Phase nie eine kurze Morgen-Wachphase erzeugen. Greift nur bei gemessener HR / Signalverlust; ohne alles bleibt die Terminal-Awake-Regel (15 min) als Fallback.
+
+**Nächtliche Wachphasen aus Bewegung (`applyMovementWake`, bindend):**
+
+> Bewegung ist das **zuverlässigste** Wach-Signal (Umdrehen, Aufstehen, Unruhe). `applyMovementWake` nutzt die Pro-Minute-`movementIntensity` aus den TrainingSamples: anhaltend erhöhte Bewegung (> 0.30 für ≥ 2 min) **oder** ein starker Einzel-Spike (> 0.55, z.B. Aufstehen) → `.awake` (via `markAwake`-Splitting). **Bewusst KEIN BCG-Null-Heuristik** (die markierte fälschlich ruhigen Schlaf als wach). Völlig ruhiges Wachliegen bleibt prinzipbedingt unerkennbar. Läuft in `stopTracking` und im „neu berechnen"-Batch. Die Plausibilitäts-Korrektur **merged `.awake` nie weg**.
 > - **`mergeAdjacentSamePhases`** (am Ende von `applyPlausibilityCorrection`) verschmilzt aufeinanderfolgende gleichtypige Phasen zu einer — sonst zeigt das Splitting mehrere benachbarte `.awake`-Segmente als getrennte Einträge im Verlauf.
 
 ---
