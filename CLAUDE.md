@@ -947,6 +947,14 @@ if Date().timeIntervalSince(lastBCGSampleDate) >= 60, let session = currentSessi
 
 > Statt fixer 90 min wird die **tatsächliche ultradiane Zyklus-Länge der Nacht** per Autokorrelation eines Tiefe-Proxys (niedriger Puls = tief) im Bereich 70–110 min geschätzt (Fallback 90 bei zu wenig Daten / keinem klaren Peak). `applyCycleRemRefinement` richtet REM daran aus: REM in der **frühen** Zyklus-Phase (< 35 % der erkannten Länge) ist physiologisch unplausibel (REM clustert spät im Zyklus) → wird zu `.light` degradiert. Konservativ — spätes REM bleibt unangetastet. Analog zu Sleep Cycle / ShutEye, die den Zyklus an die Nacht anpassen statt fix zu rechnen.
 
+**Atem-Verfeinerung (`applyBreathingRefinement`, bindend):**
+
+> Nutzt Pro-Minute-Atemrate + -Regularität (TrainingSamples) **relativ zur Nacht** (Perzentile): `.light` mit langsamer (≤ p25) + sehr regelmäßiger (≥ p70) Atmung → `.deep` (Tiefschlaf-Bestätigung); `.light` mit unregelmäßiger Atmung (≤ p35) **im REM-Fenster** des erkannten Zyklus (≥ 60 %) → `.rem` (REM über Variabilität). Konservativ — nur Upgrades von `.light`, wo die Sensoren klar übereinstimmen.
+
+**Aktigraphie (Cole-Kripke-inspiriert, in `applyMovementWake`, bindend):**
+
+> Die Bewegung wird vor der Wach-Erkennung **nachbar-gewichtet** geglättet (Fenster [-2…+2], Gewichte 0.25/0.5/1/0.5/0.25), damit ein Bewegungs-Event über seine Umgebung zählt statt nur in einem Bin. Schwellen sind **relativ** zur Bewegungsverteilung der Nacht (Median × 2.5 / p90).
+
 **Edge-Wake-Erkennung (`applyEdgeWakeCorrection`, bindend):**
 
 > Wachliegen (abends einschlafen, morgens aufwachen) zeigt wenig Bewegung, aber **klar erhöhte Herzfrequenz**. In `stopTracking()` (nach der HR-Phasenkorrektur) markiert `applyEdgeWakeCorrection` mit der bereinigten **gemessenen** HR die Ränder:

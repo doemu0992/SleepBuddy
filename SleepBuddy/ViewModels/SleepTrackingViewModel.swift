@@ -207,6 +207,9 @@ final class SleepTrackingViewModel {
         // Align REM to the night's actual cycle length (data-driven, not fixed 90 min).
         applyCycleRemRefinement(to: session)
 
+        // Breathing-based refinement (relative, whole-night): confirm deep, support REM.
+        if let ctx = modelContext { applyBreathingRefinement(to: session, context: ctx) }
+
         // Post-hoc edge-wake detection: elevated HR at the start/end means the
         // user was lying awake (falling asleep / morning wake) — mark as awake.
         applyEdgeWakeCorrection(to: session)
@@ -389,6 +392,7 @@ final class SleepTrackingViewModel {
             guard rebuildPhasesFromSamples(session, context: context) else { continue }
             applyHeartRatePhaseCorrection(to: session)
             applyCycleRemRefinement(to: session)
+            applyBreathingRefinement(to: session, context: context)
             applyEdgeWakeCorrection(to: session)
             applyMovementWake(to: session, context: context)
             applyPlausibilityCorrection(to: session)
@@ -551,6 +555,69 @@ final class SleepTrackingViewModel {
             if pos < 0.35 * L { phase.phaseType = .light; changed = true }
         }
         if changed { try? modelContext?.save() }
+    }
+
+    // MARK: - Breathing-based refinement (relative, whole-night)
+
+    /// Uses per-minute breathing rate + regularity (TrainingSamples), relative to
+    /// the night's own distribution, to confirm deep sleep (slow + very regular)
+    /// and support REM (irregular breathing in the detected cycle's REM window).
+    /// Conservative: only upgrades `.light` where the sensors clearly agree.
+    private func applyBreathingRefinement(to session: SleepSession, context: ModelContext) {
+        let start = session.startDate
+        let end = session.endDate ?? Date()
+        let desc = FetchDescriptor<TrainingSample>(
+            predicate: #Predicate { $0.timestamp >= start && $0.timestamp <= end },
+            sortBy: [SortDescriptor(\.timestamp)]
+        )
+        guard let samples = try? context.fetch(desc), samples.count >= 20 else { return }
+        let totalMin = max(1, Int(end.timeIntervalSince(start) / 60))
+
+        // Per-minute breathing rate + regularity (average of that minute's samples,
+        // only valid readings: rate 5–35 BPM, regularity > 0).
+        var rateSum = [Double](repeating: 0, count: totalMin)
+        var regSum  = [Double](repeating: 0, count: totalMin)
+        var cnt     = [Int](repeating: 0, count: totalMin)
+        for s in samples {
+            guard s.breathingRateBPM > 5, s.breathingRateBPM < 35, s.breathingRegularity > 0 else { continue }
+            let m = Int(s.timestamp.timeIntervalSince(start) / 60)
+            if m >= 0 && m < totalMin {
+                rateSum[m] += Double(s.breathingRateBPM); regSum[m] += Double(s.breathingRegularity); cnt[m] += 1
+            }
+        }
+        let validRates = (0..<totalMin).filter { cnt[$0] > 0 }.map { rateSum[$0] / Double(cnt[$0]) }.sorted()
+        let validRegs  = (0..<totalMin).filter { cnt[$0] > 0 }.map { regSum[$0]  / Double(cnt[$0]) }.sorted()
+        guard validRates.count >= 10 else { return }
+        func pct(_ a: [Double], _ p: Double) -> Double { a[min(a.count - 1, Int(Double(a.count) * p))] }
+        let slowRate  = pct(validRates, 0.25)   // slow breathing (deep)
+        let regHigh   = pct(validRegs, 0.70)    // very regular (deep)
+        let regLow    = pct(validRegs, 0.35)    // irregular (REM)
+
+        let L = Double(detectCycleLength(session))
+        let onsetMin = session.sleepOnsetDate.map { $0.timeIntervalSince(start) / 60 } ?? 0
+
+        var changed = false
+        for phase in session.phasesArray where phase.phaseType == .light {
+            let s0 = Int(phase.startDate.timeIntervalSince(start) / 60)
+            let s1 = Int(phase.endDate.timeIntervalSince(start) / 60)
+            guard s1 > s0 else { continue }
+            let mins = (s0..<min(s1, totalMin)).filter { cnt[$0] > 0 }
+            guard mins.count >= 2, Double(mins.count) / Double(s1 - s0) >= 0.5 else { continue }
+            let medRate = mins.map { rateSum[$0] / Double(cnt[$0]) }.sorted()[mins.count / 2]
+            let medReg  = mins.map { regSum[$0]  / Double(cnt[$0]) }.sorted()[mins.count / 2]
+
+            // Deep confirmation: slow + very regular breathing.
+            if medRate <= slowRate && medReg >= regHigh {
+                phase.phaseType = .deep; changed = true; continue
+            }
+            // REM support: irregular breathing inside the cycle's REM window.
+            let center = Double(s0 + s1) / 2
+            var pos = (center - onsetMin).truncatingRemainder(dividingBy: L); if pos < 0 { pos += L }
+            if pos >= 0.6 * L && medReg <= regLow {
+                phase.phaseType = .rem; changed = true
+            }
+        }
+        if changed { try? context.save() }
     }
 
     /// Robust per-minute heart rate (plausibility + median-5 + delta-limit) with
@@ -729,10 +796,23 @@ final class SleepTrackingViewModel {
         )
         guard let samples = try? context.fetch(desc), !samples.isEmpty else { return }
         let totalMin = max(1, Int(end.timeIntervalSince(start) / 60))
-        var moveByMin = [Float](repeating: 0, count: totalMin)
+        var rawMove = [Float](repeating: 0, count: totalMin)
         for s in samples {
             let m = Int(s.timestamp.timeIntervalSince(start) / 60)
-            if m >= 0 && m < totalMin { moveByMin[m] = max(moveByMin[m], s.movementIntensity) }
+            if m >= 0 && m < totalMin { rawMove[m] = max(rawMove[m], s.movementIntensity) }
+        }
+
+        // Actigraphy (Cole-Kripke-inspired): weight each minute by its neighbours so
+        // a movement event counts across its surroundings, not just one isolated bin.
+        var moveByMin = [Float](repeating: 0, count: totalMin)
+        let w: [Float] = [0.25, 0.5, 1.0, 0.5, 0.25]   // window [-2…+2]
+        for m in 0..<totalMin {
+            var acc: Float = 0, wsum: Float = 0
+            for (k, wk) in w.enumerated() {
+                let idx = m + k - 2
+                if idx >= 0 && idx < totalMin { acc += wk * rawMove[idx]; wsum += wk }
+            }
+            moveByMin[m] = wsum > 0 ? acc / wsum : rawMove[m]
         }
 
         // Relative thresholds: a movement is "elevated" relative to THIS night's own
