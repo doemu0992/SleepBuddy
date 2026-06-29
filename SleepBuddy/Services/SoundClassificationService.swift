@@ -90,10 +90,14 @@ extension SoundClassificationService: SNResultsObserving {
             ("laughing",             .laughing,   0.50),
             ("laughter",             .laughing,   0.50),
             ("giggling",             .laughing,   0.45),
-            // External disturbances — dog
-            ("dog",                  .dogBarking, 0.40),
-            ("dog_barking",          .dogBarking, 0.40),
-            ("barking",              .dogBarking, 0.40),
+            // External disturbances — dog (Apple's classifier uses "dog_bark")
+            ("dog",                  .dogBarking, 0.30),
+            ("dog_bark",             .dogBarking, 0.30),
+            ("dog_barking",          .dogBarking, 0.30),
+            ("bark",                 .dogBarking, 0.30),
+            ("barking",              .dogBarking, 0.30),
+            ("dog_howl",             .dogBarking, 0.40),
+            ("yip",                  .dogBarking, 0.40),
             ("growling",             .dogBarking, 0.45),
             // Cat
             ("cat",                  .cat,        0.40),

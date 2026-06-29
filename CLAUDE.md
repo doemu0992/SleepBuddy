@@ -762,7 +762,7 @@ request.overlapFactor = 0.75  // mehr Overlap = häufigere Ergebnisse = weniger 
 | `sneezing`, `sneeze` | `.sneezing` | 0.45 | Persönlich |
 | `breathing_heavily`, `gasping`, `choking` | `.gasping` | 0.40–0.50 | Persönlich |
 | `laughing`, `laughter`, `giggling` | `.laughing` | 0.45–0.50 | Persönlich |
-| `dog`, `dog_barking`, `barking` | `.dogBarking` | 0.40 | Extern |
+| `dog`, `dog_bark`, `bark`, `barking` | `.dogBarking` | 0.30 | Extern |
 | `cat`, `meow`, `purring` | `.cat` | 0.40–0.45 | Extern |
 | `bird`, `bird_song`, `chirping` | `.bird` | 0.45 | Extern |
 | `music`, `musical_instrument`, `singing` | `.music` | **0.65** (AC-Schutz) | Extern |
@@ -789,13 +789,17 @@ request.overlapFactor = 0.75  // mehr Overlap = häufigere Ergebnisse = weniger 
 `SoundClassificationService.onSoundDetected` → `SoundEventService.hintMLDetection()` — ML-Konfidenz ist das primäre Gate für persönliche **und** externe Typen. Kein `isMLPrimary`-Filter.
 
 ```swift
-// SoundEventService.hintMLDetection — alle Typen gleichbehandelt:
-let minConf: Double = type.isExternal ? 0.50 : 0.45
-if confidence >= minConf && eventStartDate == nil && !isInCooldown {
+// SoundEventService.hintMLDetection — die Pro-Klasse-Schwellen in
+// SoundClassificationService sind das maßgebliche Gate (Hund 0.30, Musik 0.65).
+// hintMLDetection darf KEIN höheres Floor draufsetzen (sonst werden leise/ferne
+// externe Sounds wie Hundegebell unterdrückt) — nur ein minimales Sanity-Floor:
+if confidence >= 0.30 && eventStartDate == nil && !isInCooldown {
     eventStartDate = Date()
     pendingEventType = type
 }
 ```
+
+> **Kein doppeltes Gate (bindend):** Früher hatte `hintMLDetection` ein zweites, höheres Floor (extern 0.50) das die niedrigeren Pro-Klasse-Schwellen überstimmte → ferne/leise externe Geräusche (Hundegebell) wurden nie erfasst. Empfindlichkeit wird **nur** über die Pro-Klasse-Schwellen in `SoundClassificationService` gesteuert.
 
 **ML-Hint-Alter:** Max. 3 Sekunden — ältere Hints werden ignoriert.
 

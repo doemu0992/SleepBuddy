@@ -103,18 +103,16 @@ final class SoundEventService {
 
     /// Called by SoundClassificationService when Apple's ML fires.
     /// ShutEye-style: ML is the primary trigger for ALL sound types.
-    /// External sounds have higher confidence thresholds in SoundClassificationService (0.50–0.65)
-    /// which acts as the false-positive gate — no separate amplitude check needed.
+    /// The per-class thresholds in SoundClassificationService are the authoritative
+    /// false-positive gate (e.g. dog 0.30, music 0.65). This method must NOT impose
+    /// a higher floor on top — that previously suppressed quiet/distant external
+    /// sounds (e.g. dog barking never registered). Only a tiny sanity floor remains.
     func hintMLDetection(type: SoundEventType, confidence: Double) {
         mlHintType = type
         mlHintConfidence = confidence
         mlHintDate = Date()
 
-        // External sounds require slightly higher confidence to compensate for ambient noise.
-        // Lowered 0.55 → 0.50 now that the ML path receives gain-boosted audio —
-        // the per-class thresholds in SoundClassificationService still gate false positives.
-        let minConf: Double = type.isExternal ? 0.50 : 0.45
-        if confidence >= minConf && eventStartDate == nil && !isInCooldown {
+        if confidence >= 0.30 && eventStartDate == nil && !isInCooldown {
             eventStartDate = Date()
             pendingEventType = type
             consecutiveLoudTicks = loudTicksToStart
