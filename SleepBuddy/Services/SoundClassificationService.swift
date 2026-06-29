@@ -24,6 +24,7 @@ final class SoundClassificationService: NSObject {
         // Personal sleep sounds
         ("snoring",                  .snoring,    0.40),
         ("speech",                   .talking,    0.45),
+        ("whispering",               .talking,    0.50),
         ("cough",                    .coughing,   0.40),
         ("sneeze",                   .sneezing,   0.45),
         // Gasping / heavy breathing
@@ -33,6 +34,8 @@ final class SoundClassificationService: NSObject {
         ("laughter",                 .laughing,   0.50),
         ("giggling",                 .laughing,   0.45),
         ("belly_laugh",              .laughing,   0.50),
+        ("chuckle_chortle",          .laughing,   0.50),
+        ("snicker",                  .laughing,   0.50),
         // External disturbances — dog
         ("dog",                      .dogBarking, 0.30),
         ("dog_bark",                 .dogBarking, 0.30),
@@ -51,10 +54,13 @@ final class SoundClassificationService: NSObject {
         ("bird_squawk",              .bird,       0.50),
         ("crow_caw",                 .bird,       0.50),
         ("rooster_crow",             .bird,       0.50),
+        ("owl_hoot",                 .bird,       0.45),
+        ("pigeon_dove_coo",          .bird,       0.50),
         // Music — higher threshold: AC/fan noise is often misclassified as music
         ("music",                    .music,      0.65),
         ("singing",                  .music,      0.60),
         ("orchestra",                .music,      0.65),
+        ("choir_singing",            .music,      0.60),
         // Alarms / sirens — distinct sounds, moderate threshold
         ("alarm_clock",              .alarm,      0.50),
         ("smoke_detector",           .alarm,      0.50),
@@ -64,6 +70,9 @@ final class SoundClassificationService: NSObject {
         ("ambulance_siren",          .alarm,      0.55),
         ("fire_engine_siren",        .alarm,      0.55),
         ("beep",                     .alarm,      0.55),
+        ("reverse_beeps",            .alarm,      0.55),
+        ("emergency_vehicle",        .alarm,      0.55),
+        ("air_horn",                 .alarm,      0.55),
         ("bell",                     .alarm,      0.55),
         // Doorbell
         ("door_bell",                .doorbell,   0.45),
@@ -81,6 +90,11 @@ final class SoundClassificationService: NSObject {
         ("truck",                    .traffic,    0.55),
         ("bus",                      .traffic,    0.55),
         ("train",                    .traffic,    0.55),
+        ("train_horn",               .traffic,    0.55),
+        ("train_whistle",            .traffic,    0.55),
+        ("airplane",                 .traffic,    0.55),
+        ("aircraft",                 .traffic,    0.55),
+        ("helicopter",               .traffic,    0.55),
         // Baby
         ("baby_crying",              .baby,       0.45),
         // Thunder / rain — rain on window can be confused with traffic
@@ -96,6 +110,8 @@ final class SoundClassificationService: NSObject {
         ("knock",                    .knock,      0.40),
         ("door",                     .knock,      0.50),
         ("door_slam",                .knock,      0.45),
+        ("door_sliding",             .knock,      0.50),
+        ("thump_thud",               .knock,      0.50),
         // Glass break — ML-primary, very distinct sound
         ("glass_breaking",           .glassBreak, 0.35),
         // Crowd / voices
@@ -105,6 +121,10 @@ final class SoundClassificationService: NSObject {
         ("applause",                 .crowd,      0.55),
         ("clapping",                 .crowd,      0.55),
         ("cheering",                 .crowd,      0.55),
+        ("children_shouting",        .crowd,      0.55),
+        ("screaming",                .crowd,      0.55),
+        ("shout",                    .crowd,      0.55),
+        ("yell",                     .crowd,      0.55),
         // Water
         ("water",                    .water,      0.50),
         ("water_tap_faucet",         .water,      0.50),
@@ -112,6 +132,8 @@ final class SoundClassificationService: NSObject {
         ("sink_filling_washing",     .water,      0.55),
         ("stream_burbling",          .water,      0.55),
         ("toilet_flush",             .water,      0.50),
+        ("bathtub_filling_washing",  .water,      0.55),
+        ("liquid_pouring",           .water,      0.55),
     ]
 
     private var analyzer: SNAudioStreamAnalyzer?
