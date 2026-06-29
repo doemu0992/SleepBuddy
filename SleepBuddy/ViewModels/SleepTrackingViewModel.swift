@@ -210,6 +210,9 @@ final class SleepTrackingViewModel {
         // Breathing-based refinement (relative, whole-night): confirm deep, support REM.
         if let ctx = modelContext { applyBreathingRefinement(to: session, context: ctx) }
 
+        // Redistribute over-allocated deep sleep (circadian: deep is concentrated early).
+        applyDeepRedistribution(to: session)
+
         // Post-hoc edge-wake detection: elevated HR at the start/end means the
         // user was lying awake (falling asleep / morning wake) — mark as awake.
         applyEdgeWakeCorrection(to: session)
@@ -393,6 +396,7 @@ final class SleepTrackingViewModel {
             applyHeartRatePhaseCorrection(to: session)
             applyCycleRemRefinement(to: session)
             applyBreathingRefinement(to: session, context: context)
+            applyDeepRedistribution(to: session)
             applyEdgeWakeCorrection(to: session)
             applyMovementWake(to: session, context: context)
             applyPlausibilityCorrection(to: session)
@@ -562,6 +566,41 @@ final class SleepTrackingViewModel {
             var pos = (centerMin - onsetMin).truncatingRemainder(dividingBy: L)
             if pos < 0 { pos += L }
             if pos < 0.35 * L { phase.phaseType = .light; changed = true }
+        }
+        if changed { try? modelContext?.save() }
+    }
+
+    // MARK: - Deep-sleep circadian redistribution
+    // The 90-min cycle model allocates deep every cycle (≈50%), but physiologically
+    // deep sleep is concentrated in the first third of the night and almost absent
+    // later (the rest is light). Late-night deep that isn't HR-confirmed is demoted
+    // to light → realistic ratios (deep ~15–25 %, light dominant).
+    private func applyDeepRedistribution(to session: SleepSession) {
+        guard let onset = session.sleepOnsetDate, let end = session.endDate else { return }
+        let totalSleep = end.timeIntervalSince(onset)
+        guard totalSleep > 0 else { return }
+
+        let pts = cleanedHeartRate(session)
+        let measured = pts.filter { !$0.estimated }.map { $0.bpm }.sorted()
+        let deepFloor: Double = measured.count >= 10
+            ? min(max(measured[measured.count / 4], 48), 56) : 54
+
+        var changed = false
+        for phase in session.phasesArray where phase.phaseType == .deep {
+            let center = (phase.startDate.timeIntervalSince(onset) + phase.endDate.timeIntervalSince(onset)) / 2
+            let progress = center / totalSleep
+            guard progress > 0.5 else { continue }     // only the later half of the night
+
+            let s0 = Int(phase.startDate.timeIntervalSince(session.startDate) / 60)
+            let s1 = Int(phase.endDate.timeIntervalSince(session.startDate) / 60)
+            let span = pts.filter { $0.index >= s0 && $0.index < s1 && !$0.estimated }.map { $0.bpm }.sorted()
+            let med = span.isEmpty ? 999 : span[span.count / 2]
+            // Keep only HR-confirmed deep (clearly low pulse); otherwise → light.
+            // Past 70 % of the night, deep is so rare it is demoted regardless.
+            if med >= deepFloor || progress > 0.70 {
+                phase.phaseType = .light
+                changed = true
+            }
         }
         if changed { try? modelContext?.save() }
     }

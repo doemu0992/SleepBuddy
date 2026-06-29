@@ -948,6 +948,10 @@ if Date().timeIntervalSince(lastBCGSampleDate) >= 60, let session = currentSessi
 
 > Statt fixer 90 min wird die **tatsächliche ultradiane Zyklus-Länge der Nacht** per Autokorrelation eines Tiefe-Proxys (niedriger Puls = tief) im Bereich 70–110 min geschätzt (Fallback 90 bei zu wenig Daten / keinem klaren Peak). `applyCycleRemRefinement` richtet REM daran aus: REM in der **frühen** Zyklus-Phase (< 35 % der erkannten Länge) ist physiologisch unplausibel (REM clustert spät im Zyklus) → wird zu `.light` degradiert. Konservativ — spätes REM bleibt unangetastet. Analog zu Sleep Cycle / ShutEye, die den Zyklus an die Nacht anpassen statt fix zu rechnen.
 
+**Tiefschlaf-Umverteilung (`applyDeepRedistribution`, bindend):**
+
+> Das 90-min-Zyklusmodell weist Tiefschlaf pro Zyklus zu (≈50%) → unrealistisch viel Tief (gemessen z.B. 59%). Physiologisch ist Tiefschlaf in der **ersten Nachthälfte** konzentriert und später fast weg (Rest = Leicht). Tiefschlaf in der **späteren Hälfte** (Fortschritt > 50 %), der **nicht per Puls bestätigt** ist (Median ≥ `deepFloor`), wird zu `.light` degradiert; nach 70 % der Nacht generell. Ergebnis: realistische Anteile (Tief ~15–25 %, Leicht dominant). Läuft **nach** der Atem-Verfeinerung (sonst stuft Atmung spät wieder zu Tief auf).
+
 **Atem-Verfeinerung (`applyBreathingRefinement`, bindend):**
 
 > Nutzt Pro-Minute-Atemrate + -Regularität (TrainingSamples) **relativ zur Nacht** (Perzentile): `.light` mit langsamer (≤ p25) + sehr regelmäßiger (≥ p70) Atmung → `.deep` (Tiefschlaf-Bestätigung); `.light` mit unregelmäßiger Atmung (≤ p35) **im REM-Fenster** des erkannten Zyklus (≥ 60 %) → `.rem` (REM über Variabilität). Konservativ — nur Upgrades von `.light`, wo die Sensoren klar übereinstimmen.
