@@ -585,6 +585,9 @@ final class SleepTrackingViewModel {
         let deepFloor: Double = measured.count >= 10
             ? min(max(measured[measured.count / 4], 48), 56) : 54
 
+        let L = Double(detectCycleLength(session))
+        let onsetMin = onset.timeIntervalSince(session.startDate) / 60
+
         var changed = false
         for phase in session.phasesArray where phase.phaseType == .deep {
             let center = (phase.startDate.timeIntervalSince(onset) + phase.endDate.timeIntervalSince(onset)) / 2
@@ -595,10 +598,14 @@ final class SleepTrackingViewModel {
             let s1 = Int(phase.endDate.timeIntervalSince(session.startDate) / 60)
             let span = pts.filter { $0.index >= s0 && $0.index < s1 && !$0.estimated }.map { $0.bpm }.sorted()
             let med = span.isEmpty ? 999 : span[span.count / 2]
-            // Keep only HR-confirmed deep (clearly low pulse); otherwise → light.
-            // Past 70 % of the night, deep is so rare it is demoted regardless.
+            // Keep only HR-confirmed deep (clearly low pulse); otherwise reassign.
+            // Past 70 % of the night, deep is so rare it is reassigned regardless.
             if med >= deepFloor || progress > 0.70 {
-                phase.phaseType = .light
+                // In the cycle's REM window the excess "deep" is most likely REM
+                // (REM grows toward morning); otherwise it's light.
+                let centerMin = Double(s0 + s1) / 2
+                var pos = (centerMin - onsetMin).truncatingRemainder(dividingBy: L); if pos < 0 { pos += L }
+                phase.phaseType = (pos >= 0.55 * L) ? .rem : .light
                 changed = true
             }
         }
@@ -639,7 +646,7 @@ final class SleepTrackingViewModel {
         func pct(_ a: [Double], _ p: Double) -> Double { a[min(a.count - 1, Int(Double(a.count) * p))] }
         let nSlow = pct(validRates, 0.25)   // slow breathing (deep)
         let nRegHigh = pct(validRegs, 0.70) // very regular (deep)
-        let nRegLow  = pct(validRegs, 0.35) // irregular (REM)
+        let nRegLow  = pct(validRegs, 0.40) // irregular (REM) — slightly looser for more REM
         // Learn personal breathing baseline, then blend night + personal for stability.
         let cal = PersonalCalibrationService.shared
         cal.updateBreathBaseline(slowRate: nSlow, regHigh: nRegHigh, regLow: nRegLow)
@@ -667,7 +674,7 @@ final class SleepTrackingViewModel {
             // REM support: irregular breathing inside the cycle's REM window.
             let center = Double(s0 + s1) / 2
             var pos = (center - onsetMin).truncatingRemainder(dividingBy: L); if pos < 0 { pos += L }
-            if pos >= 0.6 * L && medReg <= regLow {
+            if pos >= 0.55 * L && medReg <= regLow {
                 phase.phaseType = .rem; changed = true
             }
         }
