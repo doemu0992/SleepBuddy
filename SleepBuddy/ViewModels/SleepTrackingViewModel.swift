@@ -204,6 +204,9 @@ final class SleepTrackingViewModel {
         // cleaned full-night heart rate (only where real measured HR dominates).
         applyHeartRatePhaseCorrection(to: session)
 
+        // Align REM to the night's actual cycle length (data-driven, not fixed 90 min).
+        applyCycleRemRefinement(to: session)
+
         // Post-hoc edge-wake detection: elevated HR at the start/end means the
         // user was lying awake (falling asleep / morning wake) — mark as awake.
         applyEdgeWakeCorrection(to: session)
@@ -385,6 +388,7 @@ final class SleepTrackingViewModel {
         for session in sessions where !session.isActive {
             guard rebuildPhasesFromSamples(session, context: context) else { continue }
             applyHeartRatePhaseCorrection(to: session)
+            applyCycleRemRefinement(to: session)
             applyEdgeWakeCorrection(to: session)
             applyMovementWake(to: session, context: context)
             applyPlausibilityCorrection(to: session)
@@ -505,6 +509,46 @@ final class SleepTrackingViewModel {
             case .awake:
                 break
             }
+        }
+        if changed { try? modelContext?.save() }
+    }
+
+    // MARK: - Data-driven sleep-cycle length
+
+    /// Estimates the night's actual ultradian cycle length (min) via autocorrelation
+    /// of a depth proxy (low HR = deep), instead of assuming a fixed 90 min. Returns
+    /// 90 when there isn't a clear rhythm or too little data.
+    private func detectCycleLength(_ session: SleepSession) -> Int {
+        let hr = cleanedHeartRate(session).map { $0.bpm }
+        guard hr.count >= 140 else { return 90 }          // need ≳ 2.5 h
+        let mean = hr.reduce(0, +) / Double(hr.count)
+        let sig = hr.map { mean - $0 }                    // high when HR low (deep)
+        let denom = sig.reduce(0) { $0 + $1 * $1 }
+        guard denom > 0 else { return 90 }
+        var bestLag = 90, bestVal = -2.0
+        for lag in 70...110 where lag < sig.count {
+            var num = 0.0
+            for i in 0..<(sig.count - lag) { num += sig[i] * sig[i + lag] }
+            let v = num / denom
+            if v > bestVal { bestVal = v; bestLag = lag }
+        }
+        return bestVal > 0.10 ? bestLag : 90              // require a meaningful peak
+    }
+
+    /// Aligns REM to the detected cycle: REM in the early part of a cycle is
+    /// physiologically implausible (REM clusters late in each cycle). Such
+    /// mis-timed REM is demoted to light. Conservative — late REM is untouched.
+    private func applyCycleRemRefinement(to session: SleepSession) {
+        guard let onset = session.sleepOnsetDate else { return }
+        let L = Double(detectCycleLength(session))
+        let onsetMin = onset.timeIntervalSince(session.startDate) / 60
+        var changed = false
+        for phase in session.phasesArray where phase.phaseType == .rem {
+            let centerMin = (phase.startDate.timeIntervalSince(session.startDate)
+                             + phase.endDate.timeIntervalSince(session.startDate)) / 120
+            var pos = (centerMin - onsetMin).truncatingRemainder(dividingBy: L)
+            if pos < 0 { pos += L }
+            if pos < 0.35 * L { phase.phaseType = .light; changed = true }
         }
         if changed { try? modelContext?.save() }
     }
@@ -691,8 +735,13 @@ final class SleepTrackingViewModel {
             if m >= 0 && m < totalMin { moveByMin[m] = max(moveByMin[m], s.movementIntensity) }
         }
 
-        let elevated: Float = 0.30   // clearly more than calm sleep micro-movements
-        let strong:   Float = 0.55   // a single strong spike (e.g. getting up)
+        // Relative thresholds: a movement is "elevated" relative to THIS night's own
+        // quiet-sleep level, not a fixed value (adapts to person/mattress/phone).
+        let sortedMove = moveByMin.sorted()
+        let baseline = sortedMove[sortedMove.count / 2]                 // median = quiet sleep
+        let p90 = sortedMove[min(sortedMove.count - 1, Int(Double(sortedMove.count) * 0.90))]
+        let elevated: Float = max(min(baseline * 2.5, 0.30), 0.12)      // clearly above quiet sleep
+        let strong:   Float = max(min(p90, 0.55), 0.35)                 // a strong spike (getting up)
         var changed = false
         var i = 0
         while i < totalMin {

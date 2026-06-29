@@ -943,6 +943,10 @@ if Date().timeIntervalSince(lastBCGSampleDate) >= 60, let session = currentSessi
 >
 > So sind die Phasen nicht nur optisch plausibel, sondern folgen dort, wo verlässliche HR vorliegt, der echten Herzfrequenz — statt dem reinen Zyklusmuster.
 
+**Datengetriebene Zyklus-Länge (`detectCycleLength` / `applyCycleRemRefinement`, bindend):**
+
+> Statt fixer 90 min wird die **tatsächliche ultradiane Zyklus-Länge der Nacht** per Autokorrelation eines Tiefe-Proxys (niedriger Puls = tief) im Bereich 70–110 min geschätzt (Fallback 90 bei zu wenig Daten / keinem klaren Peak). `applyCycleRemRefinement` richtet REM daran aus: REM in der **frühen** Zyklus-Phase (< 35 % der erkannten Länge) ist physiologisch unplausibel (REM clustert spät im Zyklus) → wird zu `.light` degradiert. Konservativ — spätes REM bleibt unangetastet. Analog zu Sleep Cycle / ShutEye, die den Zyklus an die Nacht anpassen statt fix zu rechnen.
+
 **Edge-Wake-Erkennung (`applyEdgeWakeCorrection`, bindend):**
 
 > Wachliegen (abends einschlafen, morgens aufwachen) zeigt wenig Bewegung, aber **klar erhöhte Herzfrequenz**. In `stopTracking()` (nach der HR-Phasenkorrektur) markiert `applyEdgeWakeCorrection` mit der bereinigten **gemessenen** HR die Ränder:
