@@ -1336,7 +1336,7 @@ List
 │   ├── Mit PainDiary & Health synchronisieren
 │   ├── Schlafdaten als CSV exportieren
 │   ├── Aufnahmen lauter machen           (SoundEventService.normalizeExistingClips, einmalige Migration)
-│   ├── Schlafphasen neu berechnen        (SleepTrackingViewModel.reapplyPhaseCorrections, rückwirkend)
+│   ├── Schlafphasen neu berechnen        (reapplyPhaseCorrections: baut Phasen aus TrainingSample-Labels neu auf + korrigiert)
 │   ├── Beispielnacht hinzufügen          (cycles Night 1→2→3)
 │   ├── Alle 3 Beispielnächte hinzufügen
 │   ├── Langzeitverlauf-Testdaten (6 Monate)   ← ~60 Nächte für Filter-Tests

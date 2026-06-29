@@ -371,14 +371,16 @@ final class SleepTrackingViewModel {
 
     // MARK: - Retroactive re-correction of existing sessions
 
-    /// Re-runs the post-hoc phase corrections (HR-based, edge-wake, plausibility)
-    /// on already-recorded nights — used after the correction logic was improved.
-    /// Returns the number of sessions processed.
+    /// Rebuilds phases from the stored raw per-minute labels (TrainingSample) and
+    /// re-runs the post-hoc corrections. Because it re-derives from the untouched
+    /// raw labels, it recovers even nights whose phases were previously mangled by
+    /// an over-aggressive correction. Returns the number of sessions processed.
     @discardableResult
     func reapplyPhaseCorrections(to sessions: [SleepSession], context: ModelContext) -> Int {
         modelContext = context
         var count = 0
-        for session in sessions where !session.isActive && !session.phasesArray.isEmpty {
+        for session in sessions where !session.isActive {
+            guard rebuildPhasesFromSamples(session, context: context) else { continue }
             applyHeartRatePhaseCorrection(to: session)
             applyEdgeWakeCorrection(to: session)
             applyPlausibilityCorrection(to: session)
@@ -386,6 +388,42 @@ final class SleepTrackingViewModel {
         }
         try? context.save()
         return count
+    }
+
+    /// Rebuilds a session's SleepPhase list from its TrainingSamples (raw live
+    /// labels, never touched by post-hoc corrections), grouping consecutive
+    /// same-label samples into phases. Returns false if there are too few samples.
+    private func rebuildPhasesFromSamples(_ session: SleepSession, context: ModelContext) -> Bool {
+        let start = session.startDate
+        let end = session.endDate ?? Date()
+        let desc = FetchDescriptor<TrainingSample>(
+            predicate: #Predicate { $0.timestamp >= start && $0.timestamp <= end },
+            sortBy: [SortDescriptor(\.timestamp)]
+        )
+        guard let samples = try? context.fetch(desc), samples.count >= 4 else { return false }
+
+        // Remove existing phases.
+        for p in session.phasesArray { context.delete(p) }
+        session.phases = []
+
+        var groupStart = samples[0].timestamp
+        var groupLabel = samples[0].phase
+        func commit(_ endDate: Date) {
+            guard endDate > groupStart else { return }
+            let phase = SleepPhase(startDate: groupStart, endDate: endDate, phaseType: groupLabel, confidence: 0.7)
+            phase.session = session
+            context.insert(phase)
+            session.phases?.append(phase)
+        }
+        for s in samples.dropFirst() {
+            if s.phase != groupLabel {
+                commit(s.timestamp)
+                groupStart = s.timestamp
+                groupLabel = s.phase
+            }
+        }
+        commit(end)
+        return true
     }
 
     // MARK: - Post-hoc HR-based phase correction

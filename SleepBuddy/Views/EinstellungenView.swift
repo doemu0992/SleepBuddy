@@ -86,8 +86,8 @@ struct EinstellungenView: View {
         let n = vm.reapplyPhaseCorrections(to: sessions, context: modelContext)
         phasenLaeuft = false
         phasenErgebnis = n > 0
-            ? "\(n) Nacht/Nächte wurden mit der aktuellen Logik neu korrigiert."
-            : "Keine abgeschlossenen Nächte mit Phasen gefunden."
+            ? "\(n) Nacht/Nächte wurden aus den Rohdaten neu berechnet."
+            : "Keine Nächte mit gespeicherten Messdaten gefunden (Testnächte haben keine)."
     }
 
     // MARK: - Aufzeichnung
