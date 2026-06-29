@@ -12,6 +12,24 @@ final class SoundClassificationService: NSObject {
     /// Higher = more (and quieter) detections. Single knob to tune overall recall.
     static let sensitivityOffset: Double = 0.12
 
+    /// Catch-all: any Apple class NOT explicitly mapped above is still captured as `.other`
+    /// when it is the top result above this confidence — so effectively ALL ~300 classes are
+    /// active. Set `catchAllEnabled = false` to fall back to the curated mappings only.
+    static let catchAllEnabled = true
+    static let catchAllThreshold = 0.55
+
+    /// Continuous / noise-floor / irrelevant Apple classes excluded from the catch-all.
+    /// These run for minutes (AC, fan, clock, ocean, fire, appliances, vehicles idling) and
+    /// would otherwise spam events + 30s clips all night long.
+    static let catchAllExcluded: Set<String> = [
+        "silence", "air_conditioner", "mechanical_fan", "clock", "tick", "tick_tock",
+        "ocean", "sea_waves", "waterfall", "fire", "fire_crackle", "boiling",
+        "vacuum_cleaner", "hair_dryer", "electric_shaver", "blender", "microwave_oven",
+        "sewing_machine", "printer", "drill", "chainsaw", "lawn_mower", "power_tool",
+        "hedge_trimmer", "engine_idling", "engine_accelerating_revving", "water_pump",
+        "underwater_bubbling", "white_noise", "static",
+    ]
+
     /// Apple identifier → our event type + base confidence threshold.
     /// IMPORTANT: each `id` must EXACTLY match a string in Apple's `.version1` taxonomy
     /// (`SNClassifySoundRequest(.version1).knownClassifications`). A mismatch means
@@ -136,6 +154,9 @@ final class SoundClassificationService: NSObject {
         ("liquid_pouring",           .water,      0.55),
     ]
 
+    /// Identifiers that have an explicit mapping above (so the catch-all skips them).
+    static let mappedIDs: Set<String> = Set(mappings.map { $0.id })
+
     private var analyzer: SNAudioStreamAnalyzer?
     private let analysisQueue = DispatchQueue(label: "com.sleepbuddy.soundanalysis", qos: .utility)
     private var bufferCounter = 0
@@ -242,6 +263,19 @@ extension SoundClassificationService: SNResultsObserving {
                 best = (type, c.confidence)
             }
         }
+        // Catch-all: no explicit mapping fired → capture any other recognised, abgrenzbares
+        // sound as .other (so effectively all ~300 Apple classes are active), skipping the
+        // excluded continuous/noise classes that would spam events all night.
+        if best == nil, Self.catchAllEnabled {
+            for c in classifications.classifications
+            where c.confidence >= Self.catchAllThreshold
+                && !Self.mappedIDs.contains(c.identifier)
+                && !Self.catchAllExcluded.contains(c.identifier) {
+                best = (.other, c.confidence)
+                break   // classifications are sorted by confidence → first is the top
+            }
+        }
+
         if let best {
             DispatchQueue.main.async { [weak self] in
                 self?.onSoundDetected?(best.type, best.confidence)
