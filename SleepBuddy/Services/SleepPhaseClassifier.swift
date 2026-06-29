@@ -13,10 +13,39 @@ final class PersonalCalibrationService {
         case quietAmplitude = "cal_quietAmplitude"
         case nightCount     = "cal_nightCount"
         case isCalibrated   = "cal_isCalibrated"
+        // Multi-night personal baselines (EMA over nights)
+        case hrMedian       = "cal_hrMedian"
+        case hrDeepFloor    = "cal_hrDeepFloor"
+        case brSlowRate     = "cal_brSlowRate"
+        case brRegHigh      = "cal_brRegHigh"
+        case brRegLow       = "cal_brRegLow"
     }
 
     private let ud = UserDefaults.standard
     private let minNights = 3
+
+    // MARK: - Multi-night personal baselines
+    // Each night's relative thresholds are blended with these slowly-learned
+    // personal values (EMA) so they become stable and personalised over time.
+
+    private func ema(_ key: String, _ value: Double, alpha: Double = 0.3) {
+        let old = ud.double(forKey: key)
+        ud.set(old <= 0 ? value : old * (1 - alpha) + value * alpha, forKey: key)
+    }
+    private func value(_ key: String) -> Double? { let v = ud.double(forKey: key); return v > 0 ? v : nil }
+
+    func updateHRBaseline(median: Double, deepFloor: Double) {
+        ema(Key.hrMedian.rawValue, median); ema(Key.hrDeepFloor.rawValue, deepFloor)
+    }
+    var hrMedian: Double?    { value(Key.hrMedian.rawValue) }
+    var hrDeepFloor: Double? { value(Key.hrDeepFloor.rawValue) }
+
+    func updateBreathBaseline(slowRate: Double, regHigh: Double, regLow: Double) {
+        ema(Key.brSlowRate.rawValue, slowRate); ema(Key.brRegHigh.rawValue, regHigh); ema(Key.brRegLow.rawValue, regLow)
+    }
+    var brSlowRate: Double? { value(Key.brSlowRate.rawValue) }
+    var brRegHigh: Double?  { value(Key.brRegHigh.rawValue) }
+    var brRegLow: Double?   { value(Key.brRegLow.rawValue) }
 
     var isCalibrated: Bool { ud.bool(forKey: Key.isCalibrated.rawValue) }
     var nightCount: Int    { ud.integer(forKey: Key.nightCount.rawValue) }

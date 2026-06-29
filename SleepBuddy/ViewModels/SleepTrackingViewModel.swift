@@ -475,14 +475,23 @@ final class SleepTrackingViewModel {
         let deepCeil:  Double   // above this in a "deep" phase → not deep
         let deepFloor: Double   // below this in a "light/rem" phase → deep
         let remFloor:  Double   // below this in a "rem" phase → deep
+        let cal = PersonalCalibrationService.shared
         if allMeasured.count >= 10 {
             func pct(_ p: Double) -> Double { allMeasured[min(allMeasured.count - 1, Int(Double(allMeasured.count) * p))] }
-            let p25 = pct(0.25), p50 = pct(0.50)
-            deepCeil  = clamp(p50 + 4, 60, 70)
-            deepFloor = clamp(p25,     48, 56)
-            remFloor  = clamp(p25 - 3, 44, 50)
+            let nightP50 = pct(0.50)
+            let nightDeepFloor = clamp(pct(0.25), 48, 56)
+            // Learn the personal baseline, then blend night + personal for stability.
+            cal.updateHRBaseline(median: nightP50, deepFloor: nightDeepFloor)
+            let blendedP50  = cal.hrMedian.map    { 0.5 * $0 + 0.5 * nightP50 } ?? nightP50
+            let blendedDeep = cal.hrDeepFloor.map { 0.5 * $0 + 0.5 * nightDeepFloor } ?? nightDeepFloor
+            deepCeil  = clamp(blendedP50 + 4, 60, 70)
+            deepFloor = clamp(blendedDeep,    48, 56)
+            remFloor  = clamp(blendedDeep - 3, 44, 50)
+        } else if let pm = cal.hrMedian, let pd = cal.hrDeepFloor {
+            // Too little data tonight → fall back to the learned personal baseline.
+            deepCeil = clamp(pm + 4, 60, 70); deepFloor = clamp(pd, 48, 56); remFloor = clamp(pd - 3, 44, 50)
         } else {
-            deepCeil = 65; deepFloor = 54; remFloor = 48   // fallback (too little data)
+            deepCeil = 65; deepFloor = 54; remFloor = 48   // global fallback
         }
 
         var changed = false
@@ -589,9 +598,15 @@ final class SleepTrackingViewModel {
         let validRegs  = (0..<totalMin).filter { cnt[$0] > 0 }.map { regSum[$0]  / Double(cnt[$0]) }.sorted()
         guard validRates.count >= 10 else { return }
         func pct(_ a: [Double], _ p: Double) -> Double { a[min(a.count - 1, Int(Double(a.count) * p))] }
-        let slowRate  = pct(validRates, 0.25)   // slow breathing (deep)
-        let regHigh   = pct(validRegs, 0.70)    // very regular (deep)
-        let regLow    = pct(validRegs, 0.35)    // irregular (REM)
+        let nSlow = pct(validRates, 0.25)   // slow breathing (deep)
+        let nRegHigh = pct(validRegs, 0.70) // very regular (deep)
+        let nRegLow  = pct(validRegs, 0.35) // irregular (REM)
+        // Learn personal breathing baseline, then blend night + personal for stability.
+        let cal = PersonalCalibrationService.shared
+        cal.updateBreathBaseline(slowRate: nSlow, regHigh: nRegHigh, regLow: nRegLow)
+        let slowRate = cal.brSlowRate.map { 0.5 * $0 + 0.5 * nSlow } ?? nSlow
+        let regHigh  = cal.brRegHigh.map  { 0.5 * $0 + 0.5 * nRegHigh } ?? nRegHigh
+        let regLow   = cal.brRegLow.map   { 0.5 * $0 + 0.5 * nRegLow } ?? nRegLow
 
         let L = Double(detectCycleLength(session))
         let onsetMin = session.sleepOnsetDate.map { $0.timeIntervalSince(start) / 60 } ?? 0
