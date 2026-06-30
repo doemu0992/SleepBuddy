@@ -1620,15 +1620,19 @@ func classify(audio:motion:) -> (phase, confidence) {
 
 ```
 NavigationStack
-└── ScrollView
-    ├── begruessung              → Persönliche, tageszeitabhängige Begrüßung (Vorname aus SharedProfil)
-    ├── sleepButton              → Großer "Schlafen"-Button (startet Tracking)
-    ├── MorgenBewertungCard      → Doppel-Bewertung (Schlaf + Aufzeichnung), Anzeige via @State eingefroren
-    ├── MorgenBerichtCard        → KI-Morgen-Report (nur wenn letzte Session heute)
+└── ScrollView   (Dashboard-Layout)
+    ├── heroCard(session)        → Nacht-Hero: Indigo→Violett-Verlauf, Begrüßung+Datum (weiß),
+    │                              Schlaf-Index-Ring (scoreRing) + Dauer + Phasen-Balken;
+    │                              ganze Karte ist NavigationLink → SleepDetailView
+    ├── tileGrid(session)        → 2-Spalten-Kachel-Grid: Tiefschlaf/REM/Leicht (Phasenfarben),
+    │                              Einschlafen, Schnarchen, Ø Puls
+    ├── MorgenBewertungCard      → Doppel-Bewertung, Anzeige via @State eingefroren
+    ├── MorgenBerichtCard        → KI-Morgen-Report (nur wenn letzte Session heute/gestern)
     ├── smartAlarmCard           → Smart-Alarm Konfiguration (Zeitfenster, Ton)
-    ├── lastNightCard(session)   → Kurzübersicht letzte Nacht (Score, Dauer, Phasen)
     └── WochenMusterKarte        → Wochenmuster (nur wenn ≥ 3 abgeschlossene Nächte)
 ```
+
+> **Dashboard-Stil (bindend):** Home ist ein **Dashboard**, kein Karten-Stapel. Der **Nacht-Hero** (dunkler Indigo→Violett-Verlauf mit Schlaf-Index-Ring) ist der Blickfang und gibt der sonst hellen App das Schlaf-/Nacht-Feeling; darunter helle Stat-Kacheln. **Kein großer „Schlafen starten"-Button** im Normal-Zustand — der Tracker wird über den zentralen TabBar-Kreis gestartet (nur der Erst-Start-`emptyState` zeigt einen Start-CTA). `scoreColor`: <40 rot, <70 orange, <85 gelb, sonst grün. Phasen-Kacheln nutzen `SleepPhaseType.color`.
 
 > **`MorgenBewertungCard`-Sichtbarkeit eingefroren (bindend):** Die Karte setzt beim Antippen `recordingQuality`/`subjectiveQuality` auf der Session. Würde die Sichtbarkeit direkt reaktiv aus diesen Werten berechnet, verschwände die Karte mitten in der Bewertung (z.B. beim Aufklappen von „Ungenau"). Daher steuert ein `@State zeigeBewertung`, das nur in `onAppear` und `onChange(of: lastSession)` via `aktualisiereBewertung()` neu gesetzt wird. Ein „Fertig"-Button (`onFertig`-Closure) schließt die Karte explizit.
 

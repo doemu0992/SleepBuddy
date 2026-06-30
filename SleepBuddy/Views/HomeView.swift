@@ -31,34 +31,28 @@ struct HomeView: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(spacing: 20) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(begruessung)
-                            .font(.largeTitle.bold())
-                        Text(Date.now, format: .dateTime.weekday(.wide).day().month(.wide))
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
+                VStack(spacing: 16) {
                     if sessions.isEmpty {
+                        greetingHeader
                         emptyState
-                    } else {
-                        if let session = lastSession {
-                            lastNightCard(session)
-                            if zeigeBewertung {
-                                MorgenBewertungCard(session: session) {
-                                    withAnimation { zeigeBewertung = false }
-                                }
+                    } else if let session = lastSession {
+                        heroCard(session)
+                        tileGrid(session)
+                        if zeigeBewertung {
+                            MorgenBewertungCard(session: session) {
+                                withAnimation { zeigeBewertung = false }
                             }
-                            if isMorgenBerichtRelevant(session) {
-                                MorgenBerichtCard(session: session)
-                            }
+                        }
+                        if isMorgenBerichtRelevant(session) {
+                            MorgenBerichtCard(session: session)
                         }
                         smartAlarmCard
                         if sessions.filter({ !$0.isActive }).count >= 3 {
                             WochenMusterKarte(sessions: Array(sessions.filter({ !$0.isActive }).prefix(14)))
                         }
+                    } else {
+                        greetingHeader
+                        smartAlarmCard
                     }
                 }
                 .padding()
@@ -223,65 +217,120 @@ struct HomeView: View {
         .buttonStyle(.plain)
     }
 
-    // MARK: - Last night card
+    // MARK: - Greeting header (empty / no-session states)
 
-    private func lastNightCard(_ session: SleepSession) -> some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack {
-                Label("Letzte Nacht", systemImage: "moon.stars.fill")
-                    .font(.headline).foregroundStyle(.indigo)
-                Spacer()
-                if session.subjectiveQuality > 0 {
-                    let emojis = ["😴", "🙁", "😐", "🙂", "😄"]
-                    Text(emojis[session.subjectiveQuality - 1])
-                        .font(.title3)
-                }
-            }
-
-            HStack(spacing: 20) {
-                statView(icon: "clock.fill", value: session.totalDuration.formattedDuration, label: "Schlafdauer", color: .indigo)
-                Divider().frame(height: 40)
-                statView(icon: "star.fill", value: "\(SchlafindexView.score(for: session))%", label: "Qualität", color: .purple)
-                Divider().frame(height: 40)
-                statView(icon: "moon.fill", value: session.deepSleepDuration.formattedDuration, label: "Tiefschlaf", color: .blue)
-            }
-
-            if let latency = session.sleepOnsetLatency {
-                HStack {
-                    Image(systemName: "zzz").foregroundStyle(.indigo).font(.caption)
-                    Text("Einschlafen nach \(formatMinutes(latency))")
-                        .font(.caption).foregroundStyle(.secondary)
-                    Spacer()
-                    if session.snoringEventCount > 0 {
-                        Label("\(session.snoringEventCount)× Schnarchen", systemImage: "waveform")
-                            .font(.caption).foregroundStyle(.orange)
-                    }
-                }
-            }
-
-            if !session.phasesArray.isEmpty {
-                SleepPhaseBarView(phases: session.phasesArray, totalDuration: session.totalDuration)
-                    .frame(height: 32)
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-            }
+    private var greetingHeader: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(begruessung).font(.largeTitle.bold())
+            Text(Date.now, format: .dateTime.weekday(.wide).day().month(.wide))
+                .font(.subheadline).foregroundStyle(.secondary)
         }
-        .padding()
-        .background(Color(.secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 16))
-        .shadow(color: Color.primary.opacity(0.06), radius: 10, x: 0, y: 2)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    // MARK: - Learning status
+    // MARK: - Night hero (last night, tappable → detail)
 
-    // MARK: - Helpers
+    private func heroCard(_ session: SleepSession) -> some View {
+        NavigationLink(destination: SleepDetailView(session: session)) {
+            VStack(alignment: .leading, spacing: 18) {
+                HStack(alignment: .top) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(begruessung).font(.title2.bold()).foregroundStyle(.white)
+                        Text(Date.now, format: .dateTime.weekday(.wide).day().month(.wide))
+                            .font(.caption).foregroundStyle(.white.opacity(0.7))
+                    }
+                    Spacer()
+                    if session.subjectiveQuality > 0 {
+                        Text(["😴","🙁","😐","🙂","😄"][session.subjectiveQuality - 1]).font(.title3)
+                    } else {
+                        Image(systemName: "moon.stars.fill").font(.title3).foregroundStyle(.white.opacity(0.85))
+                    }
+                }
+                HStack(spacing: 20) {
+                    scoreRing(SchlafindexView.score(for: session))
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(session.totalDuration.formattedDuration)
+                            .font(.system(size: 30, weight: .bold)).foregroundStyle(.white)
+                        Text("Letzte Nacht").font(.caption).foregroundStyle(.white.opacity(0.7))
+                        if let lat = session.sleepOnsetLatency {
+                            Label("Einschlafen \(formatMinutes(lat))", systemImage: "zzz")
+                                .font(.caption2).foregroundStyle(.white.opacity(0.8))
+                        }
+                    }
+                    Spacer()
+                }
+                if !session.phasesArray.isEmpty {
+                    SleepPhaseBarView(phases: session.phasesArray, totalDuration: session.totalDuration)
+                        .frame(height: 14).clipShape(Capsule())
+                }
+                HStack(spacing: 4) {
+                    Spacer()
+                    Text("Details ansehen").font(.caption2.bold())
+                    Image(systemName: "chevron.right").font(.caption2.bold())
+                }
+                .foregroundStyle(.white.opacity(0.8))
+            }
+            .padding(20)
+            .background(
+                LinearGradient(colors: [Color(red: 0.15, green: 0.15, blue: 0.42), .indigo, .purple],
+                               startPoint: .topLeading, endPoint: .bottomTrailing)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 24))
+            .shadow(color: .indigo.opacity(0.35), radius: 14, x: 0, y: 8)
+        }
+        .buttonStyle(.plain)
+    }
 
-    private func statView(icon: String, value: String, label: String, color: Color) -> some View {
-        VStack(spacing: 4) {
-            Image(systemName: icon).foregroundStyle(color)
+    private func scoreRing(_ score: Int) -> some View {
+        ZStack {
+            Circle().stroke(Color.white.opacity(0.2), lineWidth: 9)
+            Circle().trim(from: 0, to: CGFloat(min(max(score, 0), 100)) / 100)
+                .stroke(scoreColor(score), style: StrokeStyle(lineWidth: 9, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+            VStack(spacing: 0) {
+                Text("\(score)").font(.system(size: 26, weight: .bold)).foregroundStyle(.white)
+                Text("Index").font(.caption2).foregroundStyle(.white.opacity(0.7))
+            }
+        }
+        .frame(width: 92, height: 92)
+    }
+
+    private func scoreColor(_ s: Int) -> Color {
+        switch s { case ..<40: return .red; case ..<70: return .orange; case ..<85: return .yellow; default: return .green }
+    }
+
+    // MARK: - Stat tile grid
+
+    private func tileGrid(_ session: SleepSession) -> some View {
+        let total = max(session.totalDuration, 1)
+        func pct(_ d: TimeInterval) -> String { "\(Int(d / total * 100))%" }
+        let hrs = session.heartRateSamples.filter { $0 >= 40 && $0 <= 110 }
+        let avgHR = hrs.isEmpty ? nil : Int(hrs.reduce(0, +) / Double(hrs.count))
+        return LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible())], spacing: 12) {
+            tile("moon.fill", session.deepSleepDuration.formattedDuration, "Tiefschlaf", SleepPhaseType.deep.color, sub: pct(session.deepSleepDuration))
+            tile("sparkles", session.remSleepDuration.formattedDuration, "REM", SleepPhaseType.rem.color, sub: pct(session.remSleepDuration))
+            tile("cloud.moon.fill", session.lightSleepDuration.formattedDuration, "Leichtschlaf", SleepPhaseType.light.color, sub: pct(session.lightSleepDuration))
+            tile("zzz", session.sleepOnsetLatency.map { formatMinutes($0) } ?? "–", "Einschlafen", .indigo, sub: nil)
+            tile("waveform", "\(session.snoringEventCount)×", "Schnarchen", .orange, sub: nil)
+            tile("heart.fill", avgHR.map { "\($0)" } ?? "–", "Ø Puls", .red, sub: avgHR != nil ? "bpm" : nil)
+        }
+    }
+
+    private func tile(_ icon: String, _ value: String, _ label: String, _ color: Color, sub: String?) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Image(systemName: icon).foregroundStyle(color).font(.subheadline)
+                Spacer()
+                if let sub { Text(sub).font(.caption2).foregroundStyle(.secondary) }
+            }
             Text(value).font(.title3.bold())
             Text(label).font(.caption).foregroundStyle(.secondary)
         }
-        .frame(maxWidth: .infinity)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14)
+        .background(Color(.secondarySystemGroupedBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .shadow(color: Color.primary.opacity(0.06), radius: 10, x: 0, y: 2)
     }
 
     private func formatMinutes(_ interval: TimeInterval) -> String {
