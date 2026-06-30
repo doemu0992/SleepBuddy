@@ -2,6 +2,8 @@ import AVFoundation
 import AudioToolbox
 import UserNotifications
 import Observation
+import MediaPlayer
+import SwiftUI
 
 // MARK: - Alarm-Ton
 
@@ -175,6 +177,19 @@ final class SmartAlarmService {
         playAlarmTone()
     }
 
+    // Setzt die System-Medienlautstärke auf Maximum (MPVolumeView-Slider). So klingelt der
+    // Wecker laut, egal wie der Nutzer das Telefon eingestellt hat. Stummschalter (Ringer)
+    // betrifft die Medien-Wiedergabe via AVAudioEngine nicht.
+    private func forceSystemVolumeMax() {
+        DispatchQueue.main.async {
+            let volumeView = MPVolumeView(frame: .zero)
+            if let slider = volumeView.subviews.compactMap({ $0 as? UISlider }).first {
+                slider.value = 1.0
+                slider.sendActions(for: .valueChanged)
+            }
+        }
+    }
+
     private func playAlarmTone() {
         let session = AVAudioSession.sharedInstance()
         // duckOthers: alarm gets full priority over all other audio (including recording output).
@@ -184,6 +199,9 @@ final class SmartAlarmService {
         try? session.overrideOutputAudioPort(.speaker)
         try? session.setActive(true, options: .notifyOthersOnDeactivation)
 
+        // Wecker IMMER auf maximaler Lautstärke — unabhängig von der System-Medienlautstärke.
+        forceSystemVolumeMax()
+
         let engine = AVAudioEngine()
         let player = AVAudioPlayerNode()
         engine.attach(player)
@@ -192,7 +210,7 @@ final class SmartAlarmService {
         let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1)!
         engine.connect(player, to: engine.mainMixerNode, format: format)
         engine.mainMixerNode.outputVolume = 1.0
-        player.volume = lautstaerke
+        player.volume = 1.0   // Wecker immer 100 % (ignoriert die lautstaerke-Einstellung)
 
         do {
             try engine.start()
@@ -437,6 +455,11 @@ final class SmartAlarmService {
         toneEngine?.stop()
         toneNode = nil
         toneEngine = nil
+        // Failsafe-Notification-Burst abbrechen — sonst klingelt der Hintergrund-Wecker
+        // (alle 30 s über 5 min) weiter, obwohl der In-App-Ton gestoppt wurde.
+        let center = UNUserNotificationCenter.current()
+        center.removePendingNotificationRequests(withIdentifiers: failsafeIDs)
+        center.removeDeliveredNotifications(withIdentifiers: failsafeIDs)
         // Restore recording session: mixWithOthers + remove forced speaker override
         let session = AVAudioSession.sharedInstance()
         try? session.setCategory(.playAndRecord, mode: .measurement, options: [.mixWithOthers, .allowBluetoothHFP])

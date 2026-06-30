@@ -1346,6 +1346,10 @@ Weckt in der Leichtschlaf- oder Wach-Phase innerhalb eines Zeitfensters.
 >
 > **Failsafe-Burst statt Einzel-Notification (bindend):** Wenn die App im Hintergrund beendet/suspendiert wurde, kann der In-App-Ton (AVAudioEngine) nicht spielen. `scheduleFailsafeNotification()` plant deshalb einen **Burst** von Notifications (am Deadline, dann alle 30 s über 5 min, IDs `\(notificationID).0…10`) — eine einzelne Notification spielt ihren Sound nur kurz und wird leicht verschlafen. **Niemals `.defaultCritical`** als Sound — das braucht Apples Critical-Alerts-Entitlement (nicht vorhanden) und fällt sonst auf **stumm** zurück; immer `.default` + `interruptionLevel = .timeSensitive`. `arm()` fordert defensiv die Notification-Permission an. `disarm()`/`triggerAlarm()` entfernen alle Burst-IDs (`failsafeIDs`).
 
+> **`stopAlarm()` muss den Failsafe-Burst abbrechen (bindend):** „Aufwachen" → `dismissAlarm()` → `stopAlarm()`. Früher stoppte `stopAlarm()` nur die AVAudioEngine, **nicht** die geplanten Failsafe-Notifications → wenn die App im Hintergrund war und der Wecker über den Notification-Burst klang, klingelte er nach „Aufwachen" alle 30 s weiter. `stopAlarm()` ruft daher `removePendingNotificationRequests` **und** `removeDeliveredNotifications` für `failsafeIDs` auf.
+
+> **Wecker immer 100 % laut (bindend):** Der Alarm muss unabhängig von der eingestellten Medienlautstärke laut sein. `playAlarmTone()` setzt `player.volume = 1.0` (ignoriert die `lautstaerke`-Einstellung) **und** ruft `forceSystemVolumeMax()` auf — setzt den `MPVolumeView`-`UISlider` auf 1.0, hebt also die System-Medienlautstärke aufs Maximum. (Der Ringer-/Stummschalter betrifft die AVAudioEngine-Medienwiedergabe nicht.) Benötigt `import MediaPlayer`.
+
 **Keys (UserDefaults):**
 
 | Key | Typ | Beschreibung |
