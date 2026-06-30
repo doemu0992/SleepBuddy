@@ -169,30 +169,32 @@ struct SleepDetailView: View {
     // MARK: - Stats Grid
 
     private var statsGrid: some View {
-        LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
-            statCard("Tiefschlaf", value: session.deepSleepDuration.formattedDuration, icon: "moon.fill", color: SleepPhaseType.deep.color,
-                     percent: pct(session.deepSleepDuration))
-            statCard("REM", value: session.remSleepDuration.formattedDuration, icon: "sparkles", color: SleepPhaseType.rem.color,
-                     percent: pct(session.remSleepDuration))
-            statCard("Leichtschlaf", value: session.lightSleepDuration.formattedDuration, icon: "moon", color: SleepPhaseType.light.color,
-                     percent: pct(session.lightSleepDuration))
+        HStack(spacing: 0) {
+            statColumn("Tiefschlaf", value: session.deepSleepDuration.formattedDuration, icon: "moon.fill", color: SleepPhaseType.deep.color,
+                       percent: pct(session.deepSleepDuration))
+            Divider().frame(height: 52)
+            statColumn("REM", value: session.remSleepDuration.formattedDuration, icon: "sparkles", color: SleepPhaseType.rem.color,
+                       percent: pct(session.remSleepDuration))
+            Divider().frame(height: 52)
+            statColumn("Leichtschlaf", value: session.lightSleepDuration.formattedDuration, icon: "moon", color: SleepPhaseType.light.color,
+                       percent: pct(session.lightSleepDuration))
         }
+        .padding()
+        .background(Color(.secondarySystemGroupedBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .shadow(color: Color.primary.opacity(0.06), radius: 10, x: 0, y: 2)
     }
 
-    private func statCard(_ label: String, value: String, icon: String, color: Color, percent: Int) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
+    private func statColumn(_ label: String, value: String, icon: String, color: Color, percent: Int) -> some View {
+        VStack(spacing: 4) {
+            HStack(spacing: 4) {
                 Image(systemName: icon).foregroundStyle(color).font(.caption)
-                Spacer()
                 Text("\(percent)%").font(.caption2.bold()).foregroundStyle(color)
             }
             Text(value).font(.title3.bold())
             Text(label).font(.caption2).foregroundStyle(.secondary)
         }
-        .padding(12)
-        .background(Color(.secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 16))
-        .shadow(color: Color.primary.opacity(0.06), radius: 10, x: 0, y: 2)
+        .frame(maxWidth: .infinity)
     }
 
     private func pct(_ dur: TimeInterval) -> Int {
