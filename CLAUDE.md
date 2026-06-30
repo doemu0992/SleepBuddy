@@ -1629,7 +1629,7 @@ NavigationStack
     │                              Einschlafen · Schnarchen · Ø Puls
     ├── MorgenBewertungCard      → Doppel-Bewertung, Anzeige via @State eingefroren
     ├── MorgenBerichtCard        → KI-Morgen-Report (nur wenn letzte Session heute/gestern)
-    │ ── Diese Woche ── (nur ≥ 2 Nächte)
+    │ ── Verlauf ── (nur ≥ 2 Nächte; deckt 7-Tage-Trend UND mehrwöchige Musteranalyse ab)
     ├── weekTrendCard            → 7-Tage-Balkenchart (Dauer) + gestrichelte Schlafziel-Linie
     ├── WochenMusterKarte        → KI-Schlafmuster (nur ≥ 3 Nächte)
     │ ── Heute Nacht ──
@@ -1664,9 +1664,7 @@ Generiert einen personalisierten Morgen-Report via `FoundationModels.LanguageMod
 - Vortag-Score (falls vorhanden) → Vergleich
 - 7-Tage-Schnitt Qualität + Dauer (falls ≥ 2 Nächte)
 
-**Vergleichs-Zeile (immer sichtbar):**
-- Vortag: `+X% vs. Gestern` (grün) / `−X% vs. Gestern` (rot) / `Wie gestern` (neutral)
-- 7-Tage: `Ø 7 Tage: X%` mit Trend-Farbe
+**Vergleich (bindend):** Die visuelle Vergleichs-Zeile (`vs. Gestern` / `Ø 7 Tage`) wurde aus der MorgenBerichtCard **entfernt** — der Vergleich sitzt jetzt als `comparisonChips` im HomeView-Hero (Doppelung vermeiden). Die Vergleichswerte fließen weiterhin in den **KI-Prompt** ein (Vortag/7-Tage im `vergleichsText`), nur die UI-Badge ist weg.
 
 **Prompt-Format:**
 ```

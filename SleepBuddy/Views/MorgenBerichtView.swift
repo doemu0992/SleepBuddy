@@ -52,9 +52,6 @@ struct MorgenBerichtCard: View {
                 }
             }
 
-            // Vortag-Vergleich + Wochentrend
-            vergleichsZeile
-
             if isGenerating {
                 HStack(spacing: 8) {
                     ProgressView()
@@ -83,44 +80,6 @@ struct MorgenBerichtCard: View {
         .background(Color(.secondarySystemGroupedBackground))
         .clipShape(RoundedRectangle(cornerRadius: 16))
         .shadow(color: Color.primary.opacity(0.06), radius: 10, x: 0, y: 2)
-    }
-
-    // MARK: - Vergleichs-Zeile
-
-    @ViewBuilder private var vergleichsZeile: some View {
-        HStack(spacing: 12) {
-            // Vortag
-            if let gs = gesternScore {
-                let diff = currentScore - gs
-                HStack(spacing: 4) {
-                    Image(systemName: diff > 3 ? "arrow.up" : diff < -3 ? "arrow.down" : "minus")
-                        .font(.caption2.bold())
-                    Text(diff > 3 ? "+\(diff)% vs. Gestern"
-                         : diff < -3 ? "\(diff)% vs. Gestern"
-                         : "Wie gestern (\(gs)%)")
-                        .font(.caption2.bold())
-                }
-                .foregroundStyle(diff > 3 ? .green : diff < -3 ? .red : .secondary)
-                .padding(.horizontal, 8).padding(.vertical, 3)
-                .background((diff > 3 ? Color.green : diff < -3 ? Color.red : Color.secondary).opacity(0.12))
-                .clipShape(Capsule())
-            }
-
-            // Wochentrend
-            if let wq = wochenSchnittQual {
-                let diff = currentScore - wq
-                HStack(spacing: 4) {
-                    Image(systemName: "chart.line.uptrend.xyaxis")
-                        .font(.caption2)
-                    Text("Ø 7 Tage: \(wq)%")
-                        .font(.caption2)
-                }
-                .foregroundStyle(diff > 5 ? .green : diff < -5 ? .red : .secondary)
-                .padding(.horizontal, 8).padding(.vertical, 3)
-                .background(Color.secondary.opacity(0.10))
-                .clipShape(Capsule())
-            }
-        }
     }
 
     // MARK: - Generation

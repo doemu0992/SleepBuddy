@@ -53,9 +53,9 @@ struct HomeView: View {
                             MorgenBerichtCard(session: session)
                         }
 
-                        // ── Diese Woche ──
+                        // ── Verlauf (7-Tage-Trend + mehrwöchige Musteranalyse) ──
                         if doneSessions.count >= 2 {
-                            sectionHeader("Diese Woche")
+                            sectionHeader("Verlauf")
                             weekTrendCard
                             if doneSessions.count >= 3 {
                                 WochenMusterKarte(sessions: Array(doneSessions.prefix(14)))
