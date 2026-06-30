@@ -159,7 +159,7 @@ struct SleepTrackingView: View {
                     HStack(spacing: 6) {
                         Image(systemName: "alarm.fill")
                             .font(.caption2.bold())
-                        Text("Weckt \(alarmLabel)")
+                        Text(alarmText)
                             .font(.caption.bold())
                     }
                     .foregroundStyle(.indigo)
@@ -332,14 +332,13 @@ struct SleepTrackingView: View {
         return onset.formatted(date: .omitted, time: .shortened)
     }
 
-    private var alarmLabel: String {
+    private var alarmText: String {
         let fmt = DateFormatter(); fmt.dateFormat = "HH:mm"
-        let earliest = viewModel.smartAlarm.earliestWakeTime
-        let latest = viewModel.smartAlarm.latestWakeTime
-        let e = fmt.string(from: earliest)
-        let l = fmt.string(from: latest)
-        // Weckfenster: frühestes–spätestes. Sind beide gleich, nur eine Zeit.
-        return e == l ? e : "\(e) – \(l)"
+        let e = fmt.string(from: viewModel.smartAlarm.earliestWakeTime)
+        let l = fmt.string(from: viewModel.smartAlarm.latestWakeTime)
+        // Weckfenster: frühestes–spätestes, plus Klarstellung der garantierten Obergrenze.
+        // Sind beide gleich, nur eine Zeit.
+        return e == l ? "Weckt \(l)" : "Weckt \(e)–\(l) (spätestens \(l))"
     }
 
     private func requestMicAndStart() {
