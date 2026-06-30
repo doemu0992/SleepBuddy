@@ -485,27 +485,32 @@ final class SmartAlarmService {
     /// True once the latest wake time for "today" has been reached.
     /// Handles the over-midnight case: if the latest time is in the early morning and we
     /// fell asleep before midnight, the relevant latest time is on the *next* calendar day.
-    private func isPastLatest(_ date: Date) -> Bool {
+    // Normalisiert eine Tageszeit (earliest/latest) auf das Weckfenster, das zur
+    // aktuellen Schlafsession gehört. Ein Wecker um 07:00 gehört beim Tracking-Start
+    // um 23:29 zum NÄCHSTEN Morgen (über Mitternacht) — sonst gilt 07:00 als bereits
+    // vergangen und der Alarm würde sofort feuern.
+    private func normalizedWindowTime(_ base: Date, relativeTo date: Date) -> Date {
         let cal = Calendar.current
-        var latest = cal.date(bySettingHour: cal.component(.hour, from: latestWakeTime),
-                              minute: cal.component(.minute, from: latestWakeTime),
-                              second: 0, of: date) ?? latestWakeTime
-        // If the computed latest is far in the future (more than 12h), it belongs to the
-        // previous day's window that already passed — pull it back a day.
-        if latest.timeIntervalSince(date) > 12 * 3600 {
-            latest = cal.date(byAdding: .day, value: -1, to: latest) ?? latest
+        var t = cal.date(bySettingHour: cal.component(.hour, from: base),
+                         minute: cal.component(.minute, from: base),
+                         second: 0, of: date) ?? base
+        if date.timeIntervalSince(t) > 12 * 3600 {
+            // Mehr als 12 h in der Vergangenheit → gehört zum nächsten Morgen.
+            t = cal.date(byAdding: .day, value: 1, to: t) ?? t
+        } else if t.timeIntervalSince(date) > 12 * 3600 {
+            // Mehr als 12 h in der Zukunft → gehört zum vorigen Tag.
+            t = cal.date(byAdding: .day, value: -1, to: t) ?? t
         }
-        return date >= latest
+        return t
+    }
+
+    private func isPastLatest(_ date: Date) -> Bool {
+        return date >= normalizedWindowTime(latestWakeTime, relativeTo: date)
     }
 
     private func isInsideWindow(_ date: Date) -> Bool {
-        let cal = Calendar.current
-        let earliest = cal.date(bySettingHour: cal.component(.hour, from: earliestWakeTime),
-                                minute: cal.component(.minute, from: earliestWakeTime),
-                                second: 0, of: date) ?? earliestWakeTime
-        let latest = cal.date(bySettingHour: cal.component(.hour, from: latestWakeTime),
-                              minute: cal.component(.minute, from: latestWakeTime),
-                              second: 0, of: date) ?? latestWakeTime
+        let earliest = normalizedWindowTime(earliestWakeTime, relativeTo: date)
+        let latest = normalizedWindowTime(latestWakeTime, relativeTo: date)
         return date >= earliest && date <= latest
     }
 
