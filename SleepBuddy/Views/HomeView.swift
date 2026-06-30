@@ -44,8 +44,8 @@ struct HomeView: View {
                     if sessions.isEmpty {
                         emptyState
                     } else {
-                        sleepButton
                         if let session = lastSession {
+                            lastNightCard(session)
                             if zeigeBewertung {
                                 MorgenBewertungCard(session: session) {
                                     withAnimation { zeigeBewertung = false }
@@ -56,9 +56,6 @@ struct HomeView: View {
                             }
                         }
                         smartAlarmCard
-                        if let session = lastSession {
-                            lastNightCard(session)
-                        }
                         if sessions.filter({ !$0.isActive }).count >= 3 {
                             WochenMusterKarte(sessions: Array(sessions.filter({ !$0.isActive }).prefix(14)))
                         }
