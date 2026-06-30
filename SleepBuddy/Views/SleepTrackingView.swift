@@ -11,9 +11,15 @@ struct SleepTrackingView: View {
 
     private let navy = Color(red: 0.04, green: 0.06, blue: 0.16)
 
+    /// Sanfter Nacht-Verlauf (oben etwas indigoer) statt flachem Navy.
+    private var nightGradient: LinearGradient {
+        LinearGradient(colors: [Color(red: 0.09, green: 0.10, blue: 0.26), navy],
+                       startPoint: .top, endPoint: .bottom)
+    }
+
     var body: some View {
         ZStack {
-            navy.ignoresSafeArea()
+            nightGradient.ignoresSafeArea()
 
             if viewModel.alarmFired {
                 alarmRingingContent
@@ -61,9 +67,15 @@ struct SleepTrackingView: View {
         VStack(spacing: 32) {
             Spacer()
 
-            Image(systemName: "moon.stars.fill")
-                .font(.system(size: 80))
-                .foregroundStyle(.indigo)
+            ZStack {
+                Circle()
+                    .fill(Color.indigo.opacity(0.25))
+                    .frame(width: 190, height: 190)
+                    .blur(radius: 65)
+                Image(systemName: "moon.stars.fill")
+                    .font(.system(size: 80))
+                    .foregroundStyle(LinearGradient(colors: [.indigo, .purple], startPoint: .topLeading, endPoint: .bottomTrailing))
+            }
 
             VStack(spacing: 8) {
                 Text("Bereit zum Schlafen?")
@@ -83,11 +95,14 @@ struct SleepTrackingView: View {
             Spacer()
 
             Button { requestMicAndStart() } label: {
-                Text("Jetzt schlafen")
+                Label("Jetzt schlafen", systemImage: "moon.stars.fill")
                     .font(.title3.bold()).foregroundStyle(.white)
                     .frame(maxWidth: .infinity).padding()
-                    .background(.indigo)
-                    .clipShape(RoundedRectangle(cornerRadius: 16))
+                    .background(
+                        LinearGradient(colors: [.indigo, .purple], startPoint: .leading, endPoint: .trailing),
+                        in: RoundedRectangle(cornerRadius: 16)
+                    )
+                    .shadow(color: .indigo.opacity(0.45), radius: 14, x: 0, y: 8)
             }
             .padding(.horizontal, 32)
 
@@ -100,10 +115,7 @@ struct SleepTrackingView: View {
     // MARK: - Active tracking screen (atmospheric, dark navy)
 
     private var trackingContent: some View {
-        let navy = Color(red: 0.04, green: 0.06, blue: 0.16)
-        return ZStack {
-            navy.ignoresSafeArea()
-
+        ZStack {
             // Ambient glow behind phase
             Circle()
                 .fill(viewModel.currentPhase.color.opacity(0.08))
@@ -244,11 +256,14 @@ struct SleepTrackingView: View {
                 Button {
                     Task { await viewModel.dismissAlarm() }
                 } label: {
-                    Text("Aufwachen")
+                    Label("Aufwachen", systemImage: "sun.horizon.fill")
                         .font(.title2.bold()).foregroundStyle(.white)
                         .frame(maxWidth: .infinity).padding()
-                        .background(.indigo)
-                        .clipShape(RoundedRectangle(cornerRadius: 16))
+                        .background(
+                            LinearGradient(colors: [.indigo, .purple], startPoint: .leading, endPoint: .trailing),
+                            in: RoundedRectangle(cornerRadius: 16)
+                        )
+                        .shadow(color: .indigo.opacity(0.45), radius: 14, x: 0, y: 8)
                 }
 
                 if viewModel.smartAlarm.snoozeCount < 3 {

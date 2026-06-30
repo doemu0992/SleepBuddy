@@ -1412,11 +1412,17 @@ List
 
 ```swift
 private let navy = Color(red: 0.04, green: 0.06, blue: 0.16)
+// Hintergrund ist ein sanfter Nacht-Verlauf (oben indigoer → navy), nicht flach:
+private var nightGradient: LinearGradient {
+    LinearGradient(colors: [Color(red: 0.09, green: 0.10, blue: 0.26), navy], startPoint: .top, endPoint: .bottom)
+}
 ```
+
+> **Stil (bindend):** Hintergrund aller drei States = `nightGradient` (einmal im Body, nicht pro State doppeln). Mond-Symbole haben einen weichen Glow (blur-Circle dahinter) + Indigo→Violett-Verlauf. Primär-Buttons („Jetzt schlafen", „Aufwachen") nutzen den Indigo→Violett-Verlauf **mit Glow-Schatten** (konsistent zum Dashboard-Hero).
 
 | State | Inhalt |
 |-------|--------|
-| Start | Illustration + "Jetzt schlafen"-Button |
+| Start | Mond mit Glow + "Jetzt schlafen"-Button (Verlauf + Glow) |
 | Aktiv | Uhrzeit 72pt thin monospaced, Phase-Badge, Herz-Rate-Badge, Schnarchen-Badge, "Aufwachen"-Button |
 | Alarm | Alarm-Animation, "Aufwachen" + "Snooze"-Button (max. 3×) |
 
