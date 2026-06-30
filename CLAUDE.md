@@ -585,18 +585,22 @@ private func finishCalibration() {
 | Nach Kalibrierung | `max(ambientCeiling95 × 1.8, 0.004)` |
 | + Partner Stufe 1 / 2 | × 1.6 / × 2.4 |
 
-**Rollende Nachkalibrierung (bindend):** Die Schwelle passt sich über die Nacht an wechselnde Bedingungen an (Heizung, Straßenlärm, etc.). Alle **2 Minuten** wird aus den letzten ~5 Minuten **ruhiger** Samples (nur `eventStartDate == nil` **und** unter aktueller Schwelle — so heben Events den Boden nie selbst an) ein neuer Boden berechnet und per EMA sanft eingemischt:
+**Rollende Nachkalibrierung (bindend, beidseitig adaptiv):** Die Schwelle passt sich über die Nacht an wechselnde Bedingungen an (Heizung, Straßenlärm, etc.). Alle **2 Minuten** wird aus den letzten ~5 Minuten **aller Nicht-Event-Samples** (`eventStartDate == nil`) der **Median** als robuster Boden berechnet und per EMA eingemischt.
+
+> **Warum Median statt „nur unter der Schwelle + p95" (bindend):** Die frühere Version sammelte nur Samples *unter* der aktuellen Schwelle. Folge: Stieg der Geräuschboden mitten in der Nacht **über** die Schwelle (Heizung/Regen/Verkehr), wurden die lauteren Samples ausgefiltert → die Schwelle konnte **nicht nach oben** adaptieren → Event-/Clip-Spam, der sich nicht selbst korrigierte. Jetzt zählen **alle** Nicht-Event-Samples, und der **Median** ist robust gegen die laute Minderheit (Events sind per `eventStartDate`-Gate ohnehin ausgeschlossen) — so adaptiert die Schwelle **hoch UND runter**, ohne dass Events den Boden hochziehen.
 
 ```swift
 private func recalibrateRolling() {
-    guard rollingAmbient.count >= 240 else { return }   // ≥ ~30 s ruhige Daten
-    let ceiling = /* 95. Perzentil von rollingAmbient */
-    let candidate = max(ceiling * 1.8, 0.004)
+    guard rollingAmbient.count >= 240 else { return }   // ≥ ~30 s Nicht-Event-Daten
+    let median = /* Median von rollingAmbient */
+    let candidate = max(median * thresholdOverMedian, 0.004)
     calibratedThreshold = calibratedThreshold! * 0.6 + candidate * 0.4   // sanfte Mischung
 }
 ```
 
-> **`reset()` muss Kalibrierung UND Rolling-State zurücksetzen** (`calibrationSamples`, `calibrationDeadline`, `calibratedThreshold`, `rollingAmbient`, `lastRecal`) — jede Nacht neu kalibrieren.
+> **`thresholdOverMedian`:** In `finishCalibration` als `threshold / median` der 60-s-Kalibrierung gemessen (geklemmt 2…12, Fallback 4.0). So nutzt die rollende Phase den robusten Median, reproduziert aber die ×1.8-Schwellenskala der Erstkalibrierung.
+
+> **`reset()` muss Kalibrierung UND Rolling-State zurücksetzen** (`calibrationSamples`, `calibrationDeadline`, `calibratedThreshold`, `thresholdOverMedian`, `rollingAmbient`, `lastRecal`) — jede Nacht neu kalibrieren.
 
 > **ML bleibt primärer Trigger** (amplitudenunabhängig, gain-verstärkt). Die kalibrierte Amplitude ist das Gate für nicht-ML-Sounds.
 

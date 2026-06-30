@@ -42,9 +42,13 @@ final class SoundEventService {
 
     // Rolling re-calibration: keeps adapting the ambient floor through the night.
     private let recalInterval: TimeInterval = 120          // re-evaluate every 2 min
-    private let rollingMax = 2400                          // ~5 min of quiet samples @ 8 Hz
+    private let rollingMax = 2400                          // ~5 min of non-event samples @ 8 Hz
     private var rollingAmbient: [Float] = []
     private var lastRecal = Date.distantPast
+    // Ratio threshold/median measured during the 60 s calibration. Lets the rolling pass use
+    // the robust MEDIAN of non-event samples (adapts up AND down) while reproducing the same
+    // threshold scale. Median is robust to occasional loud bumps, so events can't ratchet it.
+    private var thresholdOverMedian: Float = 4.0
 
     private var amplitudeThreshold: Float {
         // Once calibrated, the measured ambient ceiling drives detection.
@@ -181,9 +185,11 @@ final class SoundEventService {
             return  // no event detection while calibrating
         }
 
-        // ── Rolling re-calibration: feed only quiet, non-event samples so that
-        //    events never raise the floor; re-evaluate the threshold every 2 min.
-        if eventStartDate == nil, let thr = calibratedThreshold, instantAmplitude < thr {
+        // ── Rolling re-calibration: feed ALL non-event samples (not only those below the
+        //    current threshold). recalibrateRolling() uses the MEDIAN, which is robust to the
+        //    loud minority — so the floor can adapt UP (heating, rain, traffic) and DOWN, while
+        //    sustained events (eventStartDate set) are still excluded and can't inflate it.
+        if eventStartDate == nil {
             rollingAmbient.append(instantAmplitude)
             if rollingAmbient.count > rollingMax {
                 rollingAmbient.removeFirst(rollingAmbient.count - rollingMax)
@@ -246,6 +252,7 @@ final class SoundEventService {
         calibrationSamples.removeAll()
         calibrationDeadline = nil
         calibratedThreshold = nil
+        thresholdOverMedian = 4.0
         rollingAmbient.removeAll()
         lastRecal = .distantPast
     }
@@ -260,7 +267,11 @@ final class SoundEventService {
         // placing the phone), then +5 dB margin (×1.8) for a clear event.
         let idx = min(sorted.count - 1, Int(Double(sorted.count) * 0.95))
         let ceiling = sorted[idx]
-        calibratedThreshold = max(ceiling * 1.8, 0.004)   // never below ≈ 42 dB
+        let threshold = max(ceiling * 1.8, 0.004)         // never below ≈ 42 dB
+        calibratedThreshold = threshold
+        // Record threshold/median ratio so rolling recal can scale off the robust median.
+        let median = sorted[sorted.count / 2]
+        thresholdOverMedian = median > 1e-6 ? min(max(threshold / median, 2.0), 12.0) : 4.0
         lastRecal = Date()
     }
 
@@ -269,10 +280,12 @@ final class SoundEventService {
     /// app adapts to changing room conditions through the night without jumping.
     private func recalibrateRolling() {
         lastRecal = Date()
-        guard rollingAmbient.count >= 240 else { return }   // need ≥ ~30 s of quiet data
+        guard rollingAmbient.count >= 240 else { return }   // need ≥ ~30 s of non-event data
         let sorted = rollingAmbient.sorted()
-        let ceiling = sorted[min(sorted.count - 1, Int(Double(sorted.count) * 0.95))]
-        let candidate = max(ceiling * 1.8, 0.004)
+        // MEDIAN of non-event samples = robust floor estimate (loud minority ignored), scaled
+        // by the calibration-measured ratio. Adapts both up and down.
+        let median = sorted[sorted.count / 2]
+        let candidate = max(median * thresholdOverMedian, 0.004)
         if let cur = calibratedThreshold {
             calibratedThreshold = cur * 0.6 + candidate * 0.4   // smooth blend
         } else {
