@@ -1,10 +1,15 @@
 import SwiftUI
 import SwiftData
+import Charts
 import FoundationModels
 
 struct HomeView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \SleepSession.startDate, order: .reverse) private var sessions: [SleepSession]
+    @AppStorage("schlafZielStunden") private var schlafZiel: Double = 8
+
+    /// Abgeschlossene Nächte, neueste zuerst.
+    private var doneSessions: [SleepSession] { sessions.filter { !$0.isActive } }
 
     @State private var viewModel = HomeViewModel()
     @State private var trackingViewModel = SleepTrackingViewModel()
@@ -36,6 +41,7 @@ struct HomeView: View {
                         greetingHeader
                         emptyState
                     } else if let session = lastSession {
+                        // ── Letzte Nacht ──
                         heroCard(session)
                         phaseCard(session)
                         if zeigeBewertung {
@@ -46,10 +52,19 @@ struct HomeView: View {
                         if isMorgenBerichtRelevant(session) {
                             MorgenBerichtCard(session: session)
                         }
-                        smartAlarmCard
-                        if sessions.filter({ !$0.isActive }).count >= 3 {
-                            WochenMusterKarte(sessions: Array(sessions.filter({ !$0.isActive }).prefix(14)))
+
+                        // ── Diese Woche ──
+                        if doneSessions.count >= 2 {
+                            sectionHeader("Diese Woche")
+                            weekTrendCard
+                            if doneSessions.count >= 3 {
+                                WochenMusterKarte(sessions: Array(doneSessions.prefix(14)))
+                            }
                         }
+
+                        // ── Heute Nacht ──
+                        sectionHeader("Heute Nacht")
+                        smartAlarmCard
                     } else {
                         greetingHeader
                         smartAlarmCard
@@ -188,26 +203,37 @@ struct HomeView: View {
     private var smartAlarmCard: some View {
         let alarm = trackingViewModel.smartAlarm
         return Button { showAlarmSetup = true } label: {
-            HStack(spacing: 16) {
-                ZStack {
-                    Circle()
-                        .fill(alarm.isEnabled ? Color.indigo.opacity(0.15) : Color.secondary.opacity(0.1))
-                        .frame(width: 44, height: 44)
-                    Image(systemName: alarm.isEnabled ? "alarm.fill" : "alarm")
-                        .foregroundStyle(alarm.isEnabled ? .indigo : .secondary)
+            VStack(spacing: 12) {
+                HStack(spacing: 16) {
+                    ZStack {
+                        Circle()
+                            .fill(alarm.isEnabled ? Color.indigo.opacity(0.15) : Color.secondary.opacity(0.1))
+                            .frame(width: 44, height: 44)
+                        Image(systemName: alarm.isEnabled ? "alarm.fill" : "alarm")
+                            .foregroundStyle(alarm.isEnabled ? .indigo : .secondary)
+                    }
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Smart Alarm")
+                            .font(.subheadline.bold())
+                            .foregroundStyle(.primary)
+                        Text(alarm.isEnabled ? alarmTimeLabel : "Weckt dich in der Leichtschlafphase")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Toggle("", isOn: Bindable(alarm).isEnabled)
+                        .labelsHidden()
+                        .tint(.indigo)
                 }
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Smart Alarm")
-                        .font(.subheadline.bold())
-                        .foregroundStyle(.primary)
-                    Text(alarm.isEnabled ? alarmTimeLabel : "Weckt dich in der Leichtschlafphase")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                if alarm.isEnabled {
+                    Divider()
+                    HStack(spacing: 6) {
+                        Image(systemName: "bed.double.fill").font(.caption).foregroundStyle(.indigo)
+                        Text("Für \(Int(schlafZiel)) h Schlaf: ab \(bedtimeString(alarm)) ins Bett")
+                            .font(.caption).foregroundStyle(.secondary)
+                        Spacer()
+                    }
                 }
-                Spacer()
-                Toggle("", isOn: Bindable(alarm).isEnabled)
-                    .labelsHidden()
-                    .tint(.indigo)
             }
             .padding()
             .background(Color(.secondarySystemGroupedBackground))
@@ -215,6 +241,13 @@ struct HomeView: View {
             .shadow(color: Color.primary.opacity(0.06), radius: 10, x: 0, y: 2)
         }
         .buttonStyle(.plain)
+    }
+
+    /// Empfohlene Schlafenszeit = frühestes Weckfenster − Schlafziel.
+    private func bedtimeString(_ alarm: SmartAlarmService) -> String {
+        let bedtime = alarm.earliestWakeTime.addingTimeInterval(-schlafZiel * 3600)
+        let fmt = DateFormatter(); fmt.timeStyle = .short
+        return fmt.string(from: bedtime)
     }
 
     // MARK: - Greeting header (empty / no-session states)
@@ -259,6 +292,9 @@ struct HomeView: View {
                     }
                     Spacer()
                 }
+
+                comparisonChips(session)
+
                 if !session.phasesArray.isEmpty {
                     SleepPhaseBarView(phases: session.phasesArray, totalDuration: session.totalDuration)
                         .frame(height: 14).clipShape(Capsule())
@@ -297,6 +333,82 @@ struct HomeView: View {
 
     private func scoreColor(_ s: Int) -> Color {
         switch s { case ..<40: return .red; case ..<70: return .orange; case ..<85: return .yellow; default: return .green }
+    }
+
+    // Vergleichs-Chips im Hero: vs. gestern (Punkte) + Ø 7 Tage
+    @ViewBuilder
+    private func comparisonChips(_ session: SleepSession) -> some View {
+        let cur = SchlafindexView.score(for: session)
+        let prev = doneSessions.dropFirst().first.map { SchlafindexView.score(for: $0) }
+        let recent = doneSessions.prefix(7).map { SchlafindexView.score(for: $0) }
+        let avg7 = recent.isEmpty ? nil : Int(Double(recent.reduce(0, +)) / Double(recent.count))
+        if prev != nil || avg7 != nil {
+            HStack(spacing: 8) {
+                if let prev {
+                    let d = cur - prev
+                    heroChip("\(d >= 0 ? "+" : "")\(d) vs. gestern",
+                             bg: (d >= 0 ? Color.green : Color.red).opacity(0.35))
+                }
+                if let avg7 { heroChip("Ø 7 T: \(avg7)", bg: .white.opacity(0.18)) }
+                Spacer()
+            }
+        }
+    }
+
+    private func heroChip(_ text: String, bg: Color) -> some View {
+        Text(text)
+            .font(.caption2.bold()).foregroundStyle(.white)
+            .padding(.horizontal, 10).padding(.vertical, 4)
+            .background(bg, in: Capsule())
+    }
+
+    // MARK: - Section header
+
+    private func sectionHeader(_ title: String) -> some View {
+        Text(title)
+            .font(.caption.bold()).textCase(.uppercase)
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.top, 8)
+    }
+
+    // MARK: - 7-day trend chart
+
+    private var weekTrendCard: some View {
+        let bars: [NightBar] = doneSessions.prefix(7).reversed().map {
+            NightBar(date: $0.startDate, hours: $0.totalDuration / 3600)
+        }
+        let avg = bars.isEmpty ? 0 : bars.map(\.hours).reduce(0, +) / Double(bars.count)
+        return VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Label("7-Tage-Trend", systemImage: "chart.bar.fill")
+                    .font(.headline).foregroundStyle(.indigo)
+                Spacer()
+                Text("Ø \(String(format: "%.1f", avg)) h")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Chart {
+                ForEach(bars) { b in
+                    BarMark(x: .value("Tag", b.date, unit: .day),
+                            y: .value("Stunden", b.hours))
+                        .foregroundStyle(Color.indigo.gradient)
+                        .cornerRadius(5)
+                }
+                RuleMark(y: .value("Ziel", schlafZiel))
+                    .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 3]))
+                    .foregroundStyle(.secondary.opacity(0.6))
+                    .annotation(position: .top, alignment: .trailing) {
+                        Text("Ziel \(Int(schlafZiel)) h").font(.caption2).foregroundStyle(.secondary)
+                    }
+            }
+            .chartYAxis { AxisMarks(position: .leading) }
+            .chartXAxis { AxisMarks(values: .stride(by: .day)) { _ in AxisValueLabel(format: .dateTime.weekday(.narrow)) } }
+            .frame(height: 130)
+        }
+        .padding()
+        .background(Color(.secondarySystemGroupedBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .shadow(color: Color.primary.opacity(0.06), radius: 10, x: 0, y: 2)
     }
 
     // MARK: - Combined sleep-phases card (donut + legend + footer)
@@ -387,6 +499,14 @@ struct HomeView: View {
         guard let end = session.endDate else { return false }
         return Date().timeIntervalSince(end) < 7 * 24 * 3600
     }
+}
+
+// MARK: - Trend-Datenpunkt
+
+private struct NightBar: Identifiable {
+    let id = UUID()
+    let date: Date
+    let hours: Double
 }
 
 // MARK: - WochenMusterKarte

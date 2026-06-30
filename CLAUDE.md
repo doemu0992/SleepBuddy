@@ -1620,17 +1620,20 @@ func classify(audio:motion:) -> (phase, confidence) {
 
 ```
 NavigationStack
-└── ScrollView   (Dashboard-Layout)
+└── ScrollView   (Dashboard, in Zeit-Abschnitte gegliedert)
+    │ ── Letzte Nacht ──
     ├── heroCard(session)        → Nacht-Hero: Indigo→Violett-Verlauf, Begrüßung+Datum (weiß),
-    │                              Schlaf-Index-Ring (scoreRing) + Dauer + Phasen-Balken;
-    │                              ganze Karte ist NavigationLink → SleepDetailView
-    ├── phaseCard(session)       → kombinierte Schlafphasen-Karte: Donut (Phasenanteile in
-    │                              SleepPhaseType.color) + Legende (%/Dauer) + Fußzeile
+    │                              Schlaf-Index-Ring + Dauer + comparisonChips (vs. gestern /
+    │                              Ø 7 T) + Phasen-Balken; ganze Karte → SleepDetailView
+    ├── phaseCard(session)       → Schlafphasen-Donut + Legende (%/Dauer) + Fußzeile
     │                              Einschlafen · Schnarchen · Ø Puls
     ├── MorgenBewertungCard      → Doppel-Bewertung, Anzeige via @State eingefroren
     ├── MorgenBerichtCard        → KI-Morgen-Report (nur wenn letzte Session heute/gestern)
-    ├── smartAlarmCard           → Smart-Alarm Konfiguration (Zeitfenster, Ton)
-    └── WochenMusterKarte        → Wochenmuster (nur wenn ≥ 3 abgeschlossene Nächte)
+    │ ── Diese Woche ── (nur ≥ 2 Nächte)
+    ├── weekTrendCard            → 7-Tage-Balkenchart (Dauer) + gestrichelte Schlafziel-Linie
+    ├── WochenMusterKarte        → KI-Schlafmuster (nur ≥ 3 Nächte)
+    │ ── Heute Nacht ──
+    └── smartAlarmCard           → Smart-Alarm + empfohlene Schlafenszeit (frühestes Fenster − Schlafziel)
 ```
 
 > **Dashboard-Stil (bindend):** Home ist ein **Dashboard**, kein Karten-Stapel. Der **Nacht-Hero** (dunkler Indigo→Violett-Verlauf mit Schlaf-Index-Ring) ist der Blickfang und gibt der sonst hellen App das Schlaf-/Nacht-Feeling; darunter helle Stat-Kacheln. **Kein großer „Schlafen starten"-Button** im Normal-Zustand — der Tracker wird über den zentralen TabBar-Kreis gestartet (nur der Erst-Start-`emptyState` zeigt einen Start-CTA). `scoreColor`: <40 rot, <70 orange, <85 gelb, sonst grün. Phasen-Kacheln nutzen `SleepPhaseType.color`.
