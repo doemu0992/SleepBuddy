@@ -14,6 +14,7 @@ struct SleepDetailView: View {
     @State private var playingEventID: Date?
     @State private var downloadingEventID: Date?
     @State private var correctingEvent: SleepSoundEvent?
+    @State private var phaseTimelineExpanded = false
     @State private var spo2Percent: Double? = nil
     @State private var spo2Loaded = false
     @Environment(\.modelContext) private var modelContext
@@ -1093,7 +1094,10 @@ struct SleepDetailView: View {
             .padding(.bottom, 12)
 
             let sorted = session.phasesArray.sorted { $0.startDate < $1.startDate }
-            ForEach(Array(sorted.enumerated()), id: \.element.startDate) { i, phase in
+            let collapsedCount = 4
+            let visible = phaseTimelineExpanded ? sorted : Array(sorted.prefix(collapsedCount))
+            ForEach(Array(visible.enumerated()), id: \.element.startDate) { i, phase in
+                let isLast = i == visible.count - 1
                 VStack(spacing: 0) {
                     Button { correctingPhase = phase } label: {
                         HStack(spacing: 12) {
@@ -1102,7 +1106,7 @@ struct SleepDetailView: View {
                                 Circle()
                                     .fill(phase.phaseType.color)
                                     .frame(width: 10, height: 10)
-                                if i < sorted.count - 1 {
+                                if !isLast {
                                     Rectangle()
                                         .fill(Color.secondary.opacity(0.2))
                                         .frame(width: 2, height: 32)
@@ -1127,11 +1131,30 @@ struct SleepDetailView: View {
                                     .font(.caption2)
                                     .foregroundStyle(.tertiary)
                             }
-                            .padding(.bottom, i < sorted.count - 1 ? 20 : 0)
+                            .padding(.bottom, !isLast ? 20 : 0)
                         }
                     }
                     .buttonStyle(.plain)
                 }
+            }
+
+            if sorted.count > collapsedCount {
+                Button {
+                    withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) {
+                        phaseTimelineExpanded.toggle()
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        Text(phaseTimelineExpanded ? "Weniger anzeigen" : "Alle \(sorted.count) Phasen anzeigen")
+                            .font(.caption.bold())
+                        Image(systemName: phaseTimelineExpanded ? "chevron.up" : "chevron.down")
+                            .font(.caption2.bold())
+                    }
+                    .foregroundStyle(.indigo)
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 14)
+                }
+                .buttonStyle(.plain)
             }
         }
         .padding()

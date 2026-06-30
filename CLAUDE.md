@@ -189,7 +189,7 @@ NavigationStack (via NavigationLink aus StatistikView)
     ├── soundEventsSection → Geräusch-Ereignisse mit Play-Button + Korrektur-Button
     ├── noiseSection       → Umgebungslautstärke als Wellen-Chart (LineMark + AreaMark, Farbgradient)
     ├── heartRateCard      → Herzfrequenz-Verlauf (robuster Filter + Variante B: gehaltene Lücken als „geschätzt")
-    ├── phaseListSection   → Alle Phasen als Timeline-Liste
+    ├── phaseTimelineCard  → Phasen als Timeline-Liste, ausklappbar (zeigt erst 4, „Alle X anzeigen")
     └── morgenBewertung    → Subj. Qualitäts-Rating 1–5
 ```
 
