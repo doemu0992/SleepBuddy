@@ -41,11 +41,13 @@ struct ProfilView: View {
                 HStack(spacing: 16) {
                     ZStack {
                         Circle()
-                            .fill(Color.indigo.opacity(0.15))
+                            .fill(LinearGradient(colors: [.indigo, .purple],
+                                                 startPoint: .topLeading, endPoint: .bottomTrailing))
                             .frame(width: 64, height: 64)
+                            .shadow(color: .indigo.opacity(0.4), radius: 8, x: 0, y: 4)
                         Image(systemName: "moon.stars.fill")
                             .font(.system(size: 28))
-                            .foregroundStyle(.indigo)
+                            .foregroundStyle(.white)
                     }
                     VStack(alignment: .leading, spacing: 4) {
                         let name = profil.anzeigeName

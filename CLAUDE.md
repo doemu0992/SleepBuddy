@@ -1374,20 +1374,16 @@ List
 
 ```
 List
-├── Section "Aufzeichnung"  → Schlafgeräusche Toggle, Partnermodus Toggle, Mikrofon testen, iCloud testen
+├── Section "Aufzeichnung"  → Schlafgeräusche Toggle, Partnermodus Toggle
 ├── Section "Partnermodus"  → Position-Picker (nur wenn aktiv)
 ├── Section "Daten"
 │   ├── Mit PainDiary & Health synchronisieren
 │   ├── Schlafdaten als CSV exportieren
-│   ├── Aufnahmen lauter machen           (SoundEventService.normalizeExistingClips, einmalige Migration)
-│   ├── Schlafphasen neu berechnen        (reapplyPhaseCorrections: Phasen aus TrainingSample-Labels via Pro-Minute-Mehrheit+Glättung neu aufbauen + korrigieren)
-│   ├── Beispielnacht hinzufügen          (cycles Night 1→2→3)
-│   ├── Alle 3 Beispielnächte hinzufügen
-│   ├── Langzeitverlauf-Testdaten (6 Monate)   ← ~60 Nächte für Filter-Tests
-│   ├── Alle Testdaten löschen            (confirmationDialog, trash.slash)
 │   └── Alle Schlafdaten löschen          (confirmationDialog, trash)
-└── Section "App"           → Versionsverlauf, Onboarding-Reset (.orange), Version
+└── Section "App"           → Versionsverlauf, Entwickleroptionen, Onboarding-Reset (.orange), Version
 ```
+
+> **Entwickleroptionen ausgelagert (bindend):** Alle Test-/Debug-Werkzeuge liegen in **`EntwickleroptionenView`** (`Views/EntwickleroptionenView.swift`), erreichbar über Einstellungen → App → „Entwickleroptionen". Inhalt: Mikrofon testen, iCloud-Speicher testen, „Geräusch-Klassen prüfen" (`SoundClassificationService.auditText`), „Aufnahmen lauter machen" (`normalizeExistingClips`), „Schlafphasen neu berechnen" (`reapplyPhaseCorrections`), Beispielnacht/Alle 3/Langzeit-Testdaten (`SampleDataService`), „Alle Testdaten löschen". Die normalen Einstellungen bleiben nutzerfrei von Debug-Funktionen.
 
 > **Kein Duplikat:** Jede Einstellung erscheint an genau einem Ort.
 
