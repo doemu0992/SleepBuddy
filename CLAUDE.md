@@ -1448,7 +1448,9 @@ private var nightGradient: LinearGradient {
 | State | Inhalt |
 |-------|--------|
 | Start | Mond mit Glow + "Jetzt schlafen"-Button (Verlauf + Glow) |
-| Aktiv | Uhrzeit 72pt thin monospaced, Phase-Badge, Herz-Rate-Badge, Schnarchen-Badge, "Aufwachen"-Button |
+| Aktiv | Uhrzeit 72pt thin monospaced, **Weckfenster-Capsule** (Indigo, „Weckt HH:mm – HH:mm" = earliest–latest, Stil wie Phasen-Capsule), Phase-Badge, Herz-Rate-Badge, Schnarchen-Badge, "Aufwachen"-Button |
+
+> **Weckfenster-Anzeige (bindend):** Im Aktiv-State zeigt `alarmLabel` die **Zeitspanne** `earliestWakeTime – latestWakeTime` (nicht nur eine Zeit) — der Smart Alarm weckt irgendwann im Fenster. Sind beide gleich, nur eine Zeit. Dargestellt als Indigo-Capsule (`.indigo.opacity(0.15)` + Stroke), konsistent zur Phasen-Capsule.
 | Alarm | Alarm-Animation, "Aufwachen" + "Snooze"-Button (max. 3×) |
 
 **"Aufwachen"-Button:**

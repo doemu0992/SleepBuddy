@@ -154,16 +154,20 @@ struct SleepTrackingView: View {
                     .foregroundStyle(.white)
                     .monospacedDigit()
 
-                // Alarm subtitle
+                // Alarm subtitle — Weckfenster als Indigo-Capsule (Stil wie Phasen-Capsule)
                 if viewModel.smartAlarm.isEnabled {
                     HStack(spacing: 6) {
                         Image(systemName: "alarm.fill")
-                            .font(.caption)
-                        Text("Weckt um \(alarmLabel)")
-                            .font(.subheadline)
+                            .font(.caption2.bold())
+                        Text("Weckt \(alarmLabel)")
+                            .font(.caption.bold())
                     }
-                    .foregroundStyle(.white.opacity(0.4))
-                    .padding(.top, 6)
+                    .foregroundStyle(.indigo)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 7)
+                    .background(.indigo.opacity(0.15), in: Capsule())
+                    .overlay(Capsule().strokeBorder(.indigo.opacity(0.3), lineWidth: 1))
+                    .padding(.top, 14)
                 }
 
                 Spacer()
@@ -329,8 +333,13 @@ struct SleepTrackingView: View {
     }
 
     private var alarmLabel: String {
-        let fmt = DateFormatter(); fmt.timeStyle = .short
-        return fmt.string(from: viewModel.smartAlarm.latestWakeTime)
+        let fmt = DateFormatter(); fmt.dateFormat = "HH:mm"
+        let earliest = viewModel.smartAlarm.earliestWakeTime
+        let latest = viewModel.smartAlarm.latestWakeTime
+        let e = fmt.string(from: earliest)
+        let l = fmt.string(from: latest)
+        // Weckfenster: frühestes–spätestes. Sind beide gleich, nur eine Zeit.
+        return e == l ? e : "\(e) – \(l)"
     }
 
     private func requestMicAndStart() {
