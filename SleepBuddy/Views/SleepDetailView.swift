@@ -958,25 +958,26 @@ struct SleepDetailView: View {
 
     // MARK: - Schlafgeräusche-Karte (Events + Schnarch-Intensität)
 
-    private var snoringEventsSorted: [SleepSoundEvent] {
+    // Alle Schlafgeräusche (nicht nur Schnarchen) mit messbarem dB-Wert.
+    private var sleepIntensityEvents: [SleepSoundEvent] {
         session.soundEventsArray
-            .filter { $0.type == .snoring && $0.decibelLevel > 0 }
+            .filter { !$0.type.isExternal && $0.decibelLevel > 0 }
             .sorted { $0.timestamp < $1.timestamp }
     }
 
     @ViewBuilder
     private var schlafgeraeuscheCard: some View {
         let sleep = session.soundEventsArray.filter { !$0.type.isExternal }
-        let snoring = snoringEventsSorted
+        let intensity = sleepIntensityEvents
         VStack(alignment: .leading, spacing: 14) {
             if !sleep.isEmpty {
                 soundGroup(events: sleep, title: "Schlafgeräusche", icon: "waveform.badge.mic")
             }
-            if !sleep.isEmpty && !snoring.isEmpty {
+            if !sleep.isEmpty && !intensity.isEmpty {
                 Divider()
             }
-            if !snoring.isEmpty {
-                snoringIntensitySection(snoring)
+            if !intensity.isEmpty {
+                soundIntensitySection(intensity)
             }
         }
         .padding()
@@ -985,18 +986,23 @@ struct SleepDetailView: View {
         .shadow(color: Color.primary.opacity(0.06), radius: 10, x: 0, y: 2)
     }
 
-    private func snoringIntensitySection(_ snoringEvents: [SleepSoundEvent]) -> some View {
+    private func soundIntensitySection(_ events: [SleepSoundEvent]) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            Label("Schnarch-Intensität", systemImage: "waveform")
+            Label("Geräusch-Intensität", systemImage: "waveform")
                 .font(.headline).foregroundStyle(.indigo)
 
-            ForEach(snoringEvents, id: \.timestamp) { event in
+            ForEach(events, id: \.timestamp) { event in
                 let db = event.decibelLevel
                 let dbColor: Color = db < 50 ? .green : (db < 65 ? .yellow : .red)
                 HStack(spacing: 12) {
-                    Text(event.timestamp.formatted(date: .omitted, time: .shortened))
-                        .font(.caption).foregroundStyle(.secondary)
-                        .frame(width: 60, alignment: .leading)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(event.displayName)
+                            .font(.caption.bold()).foregroundStyle(.primary)
+                            .lineLimit(1)
+                        Text(event.timestamp.formatted(date: .omitted, time: .shortened))
+                            .font(.caption2).foregroundStyle(.secondary)
+                    }
+                    .frame(width: 88, alignment: .leading)
                     GeometryReader { geo in
                         Capsule()
                             .fill(dbColor.opacity(0.2))
@@ -1022,14 +1028,14 @@ struct SleepDetailView: View {
         let external = session.soundEventsArray.filter { $0.type.isExternal }
         let hasNoise = !session.noiseSamples.isEmpty
         VStack(alignment: .leading, spacing: 14) {
-            if hasNoise {
-                ambientNoiseSection
+            if !external.isEmpty {
+                soundGroup(events: external, title: "Umgebungsgeräusche", icon: "ear.fill")
             }
             if hasNoise && !external.isEmpty {
                 Divider()
             }
-            if !external.isEmpty {
-                soundGroup(events: external, title: "Umgebungsgeräusche", icon: "ear.fill")
+            if hasNoise {
+                ambientNoiseSection
             }
         }
         .padding()
