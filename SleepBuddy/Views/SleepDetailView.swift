@@ -65,11 +65,8 @@ struct SleepDetailView: View {
                 let hasSnoring = session.soundEventsArray.contains { $0.type == .snoring && $0.decibelLevel > 0 }
                 if !sleepEvents.isEmpty || !externalEvents.isEmpty || !session.noiseSamples.isEmpty {
                     sectionHeader("Geräusche")
-                    if !sleepEvents.isEmpty {
-                        soundEventsCard(events: sleepEvents, title: "Schlafgeräusche", icon: "waveform.badge.mic")
-                    }
-                    if !externalEvents.isEmpty {
-                        soundEventsCard(events: externalEvents, title: "Umgebungsgeräusche", icon: "ear.fill")
+                    if !sleepEvents.isEmpty || !externalEvents.isEmpty {
+                        soundEventsCard(sleep: sleepEvents, external: externalEvents)
                     }
                     if hasSnoring {
                         snoringIntensityCard
@@ -902,7 +899,28 @@ struct SleepDetailView: View {
 
     // MARK: - Sound Events
 
-    private func soundEventsCard(events: [SleepSoundEvent], title: String, icon: String) -> some View {
+    // Eine Karte für ALLE Geräusche — Schlaf- und Umgebungsgeräusche als
+    // beschriftete Unterabschnitte (Divider dazwischen). Leere Gruppen werden weggelassen.
+    @ViewBuilder
+    private func soundEventsCard(sleep: [SleepSoundEvent], external: [SleepSoundEvent]) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            if !sleep.isEmpty {
+                soundGroup(events: sleep, title: "Schlafgeräusche", icon: "waveform.badge.mic")
+            }
+            if !sleep.isEmpty && !external.isEmpty {
+                Divider()
+            }
+            if !external.isEmpty {
+                soundGroup(events: external, title: "Umgebungsgeräusche", icon: "ear.fill")
+            }
+        }
+        .padding()
+        .background(Color(.secondarySystemGroupedBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .shadow(color: Color.primary.opacity(0.06), radius: 10, x: 0, y: 2)
+    }
+
+    private func soundGroup(events: [SleepSoundEvent], title: String, icon: String) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
                 Image(systemName: icon).foregroundStyle(.indigo)
@@ -913,58 +931,58 @@ struct SleepDetailView: View {
             }
 
             ForEach(events.sorted { $0.timestamp < $1.timestamp }, id: \.timestamp) { event in
-                HStack(spacing: 12) {
-                    ZStack {
-                        Circle().fill(event.type.color.opacity(0.15)).frame(width: 36, height: 36)
-                        Image(systemName: event.type.icon).foregroundStyle(event.type.color).font(.caption)
-                    }
-
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(event.displayName).font(.subheadline.bold())
-                        Text(event.timestamp.formatted(date: .omitted, time: .shortened))
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
-
-                    Spacer()
-
-                    VStack(alignment: .trailing, spacing: 2) {
-                        Text(formatEventDuration(event.durationSeconds))
-                            .font(.caption).foregroundStyle(.secondary)
-                        if event.decibelLevel > 0 {
-                            Text("\(Int(event.decibelLevel)) dB")
-                                .font(.caption2).foregroundStyle(.secondary)
-                        }
-                    }
-
-                    if let fileName = event.iCloudFileName {
-                        Button { togglePlayback(event: event, fileName: fileName) } label: {
-                            if downloadingEventID == event.timestamp {
-                                ProgressView().tint(.indigo).frame(width: 28, height: 28)
-                            } else {
-                                Image(systemName: playingEventID == event.timestamp ? "stop.circle.fill" : "play.circle.fill")
-                                    .font(.title3)
-                                    .foregroundStyle(playingEventID == event.timestamp ? .orange : .indigo)
-                            }
-                        }
-                        .buttonStyle(.plain)
-                        .disabled(downloadingEventID == event.timestamp)
-                    } else {
-                        Image(systemName: "waveform.slash").font(.caption).foregroundStyle(.tertiary)
-                    }
-
-                    Button { correctingEvent = event } label: {
-                        Image(systemName: event.isUserCorrected ? "checkmark.circle.fill" : "pencil.circle")
-                            .font(.title3)
-                            .foregroundStyle(event.isUserCorrected ? .green : .secondary)
-                    }
-                    .buttonStyle(.plain)
-                }
+                soundEventRow(event)
             }
         }
-        .padding()
-        .background(Color(.secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 16))
-        .shadow(color: Color.primary.opacity(0.06), radius: 10, x: 0, y: 2)
+    }
+
+    private func soundEventRow(_ event: SleepSoundEvent) -> some View {
+        HStack(spacing: 12) {
+            ZStack {
+                Circle().fill(event.type.color.opacity(0.15)).frame(width: 36, height: 36)
+                Image(systemName: event.type.icon).foregroundStyle(event.type.color).font(.caption)
+            }
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(event.displayName).font(.subheadline.bold())
+                Text(event.timestamp.formatted(date: .omitted, time: .shortened))
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+
+            Spacer()
+
+            VStack(alignment: .trailing, spacing: 2) {
+                Text(formatEventDuration(event.durationSeconds))
+                    .font(.caption).foregroundStyle(.secondary)
+                if event.decibelLevel > 0 {
+                    Text("\(Int(event.decibelLevel)) dB")
+                        .font(.caption2).foregroundStyle(.secondary)
+                }
+            }
+
+            if let fileName = event.iCloudFileName {
+                Button { togglePlayback(event: event, fileName: fileName) } label: {
+                    if downloadingEventID == event.timestamp {
+                        ProgressView().tint(.indigo).frame(width: 28, height: 28)
+                    } else {
+                        Image(systemName: playingEventID == event.timestamp ? "stop.circle.fill" : "play.circle.fill")
+                            .font(.title3)
+                            .foregroundStyle(playingEventID == event.timestamp ? .orange : .indigo)
+                    }
+                }
+                .buttonStyle(.plain)
+                .disabled(downloadingEventID == event.timestamp)
+            } else {
+                Image(systemName: "waveform.slash").font(.caption).foregroundStyle(.tertiary)
+            }
+
+            Button { correctingEvent = event } label: {
+                Image(systemName: event.isUserCorrected ? "checkmark.circle.fill" : "pencil.circle")
+                    .font(.title3)
+                    .foregroundStyle(event.isUserCorrected ? .green : .secondary)
+            }
+            .buttonStyle(.plain)
+        }
     }
 
     // MARK: - Snoring Intensity Card

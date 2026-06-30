@@ -192,7 +192,8 @@ NavigationStack (via NavigationLink aus StatistikView)
     ├── phaseTimelineCard  → „Phasen im Detail", ausklappbar (zeigt erst 4, „Alle X anzeigen");
     │                        nutzt `cleanedPhases` (Null-Dauer raus, doppelte Startzeit raus)
     │ ── GERÄUSCHE ──      (nur wenn Sound-Events ODER Noise-Daten)
-    ├── soundEventsCard ×2 → Schlafgeräusche / Umgebungsgeräusche (Play + Korrektur)
+    ├── soundEventsCard    → EINE Karte mit zwei Unterabschnitten (Divider): Schlafgeräusche +
+    │                        Umgebungsgeräusche (Play + Korrektur); leere Gruppe wird weggelassen
     ├── snoringIntensityCard → nur wenn Schnarch-Events
     ├── ambientNoiseCard   → Umgebungslautstärke-Wellen-Chart (nur wenn noiseSamples)
     │ ── VITALWERTE ──     (nur wenn HR ODER SpO₂ vorhanden)
