@@ -728,8 +728,7 @@ AudioFeatures (8 Hz) → tick(instantAmplitude:snoringScore:speechLikelihood:)
 
 **Event-Klassifikation (ShutEye-Stil):**
 1. ML-Hint vorhanden (< 3s alt) → ML-Typ direkt übernehmen
-2. `speechLikelihood > 0.40` → `.talking` (Schnarchen NICHT mehr per `snoringScore` — siehe oben)
-3. Sonst → `.other`
+2. Sonst → `.other` (Klassifikation ist ML-only: weder `snoringScore` noch `speechLikelihood` weisen einen Typ zu — beide sind unspezifische Band-Maße. Amplitude-getriggerte Events ohne ML-Hint sind ehrlich „Geräusch")
 
 **ML-Primär-Trigger:** `hintMLDetection()` löst Events für **alle** Typen aus (persönlich + extern) wenn Konfidenz ≥ Schwelle — kein `isMLPrimary`-Filter mehr.
 

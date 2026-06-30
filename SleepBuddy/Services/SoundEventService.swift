@@ -328,10 +328,10 @@ final class SoundEventService {
            let hint = mlHintType {
             return hint
         }
-        // Amplitude-triggered without fresh ML hint. Snoring is intentionally NOT inferred
-        // from snoringScore here — the spectral measure is too unspecific (ESC-50 AUC ~0.73)
-        // and would mislabel loud rumble as snoring. Snoring comes only from Apple's ML class.
-        if speechLikelihood > 0.40 { return .talking }
+        // Amplitude-triggered without fresh ML hint → a loud, ML-unidentified noise.
+        // Both hand-crafted classifiers (snoringScore, speechLikelihood) are removed: they
+        // are generic band-energy measures, too unspecific to assign a real type (snoring
+        // ESC-50 AUC ~0.73). Classification is ML-only; such events are honestly `.other`.
         return .other
     }
 
