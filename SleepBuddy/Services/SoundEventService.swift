@@ -86,6 +86,10 @@ final class SoundEventService {
     private var eventStartDate: Date?
     private var pendingEventType: SoundEventType = .other
     private var pendingMLLabel: String?   // specific German name for .ambient catch-all events
+    // Priority: the generic catch-all (.ambient) must NEVER block or pre-empt a real named
+    // sound (e.g. snoring). Track whether the current/last event is the low-priority catch-all.
+    private var currentEventIsAmbient = false
+    private var lastEventWasAmbient = false
     private var consecutiveLoudTicks = 0
     private var consecutiveQuietTicks = 0
 
@@ -112,13 +116,30 @@ final class SoundEventService {
         mlHintType = type
         mlHintConfidence = confidence
         mlHintDate = Date()
+        guard confidence >= 0.25 else { return }
 
-        if confidence >= 0.25 && eventStartDate == nil && !isInCooldown {
+        let isAmbient = (type == .ambient)
+
+        if eventStartDate == nil {
+            // Idle. The low-priority catch-all (.ambient) may only start when fully idle.
+            // A real named sound (snoring etc.) must NOT be blocked by the cooldown that
+            // followed a catch-all event — otherwise ambient noise suppresses snoring.
+            if isAmbient {
+                guard !isInCooldown else { return }
+            } else {
+                guard !isInCooldown || lastEventWasAmbient else { return }
+            }
             eventStartDate = Date()
             pendingEventType = type
             pendingMLLabel = label
+            currentEventIsAmbient = isAmbient
             consecutiveLoudTicks = loudTicksToStart
             consecutiveQuietTicks = 0
+        } else if !isAmbient && currentEventIsAmbient {
+            // A real named sound arrived during a low-priority catch-all event → take it over.
+            pendingEventType = type
+            pendingMLLabel = nil
+            currentEventIsAmbient = false
         }
     }
 
@@ -198,6 +219,7 @@ final class SoundEventService {
                 eventStartDate = Date().addingTimeInterval(-Double(loudTicksToStart) / 8.0)
                 pendingEventType = classifyEvent(snoringScore: snoringScore, speechLikelihood: speechLikelihood)
                 pendingMLLabel = nil   // amplitude fallback → named/heuristic type, no catch-all label
+                currentEventIsAmbient = false
             }
         } else {
             consecutiveLoudTicks = 0
@@ -213,6 +235,9 @@ final class SoundEventService {
         consecutiveLoudTicks = 0
         consecutiveQuietTicks = 0
         lastEventEndDate = nil
+        currentEventIsAmbient = false
+        lastEventWasAmbient = false
+        pendingMLLabel = nil
         circularBuffer.removeAll()
         mlHintType = nil
         mlHintConfidence = 0
@@ -338,6 +363,8 @@ final class SoundEventService {
         mlHintConfidence = 0
         mlHintDate = nil
         pendingMLLabel = nil
+        lastEventWasAmbient = currentEventIsAmbient
+        currentEventIsAmbient = false
 
         Task.detached(priority: .background) { [weak self] in
             guard let self else { return }

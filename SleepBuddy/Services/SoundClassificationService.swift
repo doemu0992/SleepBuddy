@@ -18,7 +18,10 @@ final class SoundClassificationService: NSObject {
     /// when it is the top result above this confidence — so effectively ALL ~300 classes are
     /// active. Set `catchAllEnabled = false` to fall back to the curated mappings only.
     static let catchAllEnabled = true
-    static let catchAllThreshold = 0.55
+    // Catch-all is the lowest-priority detector and shares the single event pipeline, so keep
+    // it conservative: only clearly-confident ambient sounds, to avoid crowding out named
+    // sounds (snoring etc.). Named sounds additionally pre-empt / bypass catch-all events.
+    static let catchAllThreshold = 0.62
 
     /// Continuous / noise-floor / irrelevant Apple classes excluded from the catch-all.
     /// These run for minutes (AC, fan, clock, ocean, fire, appliances, vehicles idling) and
