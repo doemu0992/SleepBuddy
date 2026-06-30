@@ -137,30 +137,52 @@ struct SleepDetailView: View {
     // MARK: - Hero Header
 
     private var heroHeader: some View {
-        ZStack(alignment: .bottomLeading) {
-            LinearGradient(colors: [.indigo, .purple], startPoint: .topLeading, endPoint: .bottomTrailing)
-                .clipShape(RoundedRectangle(cornerRadius: 20))
+        ZStack {
+            LinearGradient(colors: [Color(red: 0.15, green: 0.15, blue: 0.42), .indigo, .purple],
+                           startPoint: .topLeading, endPoint: .bottomTrailing)
+                .clipShape(RoundedRectangle(cornerRadius: 24))
 
-            VStack(alignment: .leading, spacing: 6) {
-                HStack {
-                    Text(session.startDate.formatted(date: .omitted, time: .shortened))
-                        .font(.caption).foregroundStyle(.white.opacity(0.7))
-                    Image(systemName: "arrow.right")
-                        .font(.caption2).foregroundStyle(.white.opacity(0.5))
-                    Text(session.endDate?.formatted(date: .omitted, time: .shortened) ?? "–")
-                        .font(.caption).foregroundStyle(.white.opacity(0.7))
-                    Spacer()
-                    QualityBadge(score: Double(SchlafindexView.score(for: session)))
+            HStack(spacing: 16) {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 5) {
+                        Text(session.startDate.formatted(date: .omitted, time: .shortened))
+                            .font(.caption).foregroundStyle(.white.opacity(0.7))
+                        Image(systemName: "arrow.right")
+                            .font(.caption2).foregroundStyle(.white.opacity(0.5))
+                        Text(session.endDate?.formatted(date: .omitted, time: .shortened) ?? "–")
+                            .font(.caption).foregroundStyle(.white.opacity(0.7))
+                    }
+                    Text(session.totalDuration.formattedDuration)
+                        .font(.system(size: 40, weight: .bold, design: .rounded))
+                        .foregroundStyle(.white)
+                    Text("Gesamtschlafdauer")
+                        .font(.subheadline).foregroundStyle(.white.opacity(0.7))
                 }
-                Text(session.totalDuration.formattedDuration)
-                    .font(.system(size: 40, weight: .bold, design: .rounded))
-                    .foregroundStyle(.white)
-                Text("Gesamtschlafdauer")
-                    .font(.subheadline).foregroundStyle(.white.opacity(0.7))
+                Spacer()
+                detailScoreRing(SchlafindexView.score(for: session))
             }
             .padding(20)
         }
-        .frame(height: 140)
+        .frame(height: 150)
+        .shadow(color: .indigo.opacity(0.3), radius: 12, x: 0, y: 6)
+    }
+
+    private func detailScoreRing(_ score: Int) -> some View {
+        ZStack {
+            Circle().stroke(Color.white.opacity(0.2), lineWidth: 8)
+            Circle().trim(from: 0, to: CGFloat(min(max(score, 0), 100)) / 100)
+                .stroke(detailScoreColor(score), style: StrokeStyle(lineWidth: 8, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+            VStack(spacing: 0) {
+                Text("\(score)").font(.system(size: 22, weight: .bold)).foregroundStyle(.white)
+                Text("Index").font(.caption2).foregroundStyle(.white.opacity(0.7))
+            }
+        }
+        .frame(width: 80, height: 80)
+    }
+
+    private func detailScoreColor(_ s: Int) -> Color {
+        switch s { case ..<40: return .red; case ..<70: return .orange; case ..<85: return .yellow; default: return .green }
     }
 
     // MARK: - Stats Grid
