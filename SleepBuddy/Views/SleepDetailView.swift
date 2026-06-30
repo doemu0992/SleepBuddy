@@ -103,8 +103,8 @@ struct SleepDetailView: View {
             }
         }
         .sheet(item: $correctingEvent) { event in
-            SoundCorrectionSheet(event: event) { confirmed, newType in
-                applySoundCorrection(event: event, confirmed: confirmed, newType: newType)
+            SoundCorrectionSheet(event: event) { confirmed, newType, specificLabel in
+                applySoundCorrection(event: event, confirmed: confirmed, newType: newType, specificLabel: specificLabel)
             }
         }
     }
@@ -1145,11 +1145,19 @@ struct SleepDetailView: View {
         try? modelContext.save()
     }
 
-    private func applySoundCorrection(event: SleepSoundEvent, confirmed: Bool, newType: SoundEventType?) {
+    private func applySoundCorrection(event: SleepSoundEvent, confirmed: Bool, newType: SoundEventType?, specificLabel: String? = nil) {
         let ud = UserDefaults.standard
         if confirmed {
             ud.set(ud.integer(forKey: "soundFeedback.\(event.type.rawValue).confirmed") + 1,
                    forKey: "soundFeedback.\(event.type.rawValue).confirmed")
+            event.isUserCorrected = true
+        } else if let specificLabel {
+            // Relabel to a specific Apple class → stored as ambient with the precise name.
+            ud.set(ud.integer(forKey: "soundFeedback.\(event.type.rawValue).rejected") + 1,
+                   forKey: "soundFeedback.\(event.type.rawValue).rejected")
+            if event.originalTypeRaw == nil { event.originalTypeRaw = event.typeRaw }
+            event.typeRaw = SoundEventType.ambient.rawValue
+            event.mlLabel = specificLabel
             event.isUserCorrected = true
         } else if let newType {
             let orig = event.type
@@ -1159,6 +1167,7 @@ struct SleepDetailView: View {
                    forKey: "soundFeedback.\(newType.rawValue).missed")
             if event.originalTypeRaw == nil { event.originalTypeRaw = event.typeRaw }
             event.typeRaw = newType.rawValue
+            event.mlLabel = nil      // a named category overrides any specific catch-all label
             event.isUserCorrected = true
         }
         try? modelContext.save()
@@ -1227,11 +1236,14 @@ struct PhaseCorrectionSheet: View {
 
 struct SoundCorrectionSheet: View {
     let event: SleepSoundEvent
-    let onDone: (Bool, SoundEventType?) -> Void
+    /// (confirmed, newType, specificAppleLabel). specificAppleLabel is set only when the user
+    /// picks a precise Apple class from the full list → stored as .ambient with that name.
+    let onDone: (Bool, SoundEventType?, String?) -> Void
 
     @Environment(\.dismiss) private var dismiss
     @State private var audioPlayer: AVAudioPlayer?
     @State private var isPlaying = false
+    @State private var zeigeAlleKlassen = false
 
     private var sleepTypes: [SoundEventType] { SoundEventType.allCases.filter { !$0.isExternal } }
     private var externalTypes: [SoundEventType] { SoundEventType.allCases.filter { $0.isExternal } }
@@ -1281,7 +1293,7 @@ struct SoundCorrectionSheet: View {
                         Spacer()
                         if !event.isUserCorrected {
                             Button {
-                                onDone(true, nil)
+                                onDone(true, nil, nil)
                                 dismiss()
                             } label: {
                                 Label("Korrekt", systemImage: "checkmark.circle.fill")
@@ -1305,7 +1317,7 @@ struct SoundCorrectionSheet: View {
                 Section {
                     ForEach(sleepTypes, id: \.self) { type in
                         Button {
-                            onDone(false, type)
+                            onDone(false, type, nil)
                             dismiss()
                         } label: {
                             HStack(spacing: 12) {
@@ -1329,7 +1341,7 @@ struct SoundCorrectionSheet: View {
                 Section {
                     ForEach(externalTypes, id: \.self) { type in
                         Button {
-                            onDone(false, type)
+                            onDone(false, type, nil)
                             dismiss()
                         } label: {
                             HStack(spacing: 12) {
@@ -1350,6 +1362,25 @@ struct SoundCorrectionSheet: View {
                 } footer: {
                     Text("Korrekturen werden gespeichert und verbessern die Erkennung dauerhaft.")
                 }
+
+                // Full Apple taxonomy (~300 classes) — precise relabelling
+                Section {
+                    Button {
+                        zeigeAlleKlassen = true
+                    } label: {
+                        HStack(spacing: 12) {
+                            ZStack {
+                                Circle().fill(Color.indigo.opacity(0.15)).frame(width: 36, height: 36)
+                                Image(systemName: "magnifyingglass").foregroundStyle(.indigo).font(.caption)
+                            }
+                            Text("Weiteres Geräusch wählen …").foregroundStyle(.primary)
+                            Spacer()
+                            Image(systemName: "chevron.right").font(.caption2.bold()).foregroundStyle(.secondary)
+                        }
+                    }
+                } footer: {
+                    Text("Alle von Apple erkennbaren Geräuschklassen — für eine genaue Zuordnung.")
+                }
             }
             .navigationTitle("Geräusch korrigieren")
             .navigationBarTitleDisplayMode(.inline)
@@ -1361,6 +1392,12 @@ struct SoundCorrectionSheet: View {
         }
         .presentationDetents([.large])
         .onDisappear { audioPlayer?.stop() }
+        .sheet(isPresented: $zeigeAlleKlassen) {
+            AppleClassPickerView { germanName in
+                onDone(false, nil, germanName)   // relabel to specific Apple class
+                dismiss()
+            }
+        }
     }
 
     private func togglePlay(fileName: String) {
@@ -1395,5 +1432,45 @@ struct SoundCorrectionSheet: View {
 
     private func formatDuration(_ s: TimeInterval) -> String {
         let i = Int(s); return i < 60 ? "\(i)s" : "\(i/60)m \(i%60)s"
+    }
+}
+
+// MARK: - Full Apple class picker (searchable ~300 classes)
+
+/// Searchable list of every Apple .version1 sound class (German names) for precise relabelling.
+struct AppleClassPickerView: View {
+    let onPick: (String) -> Void          // passes the chosen German class name
+    @Environment(\.dismiss) private var dismiss
+    @State private var suche = ""
+    @State private var alle: [(id: String, german: String)] = []
+
+    private var gefiltert: [(id: String, german: String)] {
+        guard !suche.isEmpty else { return alle }
+        return alle.filter { $0.german.localizedCaseInsensitiveContains(suche) }
+    }
+
+    var body: some View {
+        NavigationStack {
+            List(gefiltert, id: \.id) { item in
+                Button {
+                    onPick(item.german)
+                    dismiss()
+                } label: {
+                    Text(item.german).foregroundStyle(.primary)
+                }
+            }
+            .searchable(text: $suche, prompt: "Geräusch suchen")
+            .navigationTitle("Alle Geräusche")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Abbrechen") { dismiss() } }
+            }
+            .onAppear {
+                if alle.isEmpty, #available(iOS 15, *) {
+                    alle = SoundClassificationService.allClasses()
+                }
+            }
+        }
+        .presentationDetents([.large])
     }
 }

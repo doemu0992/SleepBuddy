@@ -197,8 +197,9 @@ NavigationStack (via NavigationLink aus StatistikView)
 Jedes Sound-Event hat einen ✎-Button der `SoundCorrectionSheet` öffnet:
 - Play/Stop-Button für Audio-Vorschau
 - „Korrekt ✓"-Button (bestätigt Typ, grün)
-- Zwei Sektionen: „Als Schlafgeräusch zuordnen" + „Als Umgebungsgeräusch zuordnen"
-- Checkmark auf aktuellem Typ; Antippen setzt neuen Typ
+- Zwei Sektionen: „Als Schlafgeräusch zuordnen" + „Als Umgebungsgeräusch zuordnen" (die 24 Kategorien)
+- **„Weiteres Geräusch wählen …"** → `AppleClassPickerView`: durchsuchbare Liste **aller ~300 Apple-Klassen** (deutsch). Auswahl speichert das Event als `.ambient` mit exaktem `mlLabel` (Erkennung 300 ↔ Korrektur 300). `onDone`-Closure ist `(Bool, SoundEventType?, String?)` — das dritte Feld trägt den spezifischen Apple-Namen.
+- Checkmark auf aktuellem Typ; Antippen setzt neuen Typ (eine benannte Kategorie löscht `mlLabel`)
 - Footer: „Korrekturen werden gespeichert und verbessern die Erkennung dauerhaft."
 - `.presentationDetents([.large])`
 

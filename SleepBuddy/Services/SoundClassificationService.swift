@@ -188,6 +188,16 @@ final class SoundClassificationService: NSObject {
         "wind_chime": "Windspiel", "singing_bowl": "Klangschale",
     ]
 
+    /// All Apple .version1 classes as (identifier, German name), sorted by German name.
+    /// Used by the correction sheet so a sound can be relabelled to any of the ~300 classes.
+    @available(iOS 15, *)
+    static func allClasses() -> [(id: String, german: String)] {
+        guard let request = try? SNClassifySoundRequest(classifierIdentifier: .version1) else { return [] }
+        return request.knownClassifications
+            .map { (id: $0, german: germanName(for: $0)) }
+            .sorted { $0.german.localizedCaseInsensitiveCompare($1.german) == .orderedAscending }
+    }
+
     static func germanName(for identifier: String) -> String {
         if let g = germanNames[identifier] { return g }
         // Humanise: "typing_computer_keyboard" -> "Typing Computer Keyboard"
