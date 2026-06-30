@@ -1411,7 +1411,7 @@ List
 │   ├── Mit PainDiary & Health synchronisieren
 │   ├── Schlafdaten als CSV exportieren
 │   └── Alle Schlafdaten löschen          (confirmationDialog, trash)
-└── Section "App"           → Versionsverlauf, Entwickleroptionen, Onboarding-Reset (.orange), Version
+└── Section "App"           → Versionsverlauf, Datenschutz, Entwickleroptionen, Onboarding-Reset (.orange), Version
 ```
 
 > **Entwickleroptionen ausgelagert (bindend):** Alle Test-/Debug-Werkzeuge liegen in **`EntwickleroptionenView`** (`Views/EntwickleroptionenView.swift`), erreichbar über Einstellungen → App → „Entwickleroptionen". Inhalt: Mikrofon testen, iCloud-Speicher testen, „Geräusch-Klassen prüfen" (`SoundClassificationService.auditText`), „Aufnahmen lauter machen" (`normalizeExistingClips`), „Schlafphasen neu berechnen" (`reapplyPhaseCorrections`), Beispielnacht/Alle 3/Langzeit-Testdaten (`SampleDataService`), „Alle Testdaten löschen". Die normalen Einstellungen bleiben nutzerfrei von Debug-Funktionen.
