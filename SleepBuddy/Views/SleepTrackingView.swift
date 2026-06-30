@@ -85,7 +85,7 @@ struct SleepTrackingView: View {
                     .multilineTextAlignment(.center)
                     .foregroundStyle(.white.opacity(0.7))
                 if viewModel.smartAlarm.isEnabled {
-                    Label(alarmLabel, systemImage: "alarm.fill")
+                    Label(alarmText, systemImage: "alarm.fill")
                         .font(.subheadline)
                         .foregroundStyle(.indigo)
                         .padding(.top, 4)
