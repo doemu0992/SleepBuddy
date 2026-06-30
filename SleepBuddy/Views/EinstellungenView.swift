@@ -1094,6 +1094,12 @@ struct DatenschutzView: View {
                 )
 
                 abschnitt(
+                    icon: "arrow.left.arrow.right",
+                    titel: "Datenaustausch mit PainDiary",
+                    text: "Wenn du die App PainDiary desselben Entwicklers nutzt und die Verknüpfung aktivierst, überträgt SleepBuddy eine Zusammenfassung deiner Nacht (z. B. Schlafdauer und -qualität) an PainDiary. Dieser Austausch findet ausschließlich lokal auf deinem Gerät über eine gemeinsame, geschützte App-Gruppe statt — keine Übertragung an Server oder Dritte. Du kannst die Verknüpfung jederzeit im Profil deaktivieren."
+                )
+
+                abschnitt(
                     icon: "hand.raised.fill",
                     titel: "Kein Tracking, keine Werbung",
                     text: "SleepBuddy enthält keine Werbung, kein Analyse-Tracking durch Dritte und verkauft keine Daten. Es gibt keine Nutzerkonten — deine Identität wird nicht erfasst."
