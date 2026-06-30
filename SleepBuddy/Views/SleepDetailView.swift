@@ -229,7 +229,7 @@ struct SleepDetailView: View {
                     }
                     if let alarmDate = session.alarmFiredDate {
                         Divider().frame(height: 40)
-                        extraStat(alarmDate.formatted(date: .omitted, time: .shortened), icon: "alarm.fill", color: .green, label: "Smart Alarm")
+                        extraStat(alarmDate.formatted(date: .omitted, time: .shortened), icon: "alarm.fill", color: .green, label: "Geweckt")
                     }
                 }
             }
