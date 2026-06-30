@@ -1624,8 +1624,9 @@ NavigationStack
     ├── heroCard(session)        → Nacht-Hero: Indigo→Violett-Verlauf, Begrüßung+Datum (weiß),
     │                              Schlaf-Index-Ring (scoreRing) + Dauer + Phasen-Balken;
     │                              ganze Karte ist NavigationLink → SleepDetailView
-    ├── tileGrid(session)        → 2-Spalten-Kachel-Grid: Tiefschlaf/REM/Leicht (Phasenfarben),
-    │                              Einschlafen, Schnarchen, Ø Puls
+    ├── phaseCard(session)       → kombinierte Schlafphasen-Karte: Donut (Phasenanteile in
+    │                              SleepPhaseType.color) + Legende (%/Dauer) + Fußzeile
+    │                              Einschlafen · Schnarchen · Ø Puls
     ├── MorgenBewertungCard      → Doppel-Bewertung, Anzeige via @State eingefroren
     ├── MorgenBerichtCard        → KI-Morgen-Report (nur wenn letzte Session heute/gestern)
     ├── smartAlarmCard           → Smart-Alarm Konfiguration (Zeitfenster, Ton)

@@ -37,7 +37,7 @@ struct HomeView: View {
                         emptyState
                     } else if let session = lastSession {
                         heroCard(session)
-                        tileGrid(session)
+                        phaseCard(session)
                         if zeigeBewertung {
                             MorgenBewertungCard(session: session) {
                                 withAnimation { zeigeBewertung = false }
@@ -299,38 +299,78 @@ struct HomeView: View {
         switch s { case ..<40: return .red; case ..<70: return .orange; case ..<85: return .yellow; default: return .green }
     }
 
-    // MARK: - Stat tile grid
+    // MARK: - Combined sleep-phases card (donut + legend + footer)
 
-    private func tileGrid(_ session: SleepSession) -> some View {
+    private func phaseCard(_ session: SleepSession) -> some View {
         let total = max(session.totalDuration, 1)
-        func pct(_ d: TimeInterval) -> String { "\(Int(d / total * 100))%" }
+        let segs: [(name: String, type: SleepPhaseType, dur: TimeInterval)] = [
+            ("Tiefschlaf",  .deep,  session.deepSleepDuration),
+            ("REM",         .rem,   session.remSleepDuration),
+            ("Leichtschlaf", .light, session.lightSleepDuration),
+            ("Wach",        .awake, session.awakeDuration),
+        ]
+        var cum = 0.0
+        var arcs: [(type: SleepPhaseType, start: Double, end: Double)] = []
+        for s in segs { let f = s.dur / total; arcs.append((s.type, cum, cum + f)); cum += f }
         let hrs = session.heartRateSamples.filter { $0 >= 40 && $0 <= 110 }
         let avgHR = hrs.isEmpty ? nil : Int(hrs.reduce(0, +) / Double(hrs.count))
-        return LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible())], spacing: 12) {
-            tile("moon.fill", session.deepSleepDuration.formattedDuration, "Tiefschlaf", SleepPhaseType.deep.color, sub: pct(session.deepSleepDuration))
-            tile("sparkles", session.remSleepDuration.formattedDuration, "REM", SleepPhaseType.rem.color, sub: pct(session.remSleepDuration))
-            tile("cloud.moon.fill", session.lightSleepDuration.formattedDuration, "Leichtschlaf", SleepPhaseType.light.color, sub: pct(session.lightSleepDuration))
-            tile("zzz", session.sleepOnsetLatency.map { formatMinutes($0) } ?? "–", "Einschlafen", .indigo, sub: nil)
-            tile("waveform", "\(session.snoringEventCount)×", "Schnarchen", .orange, sub: nil)
-            tile("heart.fill", avgHR.map { "\($0)" } ?? "–", "Ø Puls", .red, sub: avgHR != nil ? "bpm" : nil)
-        }
-    }
 
-    private func tile(_ icon: String, _ value: String, _ label: String, _ color: Color, sub: String?) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Image(systemName: icon).foregroundStyle(color).font(.subheadline)
-                Spacer()
-                if let sub { Text(sub).font(.caption2).foregroundStyle(.secondary) }
+        return VStack(alignment: .leading, spacing: 16) {
+            Label("Schlafphasen", systemImage: "moon.zzz.fill")
+                .font(.headline).foregroundStyle(.indigo)
+
+            HStack(spacing: 20) {
+                ZStack {
+                    ForEach(arcs.indices, id: \.self) { i in
+                        Circle().trim(from: arcs[i].start, to: arcs[i].end)
+                            .stroke(arcs[i].type.color, style: StrokeStyle(lineWidth: 16, lineCap: .butt))
+                            .rotationEffect(.degrees(-90))
+                    }
+                    VStack(spacing: 0) {
+                        Text(session.totalDuration.formattedDuration).font(.subheadline.bold())
+                        Text("gesamt").font(.caption2).foregroundStyle(.secondary)
+                    }
+                }
+                .frame(width: 104, height: 104)
+
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(segs, id: \.name) { s in
+                        if s.dur > 0 {
+                            HStack(spacing: 8) {
+                                Circle().fill(s.type.color).frame(width: 9, height: 9)
+                                Text(s.name).font(.caption)
+                                Spacer()
+                                Text("\(Int(s.dur / total * 100))% · \(s.dur.formattedDuration)")
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                }
             }
-            Text(value).font(.title3.bold())
-            Text(label).font(.caption).foregroundStyle(.secondary)
+
+            Divider()
+
+            HStack(spacing: 0) {
+                footItem("zzz", session.sleepOnsetLatency.map { formatMinutes($0) } ?? "–", "Einschlafen")
+                Divider().frame(height: 34)
+                footItem("waveform", "\(session.snoringEventCount)×", "Schnarchen")
+                Divider().frame(height: 34)
+                footItem("heart.fill", avgHR.map { "\($0)" } ?? "–", "Ø Puls")
+            }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(14)
+        .padding()
         .background(Color(.secondarySystemGroupedBackground))
         .clipShape(RoundedRectangle(cornerRadius: 16))
         .shadow(color: Color.primary.opacity(0.06), radius: 10, x: 0, y: 2)
+    }
+
+    private func footItem(_ icon: String, _ value: String, _ label: String) -> some View {
+        VStack(spacing: 3) {
+            Image(systemName: icon).font(.caption).foregroundStyle(.indigo)
+            Text(value).font(.subheadline.bold())
+            Text(label).font(.caption2).foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
     }
 
     private func formatMinutes(_ interval: TimeInterval) -> String {
