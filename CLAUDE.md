@@ -1091,13 +1091,14 @@ if emitCounter >= windowSize {   // windowSize = 1500 (30s × 50Hz)
 > **Nie** `if rawSamples.count == windowSize` verwenden — das ist nach dem ersten Füllen des Buffers immer true und würde Features mit 50 Hz emittieren (3000 Autokorrelationen/min statt 2).
 
 **BCG-Algorithmus (angepasste Schwellenwerte):**
-1. High-Pass: 1.5s gleitender Mittelwert subtrahieren (entfernt DC + Atemfrequenz < 0.7 Hz)
+1. High-Pass: 1.0s gleitender Mittelwert subtrahieren (entfernt DC + Atemfrequenz; 1.0s statt 1.5s für bessere Atemunterdrückung, CEBSDB-validiert)
 2. Low-Pass: 3-Sample MA (unterdrückt Sensor-Rauschen > ~8 Hz)
 3. Autokorrelation im Lag-Bereich 48–150 BPM
-4. **Atem-Oberwellen-Ausschluss (bindend):** `detectHeartRate(zSamples:breathingBPM:)` bekommt die Atemrate. Lags bei `breathPeriod/k` (alle Oberwellen k=1…20) werden ±2 Samples aus der Peak-Suche **ausgeschlossen**. Grund: Im Tiefschlaf (erste Nachthälfte) ist die Atmung tief & regelmäßig; ihre Oberwellen leaken durch den schwachen Hochpass ins untere Herzband (48–60 BPM = genau der niedrige Tiefschlaf-Puls) und schlagen den echten, viel schwächeren Herzschlag-Peak → BCG gab 0 zurück → (mit dem alten Hold-Bug) Flachlinie. Der Ausschluss lässt den echten Kardial-Peak gewinnen. Sind nach Ausschluss keine Lags übrig → 0.
-5. Peak-Stärke > **0.28** (war 0.35 — gesenkt für bessere Erkennung auf Matratze)
-6. BCG-RMS-Mindest-Schwelle: **0.00003** (war 0.00008 — gesenkt)
-7. BCG nur aktiv wenn `isOnMattress == true`
+4. Peak-Stärke > **0.22** (war 0.28/0.35 — **gegen echte SCG+EKG-Daten validiert**, CEBSDB: Lock-Rate 44 % → 67 % ohne Genauigkeitsverlust, MAE 0.8 BPM. 0.28 war zu streng und verwarf gute Erkennungen)
+5. BCG-RMS-Mindest-Schwelle: **0.00003** (war 0.00008 — gesenkt)
+6. BCG nur aktiv wenn `isOnMattress == true`
+
+> **Kein Atem-Oberwellen-Ausschluss (bindend, datenbelegt):** Ein Ausschluss der Atem-Oberwellen-Lags wurde getestet und **wieder entfernt** — die Validierung gegen echte SCG+EKG-Daten (CEBSDB, 54 Fenster) zeigte, dass er die Lock-Rate **halbiert** (44 % → 26 %): Der Ruhepuls ist oft ein **ganzzahliges Vielfaches der Atemfrequenz**, sodass der Ausschluss den **echten** Herzschlag-Peak mitlöscht. Stattdessen unterdrückt der **stärkere Hochpass (1.0 s)** die Atmung. Hochpass-Fenster ist daher 1.0 s (war 1.5 s).
 
 > **BCG-Entrauschung im Klassifikator (bindend):** Das rohe BCG-Signal springt zwischen Samples stark (Artefakte bis ~145 BPM). `SleepPhaseClassifier` darf **niemals** den rohen Momentanwert für Phasen-Entscheidungen verwenden — sonst wird das Signal als unzuverlässig verworfen und der Klassifikator fällt auf das reine 90-min-Zyklusmodell zurück (identisches Muster jede Nacht). Stattdessen:
 > - **Median** über `bcgHRHistory` (Fenster 6) als `bcgMedian` — unterdrückt Einzel-Ausreißer.
