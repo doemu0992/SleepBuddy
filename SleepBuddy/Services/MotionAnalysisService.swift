@@ -137,8 +137,10 @@ final class MotionAnalysisService {
         // Breathing via accelerometer autocorrelation (downsampled 10 Hz buffer)
         let (breathBPM, breathReg, onMattress) = detectBreathing(samples: breathingSamples)
 
-        // BCG heart rate — only attempt when phone is on mattress
-        let bcgHR: Float = onMattress ? detectHeartRate(zSamples: bcgZ) : 0
+        // BCG heart rate — only attempt when phone is on mattress. Pass the breathing rate
+        // so its harmonics (which contaminate the cardiac band, esp. in deep sleep) can be
+        // excluded from the autocorrelation search.
+        let bcgHR: Float = onMattress ? detectHeartRate(zSamples: bcgZ, breathingBPM: breathBPM) : 0
 
         // PLM: periodic limb movements every 20–40 s
         let plm = detectPLM(samples: plmBuffer)
@@ -242,7 +244,7 @@ final class MotionAnalysisService {
     //   3. Require high peak strength to avoid false positives
     //   4. Cross-check with breathing rate (HR should not equal breathing rate)
 
-    private func detectHeartRate(zSamples: [Float]) -> Float {
+    private func detectHeartRate(zSamples: [Float], breathingBPM: Float = 0) -> Float {
         guard zSamples.count >= bcgWindowSize else { return 0 }
 
         // High-pass: subtract 1.5 s moving average to remove DC + breathing (< 0.7 Hz)
@@ -268,10 +270,35 @@ final class MotionAnalysisService {
         let lagMax = Int(sampleRate * 60.0 / 48.0)    // 62 samples (48 BPM)
         guard lagMax < n, lagMin < lagMax else { return 0 }
 
-        let searchRange = Array(acf[lagMin...lagMax])
+        // Breathing harmonics fall at lags = breathingPeriod / k. In deep sleep the strong,
+        // regular breathing leaves residual harmonics that land inside the cardiac lag range
+        // (esp. the low-HR end) and beat the true heartbeat peak — the main reason BCG fails
+        // in the deep-sleep-heavy first half of the night. Exclude lags within ±2 samples of
+        // any breathing harmonic so the genuine cardiac peak can win.
+        var excluded = [Bool](repeating: false, count: lagMax + 1)
+        if breathingBPM > 4 && breathingBPM < 30 {
+            let breathPeriod = Float(sampleRate) * 60.0 / breathingBPM   // samples per breath
+            var k = 1
+            while true {
+                let lag = Int((breathPeriod / Float(k)).rounded())
+                if lag < lagMin - 2 { break }          // harmonics now below the search range
+                if lag <= lagMax + 2 {
+                    for d in -2...2 {
+                        let idx = lag + d
+                        if idx >= 0 && idx <= lagMax { excluded[idx] = true }
+                    }
+                }
+                k += 1
+                if k > 20 { break }
+            }
+        }
+
         var peakVal: Float = 0
-        var peakIdx: vDSP_Length = 0
-        vDSP_maxvi(searchRange, 1, &peakVal, &peakIdx, vDSP_Length(searchRange.count))
+        var bestLag = -1
+        for lag in lagMin...lagMax where !excluded[lag] {
+            if acf[lag] > peakVal { peakVal = acf[lag]; bestLag = lag }
+        }
+        guard bestLag > 0 else { return 0 }   // everything excluded → no reliable cardiac peak
 
         let zeroLag = acf[0]
         guard zeroLag > 0 else { return 0 }
@@ -280,7 +307,7 @@ final class MotionAnalysisService {
         // BCG requires stronger peak than breathing (more noise)
         guard strength > 0.28 else { return 0 }
 
-        let periodSamples = Float(Int(peakIdx) + lagMin)
+        let periodSamples = Float(bestLag)
         let bpm = Float(sampleRate * 60.0) / periodSamples
 
         // Sanity: must be in physiological range

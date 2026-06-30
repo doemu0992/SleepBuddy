@@ -912,6 +912,8 @@ Priorität: Apple Watch HR → BCG (Akkelerometer) → 0 (kein Wert).
 
 > **Source-Gate (bindend):** Nur physiologisch plausible Werte (40–110 BPM im Schlaf) werden gespeichert. Implausible BCG-Artefakte (z.B. Spikes auf 140) werden als **0** abgelegt — sie sollen die gespeicherte Reihe nicht verschmutzen. Der Display-Filter hält dann den letzten guten Wert (Variante B, siehe `heartRateCard`).
 
+> **Frische-Gate (bindend):** `liveBCGHeartRateBPM` darf für das Live-Badge den letzten Wert **halten** (kein Flackern). Die **gespeicherte** Minuten-Reihe darf den BCG-Wert aber **nur nutzen, wenn er frisch ist** (`lastBCGUpdate` < 90 s). Sonst wird 0 gespeichert. Ohne dieses Gate fror der zuletzt berechnete Wert ein und wurde jede Minute als **echter Messwert** gespeichert → durchgezogene **falsche Flachlinie** (z.B. exakt 70) über Stunden, statt einer ehrlichen „geschätzt"-Lücke. `lastBCGUpdate` wird nur im gültigen BCG-Zweig gesetzt und in `startTracking()` auf `.distantPast` zurückgesetzt.
+
 ```swift
 // Private State (muss als Property deklariert sein):
 private var lastBCGSampleDate = Date.distantPast
@@ -1092,9 +1094,10 @@ if emitCounter >= windowSize {   // windowSize = 1500 (30s × 50Hz)
 1. High-Pass: 1.5s gleitender Mittelwert subtrahieren (entfernt DC + Atemfrequenz < 0.7 Hz)
 2. Low-Pass: 3-Sample MA (unterdrückt Sensor-Rauschen > ~8 Hz)
 3. Autokorrelation im Lag-Bereich 48–150 BPM
-4. Peak-Stärke > **0.28** (war 0.35 — gesenkt für bessere Erkennung auf Matratze)
-5. BCG-RMS-Mindest-Schwelle: **0.00003** (war 0.00008 — gesenkt)
-6. BCG nur aktiv wenn `isOnMattress == true`
+4. **Atem-Oberwellen-Ausschluss (bindend):** `detectHeartRate(zSamples:breathingBPM:)` bekommt die Atemrate. Lags bei `breathPeriod/k` (alle Oberwellen k=1…20) werden ±2 Samples aus der Peak-Suche **ausgeschlossen**. Grund: Im Tiefschlaf (erste Nachthälfte) ist die Atmung tief & regelmäßig; ihre Oberwellen leaken durch den schwachen Hochpass ins untere Herzband (48–60 BPM = genau der niedrige Tiefschlaf-Puls) und schlagen den echten, viel schwächeren Herzschlag-Peak → BCG gab 0 zurück → (mit dem alten Hold-Bug) Flachlinie. Der Ausschluss lässt den echten Kardial-Peak gewinnen. Sind nach Ausschluss keine Lags übrig → 0.
+5. Peak-Stärke > **0.28** (war 0.35 — gesenkt für bessere Erkennung auf Matratze)
+6. BCG-RMS-Mindest-Schwelle: **0.00003** (war 0.00008 — gesenkt)
+7. BCG nur aktiv wenn `isOnMattress == true`
 
 > **BCG-Entrauschung im Klassifikator (bindend):** Das rohe BCG-Signal springt zwischen Samples stark (Artefakte bis ~145 BPM). `SleepPhaseClassifier` darf **niemals** den rohen Momentanwert für Phasen-Entscheidungen verwenden — sonst wird das Signal als unzuverlässig verworfen und der Klassifikator fällt auf das reine 90-min-Zyklusmodell zurück (identisches Muster jede Nacht). Stattdessen:
 > - **Median** über `bcgHRHistory` (Fenster 6) als `bcgMedian` — unterdrückt Einzel-Ausreißer.

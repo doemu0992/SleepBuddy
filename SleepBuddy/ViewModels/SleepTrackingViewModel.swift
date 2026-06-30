@@ -42,6 +42,10 @@ final class SleepTrackingViewModel {
 
     // BCG heart rate sampling: last known BCG HR, written once per minute
     private var lastBCGSampleDate = Date.distantPast
+    // Freshness of the live BCG value: when it was last updated from a REAL reading.
+    // The live badge may hold the last value, but the stored per-minute series must only
+    // use BCG when it is fresh — otherwise a stale value freezes into a fake flat line.
+    private var lastBCGUpdate = Date.distantPast
 
     // Snoring pattern analysis: rolling timestamps of last 12 snoring events
     private var snoringTimestamps: [Date] = []
@@ -91,6 +95,7 @@ final class SleepTrackingViewModel {
         lastNoiseSampleDate = .distantPast
 
         lastBCGSampleDate = .distantPast
+        lastBCGUpdate = .distantPast
         snoringTimestamps.removeAll()
         snoringIsObstructive = false
 
@@ -100,9 +105,12 @@ final class SleepTrackingViewModel {
             self?.soundEventService.isOnMattress = motion.isOnMattress
             if motion.isOnMattress && motion.bcgHeartRateBPM > 0 {
                 self?.liveBCGHeartRateBPM = motion.bcgHeartRateBPM
+                self?.lastBCGUpdate = Date()       // mark this value as fresh
             } else if !(motion.isOnMattress) {
                 self?.liveBCGHeartRateBPM = 0
             }
+            // Note: on-mattress but no valid BCG → keep the value for the live badge, but
+            // do NOT refresh lastBCGUpdate, so the per-minute sampler treats it as missing.
         }
 
         audioService.onFeaturesUpdated = { [weak self] audio in
@@ -341,14 +349,17 @@ final class SleepTrackingViewModel {
         // filter then holds the last good value (Variante B).
         if Date().timeIntervalSince(lastBCGSampleDate) >= 60, let session = currentSession {
             let watchHR = liveHeartRateBPM
-            let bcgHR = Double(liveBCGHeartRateBPM)
+            // Only use BCG if it was refreshed by a real reading in the last 90 s — a stale
+            // held value must NOT be stored as if measured (that caused fake flat lines).
+            let bcgFresh = Date().timeIntervalSince(lastBCGUpdate) < 90
+            let bcgHR = bcgFresh ? Double(liveBCGHeartRateBPM) : 0
             let hr: Double
             if watchHR >= 40 && watchHR <= 110 {
                 hr = watchHR                       // Apple Watch is authoritative
             } else if bcgHR >= 40 && bcgHR <= 110 {
-                hr = bcgHR                         // plausible BCG
+                hr = bcgHR                         // plausible, fresh BCG
             } else {
-                hr = 0                             // implausible / no data
+                hr = 0                             // implausible / stale / no data
             }
             session.heartRateSamples.append(hr)
             lastBCGSampleDate = Date()
