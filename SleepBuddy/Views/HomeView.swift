@@ -32,9 +32,14 @@ struct HomeView: View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 20) {
-                    Text(begruessung)
-                        .font(.largeTitle.bold())
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(begruessung)
+                            .font(.largeTitle.bold())
+                        Text(Date.now, format: .dateTime.weekday(.wide).day().month(.wide))
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
                     if sessions.isEmpty {
                         emptyState
@@ -175,6 +180,7 @@ struct HomeView: View {
             .frame(maxWidth: .infinity)
             .background(LinearGradient(colors: [.indigo, .purple], startPoint: .topLeading, endPoint: .bottomTrailing))
             .clipShape(RoundedRectangle(cornerRadius: 24))
+            .shadow(color: .indigo.opacity(0.35), radius: 14, x: 0, y: 8)
         }
         .buttonStyle(.plain)
     }
@@ -237,9 +243,9 @@ struct HomeView: View {
 
             HStack(spacing: 20) {
                 statView(icon: "clock.fill", value: session.totalDuration.formattedDuration, label: "Schlafdauer", color: .indigo)
-                Divider()
+                Divider().frame(height: 40)
                 statView(icon: "star.fill", value: "\(SchlafindexView.score(for: session))%", label: "Qualität", color: .purple)
-                Divider()
+                Divider().frame(height: 40)
                 statView(icon: "moon.fill", value: session.deepSleepDuration.formattedDuration, label: "Tiefschlaf", color: .blue)
             }
 
