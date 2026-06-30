@@ -134,11 +134,14 @@ struct StatistikView: View {
     @ViewBuilder
     private func sleepContent(session: SleepSession) -> some View {
         VStack(spacing: 16) {
+            // ── Diese Nacht ──
+            sectionHeader("Diese Nacht")
+            heroCard(session: session)
             hypnogramCard(session: session)
-            statsRow(session: session)
-            if let latency = session.sleepOnsetLatency, latency > 0 {
-                extraStatsCard(session: session, latency: latency)
-            }
+            combinedStatsCard(session: session)
+
+            // ── Trends ──
+            sectionHeader("Trends")
             SchlafapnoeRisikoView(sessions: Array(sessions))
                 .padding(.horizontal)
 
@@ -149,25 +152,74 @@ struct StatistikView: View {
             if trendPoints(for: .sixMonths).count >= 7 {
                 wochentagCard
             }
-
-            NavigationLink(destination: SleepDetailView(session: session)) {
-                HStack {
-                    Text("Nacht im Detail")
-                        .font(.subheadline.bold())
-                        .foregroundStyle(.indigo)
-                    Spacer()
-                    Image(systemName: "chevron.right")
-                        .font(.caption.bold())
-                        .foregroundStyle(.indigo.opacity(0.6))
-                }
-                .padding()
-                .background(Color(.secondarySystemGroupedBackground))
-                .clipShape(RoundedRectangle(cornerRadius: 16))
-                .shadow(color: Color.primary.opacity(0.06), radius: 10, x: 0, y: 2)
-            }
-            .buttonStyle(.plain)
-            .padding(.horizontal)
         }
+    }
+
+    // MARK: - Section Header (Dashboard-Stil)
+
+    private func sectionHeader(_ title: String) -> some View {
+        HStack {
+            Text(title)
+                .font(.caption.bold())
+                .textCase(.uppercase)
+                .foregroundStyle(.secondary)
+            Spacer()
+        }
+        .padding(.horizontal)
+        .padding(.top, 4)
+    }
+
+    // MARK: - Nacht-Hero (tappbar → Detail)
+
+    private func heroCard(session: SleepSession) -> some View {
+        NavigationLink(destination: SleepDetailView(session: session)) {
+            ZStack {
+                LinearGradient(colors: [Color(red: 0.15, green: 0.15, blue: 0.42), .indigo, .purple],
+                               startPoint: .topLeading, endPoint: .bottomTrailing)
+                    .clipShape(RoundedRectangle(cornerRadius: 24))
+
+                HStack(spacing: 16) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(session.startDate.formatted(.dateTime.weekday(.wide).day().month()))
+                            .font(.caption).foregroundStyle(.white.opacity(0.7))
+                        Text(session.totalDuration.formattedDuration)
+                            .font(.system(size: 40, weight: .bold, design: .rounded))
+                            .foregroundStyle(.white)
+                        HStack(spacing: 4) {
+                            Text("Nacht im Detail")
+                                .font(.subheadline).foregroundStyle(.white.opacity(0.7))
+                            Image(systemName: "chevron.right")
+                                .font(.caption2.bold()).foregroundStyle(.white.opacity(0.6))
+                        }
+                    }
+                    Spacer()
+                    scoreRing(SchlafindexView.score(for: session))
+                }
+                .padding(20)
+            }
+            .frame(height: 150)
+            .shadow(color: .indigo.opacity(0.3), radius: 12, x: 0, y: 6)
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal)
+    }
+
+    private func scoreRing(_ score: Int) -> some View {
+        ZStack {
+            Circle().stroke(Color.white.opacity(0.2), lineWidth: 8)
+            Circle().trim(from: 0, to: CGFloat(min(max(score, 0), 100)) / 100)
+                .stroke(scoreColor(score), style: StrokeStyle(lineWidth: 8, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+            VStack(spacing: 0) {
+                Text("\(score)").font(.system(size: 22, weight: .bold)).foregroundStyle(.white)
+                Text("Index").font(.caption2).foregroundStyle(.white.opacity(0.7))
+            }
+        }
+        .frame(width: 80, height: 80)
+    }
+
+    private func scoreColor(_ s: Int) -> Color {
+        switch s { case ..<40: return .red; case ..<70: return .orange; case ..<85: return .yellow; default: return .green }
     }
 
     // MARK: - Hypnogram (vertical bars, Sleep Cycle style)
@@ -199,17 +251,8 @@ struct StatistikView: View {
         let totalDur = max(session.totalDuration, 1)
 
         return VStack(alignment: .leading, spacing: 14) {
-            // Header
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(session.startDate.formatted(.dateTime.weekday(.wide).day().month()))
-                        .font(.caption).foregroundStyle(.secondary)
-                    Text(session.totalDuration.formattedDuration)
-                        .font(.title2.bold())
-                }
-                Spacer()
-                QualityBadge(score: Double(SchlafindexView.score(for: session)))
-            }
+            Label("Schlafphasen", systemImage: "bed.double.fill")
+                .font(.headline)
 
             // Chart
             if !bars.isEmpty {
@@ -271,32 +314,41 @@ struct StatistikView: View {
         phase.color
     }
 
-    // MARK: - Stats Row
+    // MARK: - Kombinierte Stat-Karte (Phasen + Extra-Stats)
 
-    private func statsRow(session: SleepSession) -> some View {
-        HStack(spacing: 12) {
-            statCard(
-                icon: "moon.fill",
-                color: SleepPhaseType.deep.color,
-                value: session.deepSleepDuration.formattedDuration,
-                label: "Tiefschlaf",
-                sub: deepSleepLabel(session)
-            )
-            statCard(
-                icon: "sparkles",
-                color: SleepPhaseType.rem.color,
-                value: session.remSleepDuration.formattedDuration,
-                label: "REM",
-                sub: "\(Int(session.remSleepDuration / session.totalDuration * 100))%"
-            )
-            statCard(
-                icon: "waveform.path",
-                color: .orange,
-                value: session.snoringEventCount > 0 ? "\(session.snoringEventCount)×" : "—",
-                label: "Schnarchen",
-                sub: session.snoringEventCount > 0 ? "erkannt" : "keines"
-            )
+    private func combinedStatsCard(session: SleepSession) -> some View {
+        let hasLatency = (session.sleepOnsetLatency ?? 0) > 0
+        return VStack(spacing: 0) {
+            HStack(spacing: 0) {
+                statColumn(icon: "moon.fill", color: SleepPhaseType.deep.color,
+                           value: session.deepSleepDuration.formattedDuration, label: "Tiefschlaf", sub: deepSleepLabel(session))
+                Divider().frame(height: 52)
+                statColumn(icon: "sparkles", color: SleepPhaseType.rem.color,
+                           value: session.remSleepDuration.formattedDuration, label: "REM",
+                           sub: "\(Int(session.remSleepDuration / max(session.totalDuration, 1) * 100))%")
+                Divider().frame(height: 52)
+                statColumn(icon: "waveform.path", color: .orange,
+                           value: session.snoringEventCount > 0 ? "\(session.snoringEventCount)×" : "—",
+                           label: "Schnarchen", sub: session.snoringEventCount > 0 ? "erkannt" : "keines")
+            }
+
+            Divider().padding(.vertical, 14)
+
+            HStack(spacing: 0) {
+                if hasLatency {
+                    miniStat("zzz", color: .indigo, value: formatMin(session.sleepOnsetLatency ?? 0), label: "Einschlafen")
+                    Divider().frame(height: 36)
+                }
+                miniStat("moon.fill", color: .blue, value: "\(Int(session.totalDuration / 3600 * 10) / 10)h", label: "Gesamt")
+                Divider().frame(height: 36)
+                let eff = session.totalDuration > 0 ? Int((session.totalDuration - session.awakeDuration) / session.totalDuration * 100) : 0
+                miniStat("percent", color: .purple, value: "\(eff)%", label: "Effizienz")
+            }
         }
+        .padding()
+        .background(Color(.secondarySystemGroupedBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .shadow(color: Color.primary.opacity(0.06), radius: 8, x: 0, y: 2)
         .padding(.horizontal)
     }
 
@@ -307,36 +359,14 @@ struct StatistikView: View {
         return "Kurz"
     }
 
-    private func statCard(icon: String, color: Color, value: String, label: String, sub: String) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
+    private func statColumn(icon: String, color: Color, value: String, label: String, sub: String) -> some View {
+        VStack(spacing: 4) {
             Image(systemName: icon).foregroundStyle(color).font(.caption)
             Text(value).font(.title3.bold())
             Text(label).font(.caption2.bold()).foregroundStyle(.primary)
             Text(sub).font(.caption2).foregroundStyle(.secondary)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(12)
-        .background(Color(.secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 16))
-        .shadow(color: Color.primary.opacity(0.06), radius: 8, x: 0, y: 2)
-    }
-
-    // MARK: - Extra Stats
-
-    private func extraStatsCard(session: SleepSession, latency: TimeInterval) -> some View {
-        HStack(spacing: 0) {
-            miniStat("zzz", color: .indigo, value: formatMin(latency), label: "Einschlafen")
-            Divider().frame(height: 36)
-            miniStat("moon.fill", color: .blue, value: "\(Int(session.totalDuration / 3600 * 10) / 10)h", label: "Gesamt")
-            Divider().frame(height: 36)
-            let eff = session.totalDuration > 0 ? Int((session.totalDuration - session.awakeDuration) / session.totalDuration * 100) : 0
-            miniStat("percent", color: .purple, value: "\(eff)%", label: "Effizienz")
-        }
-        .padding(.vertical, 10)
-        .background(Color(.secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 16))
-        .shadow(color: Color.primary.opacity(0.06), radius: 8, x: 0, y: 2)
-        .padding(.horizontal)
+        .frame(maxWidth: .infinity)
     }
 
     private func miniStat(_ icon: String, color: Color, value: String, label: String) -> some View {

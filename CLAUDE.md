@@ -141,6 +141,10 @@ TabView(selection: $selectedTab) {
 
 **Datei:** `Views/StatistikView.swift`
 
+> **Dashboard-Stil mit Abschnitten (bindend):** wie HomeView/SleepDetailView in Abschnitte mit
+> `sectionHeader` gegliedert. Nacht-Hero (Gradient + Score-Ring) ist tappbar → SleepDetailView
+> (kein separater „Nacht im Detail"-Button mehr).
+
 ```
 NavigationStack
 └── ZStack(alignment: .bottom)
@@ -148,11 +152,16 @@ NavigationStack
     └── ScrollView
         ├── weekStrip          → 7-Tage-Auswahl (heute vorausgewählt)
         └── sleepContent(session) oder emptyState
-            ├── hypnogramCard  → Balken-Hypnogramm + Legende
-            ├── statsRow       → 3 stat-Cards: Tiefschlaf / REM / Schnarchen
-            ├── extraStatsCard → Einschlafen / Gesamt / Effizienz (nur wenn Latenz > 0)
+            │ ── DIESE NACHT ──
+            ├── heroCard       → Nacht-Hero (Indigo→Violett): Datum, Dauer, Score-Ring;
+            │                    ganze Karte NavigationLink → SleepDetailView
+            ├── hypnogramCard  → Balken-Hypnogramm („Schlafphasen") + Legende
+            ├── combinedStatsCard → EINE Karte: 3 Spalten (Tief/REM/Schnarchen) + Divider +
+            │                    Einschlafen/Gesamt/Effizienz
+            │ ── TRENDS ──
             ├── SchlafapnoeRisikoView
-            └── NavigationLink "Nacht im Detail" → SleepDetailView
+            ├── langzeitCard   → Langzeit-Trend (30T/3M/6M), nur ≥ 3 Nächte
+            └── wochentagCard  → Schlaf nach Wochentag, nur ≥ 7 Nächte
 ```
 
 **Wichtige Funktionen:**
@@ -164,8 +173,8 @@ NavigationStack
 | `hypnoBars(for:)` | Konvertiert `phasesArray` in `[HypnoBar]` mit `depth` (0.15/0.45/0.70/1.00) |
 | `hypnogramCard(session:)` | Balken-Chart mit GeometryReader, X-Achse, Legende |
 | `barColor(_ phase:)` | Delegiert an `phase.color` |
-| `statsRow(session:)` | 3 `statCard`-Views nebeneinander |
-| `extraStatsCard(session:latency:)` | Einschlafen / Gesamt / Effizienz mit Divider |
+| `heroCard(session:)` | Nacht-Hero (Gradient + Score-Ring), tappbar → SleepDetailView |
+| `combinedStatsCard(session:)` | EINE Karte: 3 Phasen-Spalten + Divider + Einschlafen/Gesamt/Effizienz |
 | `deepSleepLabel(_:)` | "Gut ✓" / Prozent / "Kurz" je nach Tiefschlafanteil |
 
 **Hypnogramm-Balken:**
