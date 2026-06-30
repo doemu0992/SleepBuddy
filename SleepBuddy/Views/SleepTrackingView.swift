@@ -29,6 +29,7 @@ struct SleepTrackingView: View {
                 startContent
             }
         }
+        .onAppear { viewModel.smartAlarm.reloadFromDefaults() }
         .onReceive(timer) { _ in
             if viewModel.isTracking { elapsed = viewModel.currentSession?.totalDuration ?? 0 }
         }
@@ -115,64 +116,28 @@ struct SleepTrackingView: View {
     // MARK: - Active tracking screen (atmospheric, dark navy)
 
     private var trackingContent: some View {
-        ZStack {
-            // Ambient glow behind phase
-            Circle()
-                .fill(viewModel.currentPhase.color.opacity(0.08))
-                .frame(width: 400, height: 400)
-                .blur(radius: 80)
-                .animation(.easeInOut(duration: 2), value: viewModel.currentPhase)
+        VStack(spacing: 28) {
+            Spacer()
 
-            VStack(spacing: 0) {
-                // Top badges — only shown when there's something to display
-                HStack(spacing: 10) {
-                    if viewModel.isSleepOnsetDetected {
-                        sleepOnsetBadge
-                    }
-                    Spacer()
-                    heartRateBadge
-                    if viewModel.isSnoring {
-                        Label("Schnarchen", systemImage: "waveform")
-                            .font(.caption.bold())
-                            .foregroundStyle(.orange)
-                            .padding(.horizontal, 10).padding(.vertical, 4)
-                            .background(.orange.opacity(0.15))
-                            .clipShape(Capsule())
-                            .transition(.scale.combined(with: .opacity))
-                    }
-                }
-                .padding(.horizontal, 24)
-                .padding(.top, 60)
-                .animation(.spring(response: 0.4, dampingFraction: 0.7), value: viewModel.isSnoring)
-                .animation(.spring(response: 0.4, dampingFraction: 0.7), value: viewModel.isSleepOnsetDetected)
+            // Mond mit Glow — wie auf der „Bereit zum Schlafen"-Seite
+            ZStack {
+                Circle()
+                    .fill(Color.indigo.opacity(0.25))
+                    .frame(width: 190, height: 190)
+                    .blur(radius: 65)
+                Image(systemName: "moon.stars.fill")
+                    .font(.system(size: 72))
+                    .foregroundStyle(LinearGradient(colors: [.indigo, .purple], startPoint: .topLeading, endPoint: .bottomTrailing))
+            }
 
-                Spacer()
-
-                // Large time display
+            // Live-Uhrzeit + Phase + Weckfenster
+            VStack(spacing: 14) {
                 Text(Date(), style: .time)
-                    .font(.system(size: 72, weight: .thin, design: .monospaced))
+                    .font(.system(size: 60, weight: .thin, design: .rounded))
                     .foregroundStyle(.white)
                     .monospacedDigit()
 
-                // Alarm subtitle — Weckfenster als Indigo-Capsule (Stil wie Phasen-Capsule)
-                if viewModel.smartAlarm.isEnabled {
-                    HStack(spacing: 6) {
-                        Image(systemName: "alarm.fill")
-                            .font(.caption2.bold())
-                        Text(alarmText)
-                            .font(.caption.bold())
-                    }
-                    .foregroundStyle(.indigo)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 7)
-                    .background(.indigo.opacity(0.15), in: Capsule())
-                    .overlay(Capsule().strokeBorder(.indigo.opacity(0.3), lineWidth: 1))
-                    .padding(.top, 14)
-                }
-
-                Spacer()
-
-                // Phase capsule
+                // Phase-Capsule
                 HStack(spacing: 8) {
                     Image(systemName: viewModel.currentPhase.icon)
                         .font(.caption.bold())
@@ -191,33 +156,52 @@ struct SleepTrackingView: View {
                 .overlay(Capsule().strokeBorder(viewModel.currentPhase.color.opacity(0.25), lineWidth: 1))
                 .animation(.spring(response: 0.6, dampingFraction: 0.7), value: viewModel.currentPhase)
 
-                Spacer()
-
-                // Beenden button
-                Button { showStopConfirmation = true } label: {
-                    HStack(spacing: 8) {
-                        Image(systemName: "sun.horizon.fill")
-                            .font(.body.bold())
-                        Text("Aufwachen")
-                            .font(.title3.bold())
-                    }
-                    .foregroundStyle(.white)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 18)
-                    .background(
-                        LinearGradient(
-                            colors: [.indigo.opacity(0.6), .purple.opacity(0.5)],
-                            startPoint: .leading, endPoint: .trailing
-                        ),
-                        in: RoundedRectangle(cornerRadius: 20)
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 20)
-                            .strokeBorder(.white.opacity(0.2), lineWidth: 1)
-                    )
+                // Weckfenster
+                if viewModel.smartAlarm.isEnabled {
+                    Label(alarmText, systemImage: "alarm.fill")
+                        .font(.subheadline)
+                        .foregroundStyle(.indigo)
+                        .padding(.top, 2)
                 }
-                .padding(.horizontal, 28)
-                .padding(.bottom, 52)
+            }
+
+            // Live-Badges (Herzfrequenz · Schnarchen · Einschlafen) zentriert
+            liveBadgesRow
+                .animation(.spring(response: 0.4, dampingFraction: 0.7), value: viewModel.isSnoring)
+                .animation(.spring(response: 0.4, dampingFraction: 0.7), value: viewModel.isSleepOnsetDetected)
+
+            Spacer()
+
+            // Aufwachen-Button
+            Button { showStopConfirmation = true } label: {
+                Label("Aufwachen", systemImage: "sun.horizon.fill")
+                    .font(.title3.bold()).foregroundStyle(.white)
+                    .frame(maxWidth: .infinity).padding()
+                    .background(
+                        LinearGradient(colors: [.indigo, .purple], startPoint: .leading, endPoint: .trailing),
+                        in: RoundedRectangle(cornerRadius: 16)
+                    )
+                    .shadow(color: .indigo.opacity(0.45), radius: 14, x: 0, y: 8)
+            }
+            .padding(.horizontal, 32)
+            .padding(.bottom, 40)
+        }
+    }
+
+    // Zentrierte Reihe der Live-Badges — nur was gerade Daten hat.
+    @ViewBuilder
+    private var liveBadgesRow: some View {
+        HStack(spacing: 10) {
+            if viewModel.isSleepOnsetDetected { sleepOnsetBadge }
+            heartRateBadge
+            if viewModel.isSnoring {
+                Label("Schnarchen", systemImage: "waveform")
+                    .font(.caption.bold())
+                    .foregroundStyle(.orange)
+                    .padding(.horizontal, 10).padding(.vertical, 4)
+                    .background(.orange.opacity(0.15))
+                    .clipShape(Capsule())
+                    .transition(.scale.combined(with: .opacity))
             }
         }
     }

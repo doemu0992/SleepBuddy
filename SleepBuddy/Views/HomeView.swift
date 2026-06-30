@@ -675,7 +675,7 @@ struct AlarmSetupSheet: View {
 
                         HStack(spacing: 10) {
                             Image(systemName: "info.circle").foregroundStyle(.indigo)
-                            Text("Der Alarm klingt sobald eine Leichtschlafphase im Fenster erkannt wird. Spätestens zum letzten Zeitpunkt wirst du geweckt.")
+                            Text("Der Alarm klingelt, sobald im Fenster eine Leichtschlafphase erkannt wird — spätestens zur eingestellten „Spätestens\"-Zeit.")
                                 .font(.caption).foregroundStyle(.secondary)
                         }
                         .padding(16)

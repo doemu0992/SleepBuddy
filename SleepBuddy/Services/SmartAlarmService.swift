@@ -109,9 +109,24 @@ final class SmartAlarmService {
         await MainActor.run { hasNotificationPermission = granted }
     }
 
+    // MARK: - Reload
+
+    // Liest alle Werte frisch aus UserDefaults. Nötig, weil die Einstellungen (ProfilView)
+    // eine EIGENE SmartAlarmService-Instanz nutzen und nur über UserDefaults persistieren —
+    // ohne Reload zeigt der Tracking-Screen veraltete Weckzeiten.
+    func reloadFromDefaults() {
+        isEnabled = UserDefaults.standard.bool(forKey: Keys.isEnabled)
+        earliestWakeTime = SmartAlarmService.loadTime(hourKey: Keys.earliestHour, minuteKey: Keys.earliestMinute, defaultHour: 6, defaultMinute: 30)
+        latestWakeTime = SmartAlarmService.loadTime(hourKey: Keys.latestHour, minuteKey: Keys.latestMinute, defaultHour: 7, defaultMinute: 0)
+        alarmTon = AlarmTon(rawValue: UserDefaults.standard.string(forKey: Keys.alarmTon) ?? "") ?? .sanft
+        let vol = UserDefaults.standard.float(forKey: Keys.lautstaerke)
+        lautstaerke = vol > 0 ? vol : 0.8
+    }
+
     // MARK: - Arm / Disarm
 
     func arm() {
+        reloadFromDefaults()
         guard isEnabled else { return }
         alarmFired = false
         alarmFiredDate = nil

@@ -1340,6 +1340,8 @@ Weckt in der Leichtschlaf- oder Wach-Phase innerhalb eines Zeitfensters.
 
 > **Garantiertes Klingeln (bindend):** Der Alarm muss zuverlässig auslösen. `checkPhase(_:)` (aus `SleepTrackingViewModel.handleFeatures`, jeder Update) hat eine **harte Deadline**: sobald `isPastLatest(now)` (spätestes Weckfenster erreicht), löst der Alarm **unabhängig von der Phase** aus — auch wenn das Zyklusmodell im Fenster nie `.light`/`.awake` meldet (z.B. Nacht geht direkt von REM → Wach). Innerhalb des Fensters davor: Smart-Wake beim ersten `.light`/`.awake`.
 
+> **Mehrere Instanzen → `reloadFromDefaults()` (bindend):** Einstellungs-UIs (HomeView `AlarmSetupSheet`, ProfilView) nutzen **eigene** `SmartAlarmService`-Instanzen und persistieren nur über UserDefaults. Der Tracking-Screen nutzt `viewModel.smartAlarm` — eine andere Instanz, die ohne Reload **veraltete Weckzeiten** anzeigt. Daher: `reloadFromDefaults()` liest alle Werte frisch aus UserDefaults; aufgerufen in `arm()` **und** `SleepTrackingView.onAppear`. So zeigt jeder Tracking-Start die aktuell eingestellte Weckzeit.
+
 > **Über-Mitternacht-Normalisierung (bindend):** `isPastLatest`/`isInsideWindow` nutzen `normalizedWindowTime(_:relativeTo:)`. Eine Weckzeit (z.B. 07:00) wird auf das Fenster der **aktuellen Session** gemappt: liegt die berechnete Zeit > 12 h in der **Vergangenheit** (Tracking-Start abends um 23:29 → 07:00 desselben Tages ist längst vorbei), gehört sie zum **nächsten Morgen** (+1 Tag); liegt sie > 12 h in der Zukunft, zum **vorigen Tag** (−1 Tag). **Ohne den +1-Tag-Fall feuerte der Alarm sofort beim abendlichen Start** (`23:29 >= 07:00` == true) und speicherte `alarmFiredDate = Startzeit`. Niemals nur den −1-Tag-Fall behandeln.
 
 > **„Geweckt"-Anzeige (SleepDetailView summaryCard):** zeigt `alarmFiredDate` = **tatsächliche Weckzeit** (wann der Smart Alarm klang). Label „Geweckt" (nicht „Smart Alarm" — die Zeit ist die Weckzeit). Nur sichtbar wenn der Alarm wirklich ausgelöst hat (manueller Stopp → nil → keine Anzeige).
@@ -1447,8 +1449,10 @@ private var nightGradient: LinearGradient {
 
 | State | Inhalt |
 |-------|--------|
-| Start | Mond mit Glow + "Jetzt schlafen"-Button (Verlauf + Glow) |
-| Aktiv | Uhrzeit 72pt thin monospaced, **Weckfenster-Capsule** (Indigo, „Weckt HH:mm – HH:mm" = earliest–latest, Stil wie Phasen-Capsule), Phase-Badge, Herz-Rate-Badge, Schnarchen-Badge, "Aufwachen"-Button |
+| Start | Mond mit Glow + Titel + Weckfenster-Label + "Jetzt schlafen"-Button (Verlauf + Glow) |
+| Aktiv | **Gleiches Layout wie Start** (Mond mit Glow, `nightGradient`): Uhrzeit 60pt thin rounded, Phase-Capsule, Weckfenster-Label, zentrierte Live-Badges (`liveBadgesRow`: Herzfrequenz/Schnarchen/Einschlafen), "Aufwachen"-Button unten (Verlauf + Glow) |
+
+> **Aktiv-State spiegelt den Start-State (bindend):** Der Tracking-Aktiv-Screen nutzt denselben Mond-Glow + `nightGradient` wie „Bereit zum Schlafen" — kein eigenes flaches Layout. Live-Werte (Phase, Uhrzeit, Weckfenster, Badges) frei darin platziert.
 
 > **Weckfenster-Anzeige (bindend):** Im Aktiv-State zeigt `alarmText` die **Zeitspanne** als „Weckt HH:mm–HH:mm (spätestens HH:mm)" (`earliestWakeTime`–`latestWakeTime`, latest = garantierte Obergrenze) — nicht nur eine Zeit. Sind beide gleich, nur „Weckt HH:mm". Dargestellt als Indigo-Capsule (`.indigo.opacity(0.15)` + Stroke), konsistent zur Phasen-Capsule.
 | Alarm | Alarm-Animation, "Aufwachen" + "Snooze"-Button (max. 3×) |
