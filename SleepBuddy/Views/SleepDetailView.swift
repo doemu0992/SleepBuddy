@@ -49,7 +49,6 @@ struct SleepDetailView: View {
         ScrollView {
             VStack(spacing: 16) {
                 heroHeader
-                schlafindexButton
                 statsGrid
                 let bruxismCount = session.soundEventsArray.filter { $0.type == .bruxism }.count
                 let coughCount = session.soundEventsArray.filter { $0.type == .coughing }.count
@@ -109,62 +108,44 @@ struct SleepDetailView: View {
         }
     }
 
-    // MARK: - Schlafindex Button
-
-    private var schlafindexButton: some View {
-        NavigationLink(destination: SchlafindexView(session: session)) {
-            HStack {
-                Label("Schlafindex anzeigen", systemImage: "chart.pie.fill")
-                    .font(.subheadline.bold())
-                    .foregroundStyle(.white)
-                Spacer()
-                HStack(spacing: 4) {
-                    Text("\(SchlafindexView.score(for: session))")
-                        .font(.subheadline.bold())
-                        .foregroundStyle(.white)
-                    Image(systemName: "chevron.right")
-                        .font(.caption.bold())
-                        .foregroundStyle(.white.opacity(0.7))
-                }
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 14)
-            .background(Color.indigo, in: RoundedRectangle(cornerRadius: 14))
-        }
-        .buttonStyle(.plain)
-    }
-
     // MARK: - Hero Header
 
     private var heroHeader: some View {
-        ZStack {
-            LinearGradient(colors: [Color(red: 0.15, green: 0.15, blue: 0.42), .indigo, .purple],
-                           startPoint: .topLeading, endPoint: .bottomTrailing)
-                .clipShape(RoundedRectangle(cornerRadius: 24))
+        NavigationLink(destination: SchlafindexView(session: session)) {
+            ZStack {
+                LinearGradient(colors: [Color(red: 0.15, green: 0.15, blue: 0.42), .indigo, .purple],
+                               startPoint: .topLeading, endPoint: .bottomTrailing)
+                    .clipShape(RoundedRectangle(cornerRadius: 24))
 
-            HStack(spacing: 16) {
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack(spacing: 5) {
-                        Text(session.startDate.formatted(date: .omitted, time: .shortened))
-                            .font(.caption).foregroundStyle(.white.opacity(0.7))
-                        Image(systemName: "arrow.right")
-                            .font(.caption2).foregroundStyle(.white.opacity(0.5))
-                        Text(session.endDate?.formatted(date: .omitted, time: .shortened) ?? "–")
-                            .font(.caption).foregroundStyle(.white.opacity(0.7))
+                HStack(spacing: 16) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack(spacing: 5) {
+                            Text(session.startDate.formatted(date: .omitted, time: .shortened))
+                                .font(.caption).foregroundStyle(.white.opacity(0.7))
+                            Image(systemName: "arrow.right")
+                                .font(.caption2).foregroundStyle(.white.opacity(0.5))
+                            Text(session.endDate?.formatted(date: .omitted, time: .shortened) ?? "–")
+                                .font(.caption).foregroundStyle(.white.opacity(0.7))
+                        }
+                        Text(session.totalDuration.formattedDuration)
+                            .font(.system(size: 40, weight: .bold, design: .rounded))
+                            .foregroundStyle(.white)
+                        HStack(spacing: 4) {
+                            Text("Schlafindex ansehen")
+                                .font(.subheadline).foregroundStyle(.white.opacity(0.7))
+                            Image(systemName: "chevron.right")
+                                .font(.caption2.bold()).foregroundStyle(.white.opacity(0.6))
+                        }
                     }
-                    Text(session.totalDuration.formattedDuration)
-                        .font(.system(size: 40, weight: .bold, design: .rounded))
-                        .foregroundStyle(.white)
-                    Text("Gesamtschlafdauer")
-                        .font(.subheadline).foregroundStyle(.white.opacity(0.7))
+                    Spacer()
+                    detailScoreRing(SchlafindexView.score(for: session))
                 }
-                Spacer()
-                detailScoreRing(SchlafindexView.score(for: session))
+                .padding(20)
             }
-            .padding(20)
+            .frame(height: 150)
+            .shadow(color: .indigo.opacity(0.3), radius: 12, x: 0, y: 6)
         }
-        .frame(height: 150)
-        .shadow(color: .indigo.opacity(0.3), radius: 12, x: 0, y: 6)
+        .buttonStyle(.plain)
     }
 
     private func detailScoreRing(_ score: Int) -> some View {
