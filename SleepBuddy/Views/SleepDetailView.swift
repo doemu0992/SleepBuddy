@@ -50,12 +50,7 @@ struct SleepDetailView: View {
         ScrollView {
             VStack(spacing: 16) {
                 heroHeader
-                statsGrid
-                let bruxismCount = session.soundEventsArray.filter { $0.type == .bruxism }.count
-                let coughCount = session.soundEventsArray.filter { $0.type == .coughing }.count
-                if session.sleepOnsetLatency != nil || session.snoringEventCount > 0 || session.alarmFiredDate != nil || bruxismCount > 0 || coughCount > 0 {
-                    extraStatsRow
-                }
+                summaryCard
                 phaseBarCard
                 hypnogramCard
                 spo2Card
@@ -167,18 +162,49 @@ struct SleepDetailView: View {
         switch s { case ..<40: return .red; case ..<70: return .orange; case ..<85: return .yellow; default: return .green }
     }
 
-    // MARK: - Stats Grid
+    // MARK: - Summary Card (Phasen + Extra-Stats kombiniert)
 
-    private var statsGrid: some View {
-        HStack(spacing: 0) {
-            statColumn("Tiefschlaf", value: session.deepSleepDuration.formattedDuration, icon: "moon.fill", color: SleepPhaseType.deep.color,
-                       percent: pct(session.deepSleepDuration))
-            Divider().frame(height: 52)
-            statColumn("REM", value: session.remSleepDuration.formattedDuration, icon: "sparkles", color: SleepPhaseType.rem.color,
-                       percent: pct(session.remSleepDuration))
-            Divider().frame(height: 52)
-            statColumn("Leichtschlaf", value: session.lightSleepDuration.formattedDuration, icon: "moon", color: SleepPhaseType.light.color,
-                       percent: pct(session.lightSleepDuration))
+    private var summaryCard: some View {
+        let bruxismCount = session.soundEventsArray.filter { $0.type == .bruxism }.count
+        let coughCount = session.soundEventsArray.filter { $0.type == .coughing }.count
+        let hasExtra = session.sleepOnsetLatency != nil || session.snoringEventCount > 0
+            || session.alarmFiredDate != nil || bruxismCount > 0 || coughCount > 0
+        return VStack(spacing: 0) {
+            HStack(spacing: 0) {
+                statColumn("Tiefschlaf", value: session.deepSleepDuration.formattedDuration, icon: "moon.fill", color: SleepPhaseType.deep.color,
+                           percent: pct(session.deepSleepDuration))
+                Divider().frame(height: 52)
+                statColumn("REM", value: session.remSleepDuration.formattedDuration, icon: "sparkles", color: SleepPhaseType.rem.color,
+                           percent: pct(session.remSleepDuration))
+                Divider().frame(height: 52)
+                statColumn("Leichtschlaf", value: session.lightSleepDuration.formattedDuration, icon: "moon", color: SleepPhaseType.light.color,
+                           percent: pct(session.lightSleepDuration))
+            }
+
+            if hasExtra {
+                Divider().padding(.vertical, 14)
+                HStack(spacing: 0) {
+                    if let latency = session.sleepOnsetLatency {
+                        extraStat(formatMinutes(latency), icon: "zzz", color: .indigo, label: "Einschlafen")
+                    }
+                    if session.snoringEventCount > 0 {
+                        Divider().frame(height: 40)
+                        extraStat("\(session.snoringEventCount)×", icon: "waveform", color: .orange, label: "Schnarchen")
+                    }
+                    if bruxismCount > 0 {
+                        Divider().frame(height: 40)
+                        extraStat("\(bruxismCount)×", icon: "mouth.fill", color: .pink, label: "Zähneknirschen")
+                    }
+                    if coughCount > 0 {
+                        Divider().frame(height: 40)
+                        extraStat("\(coughCount)×", icon: "lungs.fill", color: .teal, label: "Husten")
+                    }
+                    if let alarmDate = session.alarmFiredDate {
+                        Divider().frame(height: 40)
+                        extraStat(alarmDate.formatted(date: .omitted, time: .shortened), icon: "alarm.fill", color: .green, label: "Smart Alarm")
+                    }
+                }
+            }
         }
         .padding()
         .background(Color(.secondarySystemGroupedBackground))
@@ -204,36 +230,6 @@ struct SleepDetailView: View {
     }
 
     // MARK: - Extra Stats
-
-    private var extraStatsRow: some View {
-        let bruxismCount = session.soundEventsArray.filter { $0.type == .bruxism }.count
-        let coughCount = session.soundEventsArray.filter { $0.type == .coughing }.count
-        return HStack(spacing: 0) {
-            if let latency = session.sleepOnsetLatency {
-                extraStat(formatMinutes(latency), icon: "zzz", color: .indigo, label: "Einschlafen")
-            }
-            if session.snoringEventCount > 0 {
-                Divider().frame(height: 40)
-                extraStat("\(session.snoringEventCount)×", icon: "waveform", color: .orange, label: "Schnarchen")
-            }
-            if bruxismCount > 0 {
-                Divider().frame(height: 40)
-                extraStat("\(bruxismCount)×", icon: "mouth.fill", color: .pink, label: "Zähneknirschen")
-            }
-            if coughCount > 0 {
-                Divider().frame(height: 40)
-                extraStat("\(coughCount)×", icon: "lungs.fill", color: .teal, label: "Husten")
-            }
-            if let alarmDate = session.alarmFiredDate {
-                Divider().frame(height: 40)
-                extraStat(alarmDate.formatted(date: .omitted, time: .shortened), icon: "alarm.fill", color: .green, label: "Smart Alarm")
-            }
-        }
-        .padding()
-        .background(Color(.secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 16))
-        .shadow(color: Color.primary.opacity(0.06), radius: 10, x: 0, y: 2)
-    }
 
     private func extraStat(_ value: String, icon: String, color: Color, label: String) -> some View {
         VStack(spacing: 4) {

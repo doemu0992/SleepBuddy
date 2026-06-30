@@ -183,7 +183,8 @@ NavigationStack (via NavigationLink aus StatistikView)
 └── ScrollView
     ├── heroHeader         → Nacht-Hero (Indigo→Violett): Zeitraum, Dauer, Schlaf-Index-Ring;
     │                        ganze Karte ist NavigationLink → SchlafindexView (kein separater Button)
-    ├── statsGrid          → EINE Karte mit 3 Spalten (Divider): Tiefschlaf / REM / Leichtschlaf
+    ├── summaryCard        → EINE Karte: oben 3 Phasen-Spalten (Tief/REM/Leicht),
+    │                        darunter (Divider) Extra-Stats Einschlafen/Schnarchen/…/Smart Alarm
     ├── hypnogramSection   → Balken-Hypnogramm (identisch zu StatistikView)
     ├── verlaufChart       → Linechart mit AreaMark + Gradient
     ├── soundEventsSection → Geräusch-Ereignisse mit Play-Button + Korrektur-Button
