@@ -51,26 +51,46 @@ struct SleepDetailView: View {
             VStack(spacing: 16) {
                 heroHeader
                 summaryCard
-                phaseBarCard
-                hypnogramCard
-                spo2Card
-                if !session.noiseSamples.isEmpty {
-                    ambientNoiseCard
+
+                // ── Schlafphasen ──
+                if !session.phasesArray.isEmpty {
+                    sectionHeader("Schlafphasen")
+                    phasenCard
+                    phaseTimelineCard
                 }
-                if !session.heartRateSamples.filter({ $0 > 0 }).isEmpty {
-                    heartRateCard
-                }
-                aiInsightCard
+
+                // ── Geräusche ──
                 let sleepEvents = session.soundEventsArray.filter { !$0.type.isExternal }
                 let externalEvents = session.soundEventsArray.filter { $0.type.isExternal }
-                if !sleepEvents.isEmpty {
-                    soundEventsCard(events: sleepEvents, title: "Schlafgeräusche", icon: "waveform.badge.mic")
+                let hasSnoring = session.soundEventsArray.contains { $0.type == .snoring && $0.decibelLevel > 0 }
+                if !sleepEvents.isEmpty || !externalEvents.isEmpty || !session.noiseSamples.isEmpty {
+                    sectionHeader("Geräusche")
+                    if !sleepEvents.isEmpty {
+                        soundEventsCard(events: sleepEvents, title: "Schlafgeräusche", icon: "waveform.badge.mic")
+                    }
+                    if !externalEvents.isEmpty {
+                        soundEventsCard(events: externalEvents, title: "Umgebungsgeräusche", icon: "ear.fill")
+                    }
+                    if hasSnoring {
+                        snoringIntensityCard
+                    }
+                    if !session.noiseSamples.isEmpty {
+                        ambientNoiseCard
+                    }
                 }
-                if !externalEvents.isEmpty {
-                    soundEventsCard(events: externalEvents, title: "Umgebungsgeräusche", icon: "ear.fill")
+
+                // ── Vitalwerte ──
+                let hasHR = !session.heartRateSamples.filter({ $0 > 0 }).isEmpty
+                let hasSpO2 = spo2Percent != nil && (spo2Percent ?? 0) > 0
+                if hasHR || hasSpO2 {
+                    sectionHeader("Vitalwerte")
+                    if hasHR { heartRateCard }
+                    if hasSpO2 { spo2Card }
                 }
-                snoringIntensityCard
-                phaseTimelineCard
+
+                // ── KI-Analyse ──
+                sectionHeader("KI-Analyse")
+                aiInsightCard
             }
             .padding()
             .padding(.bottom, 24)
@@ -102,6 +122,20 @@ struct SleepDetailView: View {
                 applySoundCorrection(event: event, confirmed: confirmed, newType: newType, specificLabel: specificLabel)
             }
         }
+    }
+
+    // MARK: - Section Header (Dashboard-Stil)
+
+    private func sectionHeader(_ title: String) -> some View {
+        HStack {
+            Text(title)
+                .font(.caption.bold())
+                .textCase(.uppercase)
+                .foregroundStyle(.secondary)
+            Spacer()
+        }
+        .padding(.top, 8)
+        .padding(.horizontal, 4)
     }
 
     // MARK: - Hero Header
@@ -242,30 +276,34 @@ struct SleepDetailView: View {
 
     // MARK: - Phase Bar
 
-    private var phaseBarCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
+    // MARK: - Phasen-Karte (Balken + Verlauf-Chart kombiniert)
+
+    private var phasenCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            // Phasen-Balken + Legende
             Label("Schlafphasen", systemImage: "bed.double.fill")
                 .font(.headline)
-
-            if !session.phasesArray.isEmpty {
-                SleepPhaseBarView(phases: session.phasesArray, totalDuration: session.totalDuration)
-                    .frame(height: 20)
-                    .clipShape(RoundedRectangle(cornerRadius: 6))
-
-                HStack(spacing: 16) {
-                    ForEach(SleepPhaseType.allCases, id: \.self) { type in
-                        let dur = session.phasesArray.filter { $0.phaseType == type }.reduce(0) { $0 + $1.duration }
-                        if dur > 0 {
-                            HStack(spacing: 4) {
-                                Circle().fill(type.color).frame(width: 8, height: 8)
-                                Text(type.rawValue).font(.caption2).foregroundStyle(.secondary)
-                            }
+            SleepPhaseBarView(phases: session.phasesArray, totalDuration: session.totalDuration)
+                .frame(height: 20)
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+            HStack(spacing: 16) {
+                ForEach(SleepPhaseType.allCases, id: \.self) { type in
+                    let dur = session.phasesArray.filter { $0.phaseType == type }.reduce(0) { $0 + $1.duration }
+                    if dur > 0 {
+                        HStack(spacing: 4) {
+                            Circle().fill(type.color).frame(width: 8, height: 8)
+                            Text(type.rawValue).font(.caption2).foregroundStyle(.secondary)
                         }
                     }
                 }
-            } else {
-                Text("Keine Phasendaten verfügbar").font(.subheadline).foregroundStyle(.secondary)
             }
+
+            Divider().padding(.vertical, 2)
+
+            // Verlauf-Chart
+            Label("Verlauf", systemImage: "waveform.path.ecg")
+                .font(.subheadline.bold()).foregroundStyle(.secondary)
+            hypnogramChart
         }
         .padding()
         .background(Color(.secondarySystemGroupedBackground))
@@ -342,12 +380,9 @@ struct SleepDetailView: View {
     }
 
     @ViewBuilder
-    private var hypnogramCard: some View {
+    private var hypnogramChart: some View {
         if !session.phasesArray.isEmpty {
             VStack(alignment: .leading, spacing: 12) {
-                Label("Schlafverlauf", systemImage: "waveform.path.ecg")
-                    .font(.headline)
-
                 trackerTimeRow
 
                 Chart(hypnoData) { point in
@@ -414,10 +449,6 @@ struct SleepDetailView: View {
                 .chartXVisibleDomain(length: 3 * 3600)
                 .frame(height: 130)
             }
-            .padding()
-            .background(Color(.secondarySystemGroupedBackground))
-            .clipShape(RoundedRectangle(cornerRadius: 16))
-            .shadow(color: Color.primary.opacity(0.06), radius: 10, x: 0, y: 2)
         }
     }
 
@@ -425,25 +456,7 @@ struct SleepDetailView: View {
 
     @ViewBuilder
     private var spo2Card: some View {
-        if spo2Loaded && spo2Percent == nil {
-            // HealthKit hat keinen SpO₂-Wert für diese Nacht
-            HStack(spacing: 12) {
-                Image(systemName: "drop.fill")
-                    .foregroundStyle(.secondary)
-                    .font(.title3)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Blutsauerstoff (SpO₂)")
-                        .font(.subheadline.bold())
-                    Text("Nicht verfügbar — Apple Watch mit SpO₂-Sensor erforderlich.")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-                Spacer()
-            }
-            .padding()
-            .background(Color(.secondarySystemGroupedBackground))
-            .clipShape(RoundedRectangle(cornerRadius: 16))
-            .shadow(color: Color.primary.opacity(0.06), radius: 10, x: 0, y: 2)
-        } else if let spo2 = spo2Percent, spo2 > 0 {
+        if let spo2 = spo2Percent, spo2 > 0 {
             let pct = Int(spo2 * 100)
             let color: Color = pct >= 95 ? .green : pct >= 90 ? .yellow : .red
             let label: String = pct >= 95 ? "Normal" : pct >= 90 ? "Leicht reduziert" : "Reduziert"
@@ -1080,16 +1093,30 @@ struct SleepDetailView: View {
 
     // MARK: - Phase Timeline
 
+    // Sortiert, ohne Null-Dauer-Phasen und ohne doppelte Startzeiten — verhindert
+    // „2× Wach mit gleicher Zeit" und doppelte ForEach-IDs.
+    private var cleanedPhases: [SleepPhase] {
+        let sorted = session.phasesArray
+            .filter { $0.endDate > $0.startDate }
+            .sorted { $0.startDate < $1.startDate }
+        var result: [SleepPhase] = []
+        for phase in sorted {
+            if let last = result.last, last.startDate == phase.startDate { continue }
+            result.append(phase)
+        }
+        return result
+    }
+
     private var phaseTimelineCard: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
-                Text("Verlauf").font(.headline)
+                Text("Phasen im Detail").font(.headline)
                 Spacer()
                 Text("Tippe zum Korrigieren").font(.caption).foregroundStyle(.secondary)
             }
             .padding(.bottom, 12)
 
-            let sorted = session.phasesArray.sorted { $0.startDate < $1.startDate }
+            let sorted = cleanedPhases
             let collapsedCount = 4
             let visible = phaseTimelineExpanded ? sorted : Array(sorted.prefix(collapsedCount))
             ForEach(Array(visible.enumerated()), id: \.element.startDate) { i, phase in

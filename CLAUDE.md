@@ -178,6 +178,8 @@ NavigationStack
 
 **Datei:** `Views/SleepDetailView.swift`
 
+> **Dashboard-Stil mit Abschnitten (bindend):** SleepDetailView ist wie HomeView in **Abschnitte mit Überschriften** (`sectionHeader`, uppercase caption) gegliedert — kein loser Karten-Stapel. **Karten ohne Daten werden nicht gezeigt** (kein „Nicht verfügbar"-Platzhalter, z.B. SpO₂). Reihenfolge fix:
+
 ```
 NavigationStack (via NavigationLink aus StatistikView)
 └── ScrollView
@@ -185,13 +187,19 @@ NavigationStack (via NavigationLink aus StatistikView)
     │                        ganze Karte ist NavigationLink → SchlafindexView (kein separater Button)
     ├── summaryCard        → EINE Karte: oben 3 Phasen-Spalten (Tief/REM/Leicht),
     │                        darunter (Divider) Extra-Stats Einschlafen/Schnarchen/…/Smart Alarm
-    ├── hypnogramSection   → Balken-Hypnogramm (identisch zu StatistikView)
-    ├── verlaufChart       → Linechart mit AreaMark + Gradient
-    ├── soundEventsSection → Geräusch-Ereignisse mit Play-Button + Korrektur-Button
-    ├── noiseSection       → Umgebungslautstärke als Wellen-Chart (LineMark + AreaMark, Farbgradient)
-    ├── heartRateCard      → Herzfrequenz-Verlauf (robuster Filter + Variante B: gehaltene Lücken als „geschätzt")
-    ├── phaseTimelineCard  → Phasen als Timeline-Liste, ausklappbar (zeigt erst 4, „Alle X anzeigen")
-    └── morgenBewertung    → Subj. Qualitäts-Rating 1–5
+    │ ── SCHLAFPHASEN ──   (nur wenn Phasen vorhanden)
+    ├── phasenCard         → EINE Karte: Phasen-Balken + Legende, Divider, Verlauf-Chart (Step-Hypnogramm)
+    ├── phaseTimelineCard  → „Phasen im Detail", ausklappbar (zeigt erst 4, „Alle X anzeigen");
+    │                        nutzt `cleanedPhases` (Null-Dauer raus, doppelte Startzeit raus)
+    │ ── GERÄUSCHE ──      (nur wenn Sound-Events ODER Noise-Daten)
+    ├── soundEventsCard ×2 → Schlafgeräusche / Umgebungsgeräusche (Play + Korrektur)
+    ├── snoringIntensityCard → nur wenn Schnarch-Events
+    ├── ambientNoiseCard   → Umgebungslautstärke-Wellen-Chart (nur wenn noiseSamples)
+    │ ── VITALWERTE ──     (nur wenn HR ODER SpO₂ vorhanden)
+    ├── heartRateCard      → Herzfrequenz-Verlauf (Variante B: gehaltene Lücken als „geschätzt")
+    ├── spo2Card           → SpO₂-Ring (nur wenn echter Wert > 0 — kein Platzhalter)
+    │ ── KI-ANALYSE ──
+    └── aiInsightCard      → „Analyse starten" (SleepInsightService)
 ```
 
 **Sound-Korrektur-System (`SoundCorrectionSheet`):**
