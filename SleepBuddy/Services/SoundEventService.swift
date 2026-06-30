@@ -195,13 +195,13 @@ final class SoundEventService {
 
         if isInCooldown { return }
 
-        // Snoring has a strong low-frequency spectral signature that survives
-        // mattress muffling even when the absolute level stays well below the
-        // loudness threshold. Trigger on the spectral score with only a low
-        // absolute floor (≈ 28 dB) to keep room hiss out.
-        let snoringBySpectrum = snoringScore > 0.55 && instantAmplitude > 0.0008
-
-        let isLoud = instantAmplitude > amplitudeThreshold || snoringBySpectrum
+        // NOTE: the spectral snoring trigger (snoringScore > 0.55) was REMOVED after
+        // validation on real labeled audio (ESC-50): the 80–500 Hz band ratio is a generic
+        // low-frequency-energy measure (AUC ~0.73), firing on trains, fans, traffic, fireworks
+        // etc. just as strongly as on snoring — it inflated false snoring. Snoring is now
+        // detected solely by Apple's purpose-trained ML `snoring` class (specific), via
+        // hintMLDetection. Events otherwise start on the amplitude threshold only.
+        let isLoud = instantAmplitude > amplitudeThreshold
 
         // Continuous sound (e.g. 2 h of dog barking) would otherwise never see a
         // 1 s gap → one endless event whose clip is just the last 30 s. Cap the
@@ -328,9 +328,9 @@ final class SoundEventService {
            let hint = mlHintType {
             return hint
         }
-        // Amplitude-triggered without fresh ML hint — use strict thresholds to match
-        // SoundClassificationService's minimum confidence levels
-        if snoringScore > 0.45 { return .snoring }
+        // Amplitude-triggered without fresh ML hint. Snoring is intentionally NOT inferred
+        // from snoringScore here — the spectral measure is too unspecific (ESC-50 AUC ~0.73)
+        // and would mislabel loud rumble as snoring. Snoring comes only from Apple's ML class.
         if speechLikelihood > 0.40 { return .talking }
         return .other
     }

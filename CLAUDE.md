@@ -598,9 +598,9 @@ private func recalibrateRolling() {
 
 > **`reset()` muss Kalibrierung UND Rolling-State zurücksetzen** (`calibrationSamples`, `calibrationDeadline`, `calibratedThreshold`, `rollingAmbient`, `lastRecal`) — jede Nacht neu kalibrieren.
 
-> **ML bleibt primärer Trigger** (amplitudenunabhängig, gain-verstärkt). Die kalibrierte Amplitude ist das Gate für nicht-ML-Sounds + Spektral-Schnarchen.
+> **ML bleibt primärer Trigger** (amplitudenunabhängig, gain-verstärkt). Die kalibrierte Amplitude ist das Gate für nicht-ML-Sounds.
 
-> **Spektral-Schnarchen-Trigger (bindend):** Schnarchen auf der Matratze ist oft gedämpft und bleibt unter der Lautstärke-Schwelle (gemessene Peaks ~30 dB ≈ Amplitude 0.001 vs. Schwelle 0.006–0.010). Da Schnarchen aber eine starke Tieffrequenz-Signatur hat (`snoringIntensity`, 80–500 Hz), löst `tick()` ein Event auch aus, wenn `snoringScore > 0.55` **und** `instantAmplitude > 0.0008` (≈ 28 dB, niedriges Absolut-Gate gegen Raumrauschen) — unabhängig von der normalen Lautstärke-Schwelle. So wird leises Schnarchen erfasst, ohne die globale Schwelle für alle Typen abzusenken.
+> **Spektral-Schnarchen-Trigger ENTFERNT (bindend, datenbelegt):** Früher löste `tick()` ein Schnarch-Event aus, wenn `snoringScore > 0.55 && instantAmplitude > 0.0008`. Eine Validierung gegen echte gelabelte Audios (ESC-50, 2000 Clips) zeigte: Das 80–500-Hz-Maß (`snoringIntensity`) ist ein **unspezifischer Tieffrequenz-Detektor** (AUC ~0.73, mit Modulation nur ~0.78) — es feuert auf Zug, Ventilator, Verkehr, Feuerwerk genauso stark wie auf Schnarchen und blähte die Schnarch-Statistik mit Fehlalarmen auf. **Schnarchen wird daher ausschließlich über Apples ML-`snoring`-Klasse erkannt** (zweckmäßig trainiert, spezifisch). Auch der Amplitude-Fallback (`classifyEvent`) labelt **nicht** mehr per `snoringScore` als `.snoring`. Niemals den Spektral-Schnarch-Trigger reaktivieren ohne neue Datenvalidierung.
 
 ---
 
@@ -693,9 +693,9 @@ SoundClassificationService (ML) → hintMLDetection(type:confidence:)
 
 AudioFeatures (8 Hz) → tick(instantAmplitude:snoringScore:speechLikelihood:)
     → isLoud = instantAmplitude > amplitudeThreshold       ← Fallback ohne ML-Hint
-            OR snoringScore > 0.55 && instantAmplitude > 0.0008  ← Spektral-Schnarchen (leise/gedämpft)
+       (Spektral-Schnarchen ENTFERNT — ESC-50-validiert zu unspezifisch)
     → 4 aufeinanderfolgende laute Ticks (0.5s) → eventStartDate setzen
-    → classifyEvent() → snoringScore / speechLikelihood / .other
+    → classifyEvent() → speechLikelihood / .other (Schnarchen nur via ML)
     → 8 aufeinanderfolgende ruhige Ticks (1s) → finaliseEvent()
     → minDuration prüfen
     → circularBuffer → saveToICloud() oder lokal
@@ -728,9 +728,8 @@ AudioFeatures (8 Hz) → tick(instantAmplitude:snoringScore:speechLikelihood:)
 
 **Event-Klassifikation (ShutEye-Stil):**
 1. ML-Hint vorhanden (< 3s alt) → ML-Typ direkt übernehmen
-2. Amplitude-Fallback ohne frischen ML-Hint: `snoringScore > 0.45` → `.snoring`
-3. `speechLikelihood > 0.40` → `.talking`
-4. Sonst → `.other`
+2. `speechLikelihood > 0.40` → `.talking` (Schnarchen NICHT mehr per `snoringScore` — siehe oben)
+3. Sonst → `.other`
 
 **ML-Primär-Trigger:** `hintMLDetection()` löst Events für **alle** Typen aus (persönlich + extern) wenn Konfidenz ≥ Schwelle — kein `isMLPrimary`-Filter mehr.
 
