@@ -1092,6 +1092,18 @@ Mikrofon → AVAudioEngine.inputNode
 
 ---
 
+## Sonar-System (aktives Ultraschall-Sensing, experimentell)
+
+**Datei:** `Services/SonarService.swift` — **neue Datei, muss manuell zum Xcode-Build-Target hinzugefügt werden.**
+
+Aktives Sonar (Sleep-Cycle-Stil): sendet einen fast unhörbaren **~19 kHz-Ton** über den Lautsprecher und analysiert die vom Körper reflektierte, atem-/bewegungsmodulierte Welle im Mikrofon → **Atemfrequenz, Atem-Regularität, Bewegungsintensität** — robust auch vom **Nachttisch** und weitgehend unabhängig von Umgebungslärm (Nutzsignal im Ultraschallband).
+
+**Pipeline:** eigene `AVAudioEngine` (Ton-Ausgabe + Mikro-Tap, `.playAndRecord`/`.measurement`) → I/Q-Demodulation am Träger → Blockmittelung auf 50 Hz Basisband → Phase (unwrap+detrend) → Autokorrelation (6–30 BPM) für Atmung, Phasen-Diff-RMS für Bewegung. Emit alle ~30 s als `SonarFeatures`.
+
+> **Status (bindend):** Vorerst **nur Live-Test** (Entwickleroptionen → „Sonar testen"), **noch nicht** im Tracking-Klassifikator verdrahtet — erst nach On-Device-Validierung. So bleibt die bestehende Aufnahme-Pipeline unangetastet. Nächster Schritt nach Validierung: als bevorzugte Atem-/Bewegungsquelle in `SleepPhaseClassifier` einspeisen (Nachttisch-tauglich).
+
+---
+
 ## Motion-System
 
 **Datei:** `Services/MotionAnalysisService.swift`

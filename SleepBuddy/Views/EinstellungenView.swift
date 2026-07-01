@@ -943,6 +943,7 @@ struct EntwickleroptionenView: View {
     @State private var zeigeMikrofonTest = false
     @State private var zeigeICloudTest = false
     @State private var zeigeSoundAudit = false
+    @State private var zeigeSonarTest = false
     @State private var normalisiereLaeuft = false
     @State private var normalisiereErgebnis: String?
     @State private var phasenLaeuft = false
@@ -968,6 +969,11 @@ struct EntwickleroptionenView: View {
                     Label("Geräusch-Klassen prüfen", systemImage: "checklist").foregroundStyle(.indigo)
                 }
                 .sheet(isPresented: $zeigeSoundAudit) { SoundAuditView() }
+
+                Button { zeigeSonarTest = true } label: {
+                    Label("Sonar testen (Atmung/Bewegung)", systemImage: "dot.radiowaves.left.and.right").foregroundStyle(.indigo)
+                }
+                .sheet(isPresented: $zeigeSonarTest) { SonarTestView() }
             } header: {
                 Text("Tests")
             }
@@ -1191,5 +1197,99 @@ struct DatenschutzView: View {
         .background(Color(.secondarySystemGroupedBackground))
         .clipShape(RoundedRectangle(cornerRadius: 16))
         .shadow(color: Color.primary.opacity(0.06), radius: 10, x: 0, y: 2)
+    }
+}
+
+// MARK: - SonarTestView (Live-Test des aktiven Sonars)
+
+struct SonarTestView: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var sonar = SonarService()
+    @State private var feat = SonarFeatures.neutral
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(spacing: 20) {
+                    // Live-Wellenform (Atem-/Bewegungssignal aus der Reflexion)
+                    VStack(alignment: .leading, spacing: 12) {
+                        Label("Reflexionssignal", systemImage: "waveform.path")
+                            .font(.headline)
+                        GeometryReader { geo in
+                            let w = sonar.waveform
+                            Path { p in
+                                guard w.count > 1 else { return }
+                                let maxAbs = max(w.map { abs($0) }.max() ?? 1, 0.0001)
+                                let dx = geo.size.width / CGFloat(w.count - 1)
+                                let mid = geo.size.height / 2
+                                for (i, v) in w.enumerated() {
+                                    let x = CGFloat(i) * dx
+                                    let y = mid - CGFloat(v / maxAbs) * mid * 0.9
+                                    if i == 0 { p.move(to: CGPoint(x: x, y: y)) }
+                                    else { p.addLine(to: CGPoint(x: x, y: y)) }
+                                }
+                            }
+                            .stroke(Color.indigo, lineWidth: 2)
+                        }
+                        .frame(height: 120)
+                        .background(Color(.tertiarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 10))
+                    }
+                    .padding()
+                    .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16))
+
+                    // Kennzahlen
+                    HStack(spacing: 0) {
+                        messwert(String(format: "%.0f", feat.breathingRateBPM), "Atem/min",
+                                 farbe: feat.breathingRateBPM > 0 ? .indigo : .secondary)
+                        Divider().frame(height: 40)
+                        messwert(String(format: "%.0f%%", feat.breathingRegularity * 100), "Regelmäßig", farbe: .teal)
+                        Divider().frame(height: 40)
+                        messwert(String(format: "%.0f%%", feat.movementIntensity * 100), "Bewegung",
+                                 farbe: feat.movementIntensity > 0.3 ? .orange : .secondary)
+                    }
+                    .padding()
+                    .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16))
+
+                    Label(feat.signalPresent ? "Signal erkannt" : "Kein Signal — näher/ruhiger legen",
+                          systemImage: feat.signalPresent ? "checkmark.circle.fill" : "questionmark.circle")
+                        .font(.subheadline)
+                        .foregroundStyle(feat.signalPresent ? .green : .secondary)
+
+                    Button {
+                        if sonar.isRunning { sonar.stop() } else { sonar.start() }
+                    } label: {
+                        Label(sonar.isRunning ? "Stoppen" : "Sonar starten",
+                              systemImage: sonar.isRunning ? "stop.fill" : "play.fill")
+                            .font(.headline).foregroundStyle(.white)
+                            .frame(maxWidth: .infinity).padding()
+                            .background(sonar.isRunning ? Color.red : Color.indigo, in: RoundedRectangle(cornerRadius: 14))
+                    }
+                    .buttonStyle(.plain)
+
+                    Text("Sendet einen fast unhörbaren ~19 kHz-Ton und misst die von Brustkorb/Körper reflektierte Welle. Lege das iPhone wie zum Schlafen ab (Matratze oder Nachttisch) und atme ruhig — die Atemfrequenz sollte sich einpendeln, Bewegung schlägt bei Wälzen aus.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                .padding()
+            }
+            .navigationTitle("Sonar-Test")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Fertig") { sonar.stop(); dismiss() }
+                }
+            }
+            .onDisappear { sonar.stop() }
+            .onReceive(Timer.publish(every: 0.5, on: .main, in: .common).autoconnect()) { _ in
+                feat = sonar.latest
+            }
+        }
+    }
+
+    private func messwert(_ wert: String, _ label: String, farbe: Color) -> some View {
+        VStack(spacing: 4) {
+            Text(wert).font(.title3.bold()).foregroundStyle(farbe)
+            Text(label).font(.caption2).foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
     }
 }
