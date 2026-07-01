@@ -1208,6 +1208,7 @@ struct SonarTestView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var sonar = SonarService()
     @State private var feat = SonarFeatures.neutral
+    @State private var kopiert = false
 
     var body: some View {
         NavigationStack {
@@ -1272,6 +1273,19 @@ struct SonarTestView: View {
                             .background(sonar.isRunning ? Color.red : Color.indigo, in: RoundedRectangle(cornerRadius: 14))
                     }
                     .buttonStyle(.plain)
+
+                    Button {
+                        UIPasteboard.general.string = sonar.logText()
+                        kopiert = true
+                    } label: {
+                        Label(kopiert ? "Kopiert ✓ — hier einfügen" : "Verlauf kopieren (\(sonar.log.count) Zeilen)",
+                              systemImage: kopiert ? "checkmark" : "doc.on.doc")
+                            .font(.subheadline.bold())
+                            .frame(maxWidth: .infinity).padding(.vertical, 12)
+                            .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(sonar.log.isEmpty)
 
                     Text("Sendet einen fast unhörbaren ~19 kHz-Ton und misst die von Brustkorb/Körper reflektierte Welle. Lege das iPhone wie zum Schlafen ab (Matratze oder Nachttisch) und atme ruhig — die Atemfrequenz sollte sich einpendeln, Bewegung schlägt bei Wälzen aus.")
                         .font(.caption).foregroundStyle(.secondary)
@@ -1339,6 +1353,9 @@ final class SonarService {
     private let toneAmplitude: Float = 0.45     // kräftiger, damit die Reflexion klar messbar ist
     /// Diagnose: mittlere Basisband-Magnitude des letzten Fensters (0 = Ton kommt nicht am Mikro an).
     private(set) var signalLevel: Float = 0
+    /// Protokoll der emittierten Fenster (für Copy/Paste-Diagnose).
+    private(set) var log: [String] = []
+    private var logStart = Date()
 
     private var outputSampleRate: Double = 48_000
     private var inputSampleRate: Double = 48_000
@@ -1407,6 +1424,8 @@ final class SonarService {
 
     private func reset() {
         carrierPhase = 0
+        log.removeAll()
+        logStart = Date()
         iBB.removeAll(keepingCapacity: true)
         qBB.removeAll(keepingCapacity: true)
         newSinceEmit = 0
@@ -1501,12 +1520,29 @@ final class SonarService {
         )
         // Letzte ~6 s als Wellenform fürs UI
         let tail = Array(phase.suffix(Int(basebandRate * 6)))
+        let elapsed = Date().timeIntervalSince(logStart)
+        let line = String(format: "%5.0fs  Atem %2.0f/min  Reg %3.0f%%  Bew %3.0f%%  Pegel %.5f  %@",
+                          elapsed, bpm, reg * 100, movement * 100, meanMag,
+                          present ? "OK" : "-")
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.latest = feat
             self.waveform = tail
+            self.log.append(line)
+            if self.log.count > 400 { self.log.removeFirst() }
             self.onFeaturesUpdated?(feat)
         }
+    }
+
+    /// Vollständiger, kopierbarer Diagnose-Text (Geräte-Infos + Verlauf).
+    func logText() -> String {
+        var s = "SLEEPBUDDY SONAR-DIAGNOSE\n"
+        s += String(format: "Träger %.0f Hz · Ton-Amp %.2f · Input %.0f Hz · Output %.0f Hz · Dezim %d\n",
+                    carrier, toneAmplitude, inputSampleRate, outputSampleRate, decim)
+        s += "Spalten: Zeit · Atemfrequenz · Regelmäßigkeit · Bewegung · Reflexions-Pegel · Signal\n"
+        s += "— — —\n"
+        s += log.joined(separator: "\n")
+        return s
     }
 
     // MARK: - DSP-Helfer
