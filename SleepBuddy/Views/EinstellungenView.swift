@@ -1494,17 +1494,23 @@ final class SonarService {
         let count = iBB.count
         guard count >= Int(basebandRate * 8) else { return }   // ≥ 8 s Daten
 
+        // I/Q glätten (Ein-Pol-Tiefpass ~3 Hz @ 50 Hz) → weniger Demod-Rauschen in Phase/Mag.
+        let iS = lowpass(iBB, alpha: 0.30)
+        let qS = lowpass(qBB, alpha: 0.30)
+
         // Phase (Mikro-Bewegung der Brust) + Magnitude (grobe Reflexionsstärke)
         var phase = [Float](repeating: 0, count: count)
         var mag = [Float](repeating: 0, count: count)
         for k in 0..<count {
-            phase[k] = atan2(qBB[k], iBB[k])
-            mag[k] = sqrt(iBB[k]*iBB[k] + qBB[k]*qBB[k])
+            phase[k] = atan2(qS[k], iS[k])
+            mag[k] = sqrt(iS[k]*iS[k] + qS[k]*qS[k])
         }
         let meanMag = mag.reduce(0, +) / Float(count)
         unwrap(&phase)
         // Detrend Phase (linearer Drift raus) → reines Atem-/Bewegungssignal
         detrend(&phase)
+        // Zusätzliche leichte Glättung des Atemsignals (killt hochfrequentes Restrauschen).
+        phase = lowpass(phase, alpha: 0.5)
 
         let (bpm, reg) = breathing(from: phase, rate: basebandRate)
         let movement = movementLevel(phase: phase, rate: basebandRate)
@@ -1576,37 +1582,50 @@ final class SonarService {
         for i in 0..<n { x[i] -= (a + b*tf[i]) }
     }
 
-    /// Atemfrequenz via Autokorrelation im 6–30 BPM-Band + Peak-Stärke als Regularität.
+    /// Atemfrequenz via Autokorrelation im **8–22 BPM-Band** (Ruhe-/Schlafatmung) + Peak-Stärke
+    /// als Regularität. Rastet der Peak am Bandrand oder ist er zu schwach ausgeprägt, wird
+    /// (0, 0) zurückgegeben statt eines unplausiblen Werts (kein „Latching" auf 22/8).
     private func breathing(from signal: [Float], rate: Double) -> (bpm: Float, reg: Float) {
         let n = signal.count
-        guard n > Int(rate * 4) else { return (0, 0) }
+        guard n > Int(rate * 6) else { return (0, 0) }
         var energy: Float = 0
         vDSP_measqv(signal, 1, &energy, vDSP_Length(n))     // mittlere Leistung
-        guard energy > 1e-9 else { return (0, 0) }
+        guard energy > 1e-12 else { return (0, 0) }
 
-        let minLag = Int(rate * 60.0 / 30.0)   // 30 BPM
-        let maxLag = min(Int(rate * 60.0 / 6.0), n - 1)   // 6 BPM
-        guard maxLag > minLag else { return (0, 0) }
+        let minLag = Int(rate * 60.0 / 22.0)   // 22 BPM
+        let maxLag = min(Int(rate * 60.0 / 8.0), n - 1)   // 8 BPM
+        guard maxLag > minLag + 2 else { return (0, 0) }
 
-        var bestLag = -1
-        var bestVal: Float = 0
+        var acf = [Float](repeating: 0, count: maxLag + 1)
         signal.withUnsafeBufferPointer { buf in
             let base = buf.baseAddress!
             for lag in minLag...maxLag {
                 var dot: Float = 0
                 vDSP_dotpr(base, 1, base + lag, 1, &dot, vDSP_Length(n - lag))
-                let norm = dot / (energy * Float(n - lag))
-                if norm > bestVal { bestVal = norm; bestLag = lag }
+                acf[lag] = dot / (energy * Float(n - lag))
             }
         }
-        guard bestLag > 0 else { return (0, 0) }
+        // Bestes lokales Maximum im Band (kein Rand-Latch).
+        var bestLag = -1
+        var bestVal: Float = -.greatestFiniteMagnitude
+        var mean: Float = 0
+        for lag in (minLag+1)...(maxLag-1) {
+            mean += acf[lag]
+            if acf[lag] > acf[lag-1] && acf[lag] >= acf[lag+1] && acf[lag] > bestVal {
+                bestVal = acf[lag]; bestLag = lag
+            }
+        }
+        mean /= Float(maxLag - minLag - 1)
+        // Prominenz-Gate: der Peak muss klar über dem ACF-Mittel liegen und positiv sein.
+        guard bestLag > 0, bestVal > 0.15, bestVal > mean + 0.1 else { return (0, 0) }
         let bpm = Float(rate * 60.0 / Double(bestLag))
         let reg = min(max(bestVal, 0), 1)
         return (bpm, reg)
     }
 
     /// Bewegungsintensität: kurzfristige Energie schneller Phasenänderungen (Körperbewegung
-    /// erzeugt große, schnelle Ausschläge; ruhiges Atmen nur kleine, langsame).
+    /// erzeugt große, schnelle Ausschläge; ruhiges Atmen nur kleine, langsame). Gain moderat,
+    /// damit ruhiges Liegen nicht sättigt.
     private func movementLevel(phase: [Float], rate: Double) -> Float {
         let n = phase.count
         let win = min(n, Int(rate * 5))    // letzte ~5 s
@@ -1616,6 +1635,15 @@ final class SonarService {
         for k in 1..<win { diffs[k-1] = seg[k] - seg[k-1] }
         var rms: Float = 0
         vDSP_rmsqv(diffs, 1, &rms, vDSP_Length(win - 1))
-        return min(rms * 6.0, 1.0)
+        // kleiner Rausch-Sockel abgezogen, dann skaliert
+        return min(max(rms - 0.02, 0) * 3.0, 1.0)
+    }
+
+    /// Einfacher Ein-Pol-Tiefpass (Glättung) über ein Array.
+    private func lowpass(_ x: [Float], alpha: Float) -> [Float] {
+        guard !x.isEmpty else { return x }
+        var out = x
+        for k in 1..<x.count { out[k] = out[k-1] + alpha * (x[k] - out[k-1]) }
+        return out
     }
 }
