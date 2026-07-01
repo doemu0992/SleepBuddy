@@ -140,7 +140,7 @@ final class SmartAlarmService {
         alarmFiredDate = nil
         // Weckfenster auf das NÄCHSTE Vorkommen ab jetzt ankern (immer in der Zukunft).
         let now = Date()
-        var e = nextOccurrence(of: earliestWakeTime, after: now)
+        let e = nextOccurrence(of: earliestWakeTime, after: now)
         var l = nextOccurrence(of: latestWakeTime, after: now)
         // Spätestens muss ≥ Frühestens sein (falls latest-Tageszeit < earliest → nächster Tag).
         if l < e { l = Calendar.current.date(byAdding: .day, value: 1, to: l) ?? l }
