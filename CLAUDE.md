@@ -1482,7 +1482,7 @@ AVAudioApplication.requestRecordPermission { granted in ... }
 
 **Datei:** `Views/OnboardingView.swift`
 
-7 Schritte, Dark Navy (`Color(red: 0.05, green: 0.07, blue: 0.18)`), ShutEye-Stil.
+8 Schritte im **Nacht-Design** (bindend): Hintergrund = `nightGradient` (indigoer → navy, identisch zu SleepTrackingView), Willkommens-/Platzierungs-Icon = Mond/Bett mit weichem Blur-Glow + Indigo→Violett-Verlauf, „Weiter"-Button Indigo→Violett + Glow-Schatten. **Platzierungs-Schritt hebt den Matratzen-Hinweis als eigene Indigo-Karte hervor** (beste Bewegungserkennung). Der Tracking-Start-Screen zeigt denselben Hinweis dezent („Für beste Erkennung: auf die Matratze legen").
 
 Gate in `SleepBuddyApp`:
 ```swift

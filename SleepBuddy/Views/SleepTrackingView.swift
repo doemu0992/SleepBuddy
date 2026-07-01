@@ -85,6 +85,10 @@ struct SleepTrackingView: View {
                 Text("Lege dein iPhone in der Nähe ab.\nKein Audio wird gespeichert.")
                     .multilineTextAlignment(.center)
                     .foregroundStyle(.white.opacity(0.7))
+                Label("Für beste Erkennung: auf die Matratze legen", systemImage: "bed.double.fill")
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(0.5))
+                    .padding(.top, 2)
                 if viewModel.smartAlarm.isEnabled {
                     Label(alarmText, systemImage: "alarm.fill")
                         .font(.subheadline)

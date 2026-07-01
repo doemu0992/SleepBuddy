@@ -18,12 +18,18 @@ struct OnboardingView: View {
     @AppStorage("partnerModus_aktiv") private var partnerModusGespeichert = false
     @AppStorage("partnerModus_stufe") private var partnerModusStufe = 1
 
-    private let navy = Color(red: 0.05, green: 0.07, blue: 0.18)
+    private let navy = Color(red: 0.04, green: 0.06, blue: 0.16)
     private let totalSteps = 8
+
+    /// Sanfter Nacht-Verlauf (oben indigoer → navy) — identisch zum Tracking-Screen.
+    private var nightGradient: LinearGradient {
+        LinearGradient(colors: [Color(red: 0.09, green: 0.10, blue: 0.26), navy],
+                       startPoint: .top, endPoint: .bottom)
+    }
 
     var body: some View {
         ZStack {
-            navy.ignoresSafeArea()
+            nightGradient.ignoresSafeArea()
 
             VStack(spacing: 0) {
                 // Progress dots
@@ -90,14 +96,12 @@ struct OnboardingView: View {
         VStack(spacing: 24) {
             ZStack {
                 Circle()
-                    .fill(Color.indigo.opacity(0.2))
-                    .frame(width: 160, height: 160)
-                Circle()
-                    .fill(Color.indigo.opacity(0.3))
-                    .frame(width: 110, height: 110)
+                    .fill(Color.indigo.opacity(0.25))
+                    .frame(width: 190, height: 190)
+                    .blur(radius: 65)
                 Image(systemName: "moon.stars.fill")
-                    .font(.system(size: 56))
-                    .foregroundStyle(.white)
+                    .font(.system(size: 80))
+                    .foregroundStyle(LinearGradient(colors: [.indigo, .purple], startPoint: .topLeading, endPoint: .bottomTrailing))
             }
             .padding(.bottom, 8)
 
@@ -117,38 +121,52 @@ struct OnboardingView: View {
 
     // Step 1: Placement guide
     private var placementStep: some View {
-        VStack(spacing: 28) {
-            Image(systemName: "bed.double.fill")
-                .font(.system(size: 64))
-                .foregroundStyle(.indigo)
+        VStack(spacing: 24) {
+            ZStack {
+                Circle().fill(Color.indigo.opacity(0.25)).frame(width: 150, height: 150).blur(radius: 55)
+                Image(systemName: "bed.double.fill")
+                    .font(.system(size: 60))
+                    .foregroundStyle(LinearGradient(colors: [.indigo, .purple], startPoint: .topLeading, endPoint: .bottomTrailing))
+            }
 
             Text("Handy richtig platzieren")
                 .font(.title.bold())
                 .foregroundStyle(.white)
 
-            VStack(spacing: 16) {
-                placementRow(icon: "iphone", text: "Lege dein iPhone auf die Matratze, nahe an deinem Kopfkissen")
-                placementRow(icon: "speaker.wave.2.fill", text: "Lautsprecher zeigt nach oben für die Bewegungserkennung")
+            VStack(spacing: 12) {
+                // Wichtigster Punkt — hervorgehoben.
+                placementRow(icon: "bed.double.fill",
+                             text: "Lege dein iPhone auf die Matratze, nahe am Kopfkissen — so erkennt es deine Bewegungen am besten",
+                             highlight: true)
+                placementRow(icon: "speaker.wave.2.fill", text: "Display/Lautsprecher nach oben")
                 placementRow(icon: "cable.connector", text: "Angeschlossen lassen — Tracking läuft die ganze Nacht")
                 placementRow(icon: "wifi", text: "WLAN aktiv lassen für optimale Synchronisation")
             }
-            .padding(.horizontal, 8)
         }
         .padding(.horizontal, 24)
     }
 
-    private func placementRow(icon: String, text: String) -> some View {
-        HStack(alignment: .top, spacing: 16) {
+    private func placementRow(icon: String, text: String, highlight: Bool = false) -> some View {
+        HStack(alignment: .top, spacing: 14) {
             Image(systemName: icon)
                 .font(.title3)
-                .foregroundStyle(.indigo)
+                .foregroundStyle(highlight ? AnyShapeStyle(LinearGradient(colors: [.indigo, .purple], startPoint: .top, endPoint: .bottom)) : AnyShapeStyle(Color.indigo))
                 .frame(width: 28)
             Text(text)
-                .font(.subheadline)
-                .foregroundStyle(.white.opacity(0.8))
+                .font(highlight ? .subheadline.bold() : .subheadline)
+                .foregroundStyle(highlight ? .white : .white.opacity(0.8))
                 .multilineTextAlignment(.leading)
             Spacer()
         }
+        .padding(14)
+        .background(
+            (highlight ? Color.indigo.opacity(0.18) : Color.white.opacity(0.05)),
+            in: RoundedRectangle(cornerRadius: 14)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 14)
+                .strokeBorder(highlight ? Color.indigo.opacity(0.5) : Color.clear, lineWidth: 1)
+        )
     }
 
     // Step 2: Features
