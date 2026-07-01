@@ -1276,7 +1276,16 @@ struct SonarTestView: View {
                     }
 
                     Button {
-                        if sonar.isRunning { sonar.stop() } else { sonar.start() }
+                        if sonar.isRunning {
+                            sonar.stop()
+                            UIApplication.shared.isIdleTimerDisabled = false
+                        } else {
+                            sonar.start()
+                            // Bildschirm während des Tests wachhalten — sonst sperrt iOS und
+                            // suspendiert die Test-Engine (nur der Test; nachts läuft es via
+                            // Background-Audio weiter).
+                            UIApplication.shared.isIdleTimerDisabled = true
+                        }
                     } label: {
                         Label(sonar.isRunning ? "Stoppen" : "Sonar starten",
                               systemImage: sonar.isRunning ? "stop.fill" : "play.fill")
@@ -1308,10 +1317,17 @@ struct SonarTestView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Fertig") { sonar.stop(); dismiss() }
+                    Button("Fertig") {
+                        sonar.stop()
+                        UIApplication.shared.isIdleTimerDisabled = false
+                        dismiss()
+                    }
                 }
             }
-            .onDisappear { sonar.stop() }
+            .onDisappear {
+                sonar.stop()
+                UIApplication.shared.isIdleTimerDisabled = false
+            }
             .onReceive(Timer.publish(every: 0.5, on: .main, in: .common).autoconnect()) { _ in
                 feat = sonar.latest
             }
