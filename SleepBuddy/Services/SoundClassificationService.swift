@@ -302,15 +302,37 @@ extension SoundClassificationService: SNResultsObserving {
         // Pick the highest-confidence match — threshold nudged by user feedback stored in UserDefaults.
         // A global sensitivity offset lowers ALL thresholds uniformly (single tuning
         // knob) — raise it to catch more / quieter sounds, lower it to reduce noise.
-        var best: (type: SoundEventType, confidence: Double, label: String?)? = nil
-        for (id, type, baseConf) in mappings {
-            // Snoring already detects well — keep its proven threshold; lower the rest.
-            let offset = type == .snoring ? 0.0 : Self.sensitivityOffset
-            let minConf = max(0.25, adjustedThreshold(for: type, base: baseConf) - offset)
-            if let c = classifications.classification(forIdentifier: id),
-               c.confidence >= minConf,
-               c.confidence > (best?.confidence ?? 0) {
-                best = (type, c.confidence, nil)
+        func selectBest(excluding excluded: SoundEventType?) -> (type: SoundEventType, confidence: Double, label: String?)? {
+            var b: (type: SoundEventType, confidence: Double, label: String?)? = nil
+            for (id, type, baseConf) in mappings {
+                if type == excluded { continue }
+                // Snoring already detects well — keep its proven threshold; lower the rest.
+                let offset = type == .snoring ? 0.0 : Self.sensitivityOffset
+                let minConf = max(0.25, adjustedThreshold(for: type, base: baseConf) - offset)
+                if let c = classifications.classification(forIdentifier: id),
+                   c.confidence >= minConf,
+                   c.confidence > (b?.confidence ?? 0) {
+                    b = (type, c.confidence, nil)
+                }
+            }
+            return b
+        }
+
+        var best = selectBest(excluding: nil)
+
+        // Schnarch-Verwechslungs-Schutz (bindend): Apples Modell labelt tieffrequente Geräusche
+        // — v.a. Hundegebell/-knurren, aber auch andere Tiere — gelegentlich als „snoring".
+        // Echtes Schnarchen aktiviert diese Klassen NICHT. Ist also eine Tier-/Fremdklasse klar
+        // mit präsent, ist es kein Schnarchen → neu wählen ohne Schnarchen (labelt korrekt den Hund).
+        if best?.type == .snoring {
+            let competitorIDs = ["dog", "dog_bark", "dog_bow_wow", "dog_howl", "dog_growl",
+                                 "dog_whimper", "bark", "cat", "cat_meow", "bird",
+                                 "livestock_farm_animals_working_animals", "rooster", "crowing_cock_a_doodle_doo"]
+            let competingConf = competitorIDs
+                .compactMap { classifications.classification(forIdentifier: $0)?.confidence }
+                .max() ?? 0
+            if competingConf >= 0.20 {
+                best = selectBest(excluding: .snoring)
             }
         }
         // Catch-all: no explicit mapping fired → capture any other recognised, abgrenzbares

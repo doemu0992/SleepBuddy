@@ -814,6 +814,8 @@ request.overlapFactor = 0.75  // mehr Overlap = häufigere Ergebnisse = weniger 
 
 > **Best-Match-Logik:** Alle Identifier werden ausgewertet, der höchste Konfidenz-Treffer über Threshold gewinnt — kein First-Match.
 
+> **Schnarch-Verwechslungs-Schutz (bindend):** Apples `.version1`-Modell labelt tieffrequente Geräusche — v.a. **Hundegebell/-knurren** — gelegentlich als `snoring` (real beobachtet). Echtes Schnarchen aktiviert die Hunde-/Tier-Klassen NICHT. Ist der Top-Treffer `.snoring` und gleichzeitig eine Tier-Klasse (`dog*`, `bark`, `cat*`, `bird`, `rooster`, …) ≥ 0.20 präsent, wird **ohne Schnarchen neu gewählt** (`selectBest(excluding: .snoring)`) — so wird der Hund korrekt gelabelt statt fälschlich als Schnarchen gezählt. Selektion ist als `selectBest(excluding:)` gekapselt.
+
 > **Adaptive Thresholds:** `adjustedThreshold(for:base:)` liest UserDefaults-Feedback (confirmed/rejected/missed) und passt Schwellen ±10% an (ab 5 Samples, min 0.20, max 0.90).
 
 > **Globaler Empfindlichkeits-Offset (bindend):** `sensitivityOffset` (aktuell 0.12) wird von **jeder** Pro-Klasse-Schwelle abgezogen (Floor 0.25) — eine zentrale Stellschraube für mehr/weniger Erkennungen. **Ausnahme `.snoring`** (kein Offset — funktioniert bereits gut, soll nicht über-triggern). `hintMLDetection`-Sanity-Floor entsprechend 0.25.
