@@ -126,6 +126,7 @@ final class SleepTrackingViewModel {
         if sonarEnabled {
             audioService.sonar = sonar
             sonar.onFeaturesUpdated = { [weak self] f in self?.latestSonar = f }
+            sonar.beginNightLog()
         } else {
             audioService.sonar = nil
         }
@@ -211,6 +212,7 @@ final class SleepTrackingViewModel {
         soundClassifier.stop()
         soundEventService.reset()
         healthKit.stopHeartRatePolling()
+        sonar.endNightLog()
         audioService.sonar = nil
         endUsageMonitoring()
 

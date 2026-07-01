@@ -958,6 +958,7 @@ struct EntwickleroptionenView: View {
     @State private var zeigeICloudTest = false
     @State private var zeigeSoundAudit = false
     @State private var zeigeSonarTest = false
+    @State private var zeigeSonarNacht = false
     @State private var normalisiereLaeuft = false
     @State private var normalisiereErgebnis: String?
     @State private var phasenLaeuft = false
@@ -988,6 +989,11 @@ struct EntwickleroptionenView: View {
                     Label("Sonar testen (Atmung/Bewegung)", systemImage: "dot.radiowaves.left.and.right").foregroundStyle(.indigo)
                 }
                 .sheet(isPresented: $zeigeSonarTest) { SonarTestView() }
+
+                Button { zeigeSonarNacht = true } label: {
+                    Label("Sonar-Nachtlog (letzte Nacht)", systemImage: "moon.zzz.fill").foregroundStyle(.indigo)
+                }
+                .sheet(isPresented: $zeigeSonarNacht) { SonarNightLogView() }
             } header: {
                 Text("Tests")
             }
@@ -1461,6 +1467,35 @@ final class SonarService {
     /// Für das Tracking: Zustand zurücksetzen, ohne eine eigene Engine zu starten.
     func resetForTracking() { reset() }
 
+    // MARK: - Nacht-Log (Datei, für Analyse über die ganze Nacht)
+
+    private var nightLogActive = false
+    static var nightLogURL: URL {
+        (FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
+            ?? URL(fileURLWithPath: NSTemporaryDirectory()))
+            .appendingPathComponent("SonarNightLog.csv")
+    }
+
+    func beginNightLog() {
+        let f = DateFormatter(); f.dateFormat = "dd.MM.yyyy HH:mm"
+        let header = "# SLEEPBUDDY SONAR-NACHTLOG — Start \(f.string(from: Date()))\n# zeit,atem_bpm,reg_pct,bew_pct,pegel,signal\n"
+        try? header.write(to: Self.nightLogURL, atomically: true, encoding: .utf8)
+        nightLogActive = true
+    }
+
+    func endNightLog() { nightLogActive = false }
+
+    private func appendNightLine(bpm: Float, reg: Float, mov: Float, pegel: Float, present: Bool) {
+        guard nightLogActive else { return }
+        let f = DateFormatter(); f.dateFormat = "HH:mm:ss"
+        let line = "\(f.string(from: Date())),\(Int(bpm)),\(Int(reg*100)),\(Int(mov*100)),\(String(format: "%.4f", pegel)),\(present ? 1 : 0)\n"
+        if let h = try? FileHandle(forWritingTo: Self.nightLogURL) {
+            h.seekToEndOfFile()
+            if let d = line.data(using: .utf8) { h.write(d) }
+            try? h.close()
+        }
+    }
+
     /// Roh-Mikrofon-Buffer von außen einspeisen (enthält den vom AudioAnalysisService
     /// gespielten 19-kHz-Ton + Reflexion).
     func feedExternal(_ buffer: AVAudioPCMBuffer) {
@@ -1605,6 +1640,7 @@ final class SonarService {
         let line = String(format: "%5.0fs  Atem %2.0f/min  Reg %3.0f%%  Bew %3.0f%%  Pegel %.5f  %@",
                           elapsed, bpm, reg * 100, movement * 100, meanMag,
                           present ? "OK" : "-")
+        appendNightLine(bpm: bpm, reg: reg, mov: movement, pegel: meanMag, present: present)
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.latest = feat
@@ -1722,5 +1758,87 @@ final class SonarService {
         var out = x
         for k in 1..<x.count { out[k] = out[k-1] + alpha * (x[k] - out[k-1]) }
         return out
+    }
+}
+
+// MARK: - SonarNightLogView (kompakte Zusammenfassung der Nacht + Datei teilen)
+
+struct SonarNightLogView: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var summary = "Lade…"
+    @State private var kopiert = false
+    @State private var zeigeShare = false
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                Text(summary)
+                    .font(.system(.footnote, design: .monospaced))
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding()
+            }
+            .navigationTitle("Sonar-Nachtlog")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Fertig") { dismiss() } }
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        UIPasteboard.general.string = summary
+                        kopiert = true
+                    } label: {
+                        Label(kopiert ? "Kopiert ✓" : "Kopieren", systemImage: kopiert ? "checkmark" : "doc.on.doc")
+                    }
+                }
+            }
+            .safeAreaInset(edge: .bottom) {
+                Button {
+                    zeigeShare = true
+                } label: {
+                    Label("Volle Datei teilen (CSV)", systemImage: "square.and.arrow.up")
+                        .font(.subheadline.bold()).frame(maxWidth: .infinity).padding()
+                        .background(Color.indigo, in: RoundedRectangle(cornerRadius: 12)).foregroundStyle(.white)
+                }
+                .buttonStyle(.plain).padding()
+                .sheet(isPresented: $zeigeShare) { ShareSheet(items: [SonarService.nightLogURL]) }
+            }
+            .onAppear { summary = Self.buildSummary() }
+        }
+    }
+
+    /// Parst die CSV-Nachtdatei und baut eine kurze, pastebare Zusammenfassung.
+    static func buildSummary() -> String {
+        guard let text = try? String(contentsOf: SonarService.nightLogURL, encoding: .utf8) else {
+            return "Noch kein Nachtlog vorhanden.\nSonar in den Einstellungen aktivieren und eine Nacht tracken."
+        }
+        var bpms: [Int] = []
+        var movHigh = 0, presentCnt = 0, total = 0
+        var firstT = "", lastT = ""
+        for raw in text.split(separator: "\n") {
+            if raw.hasPrefix("#") { continue }
+            let c = raw.split(separator: ",", omittingEmptySubsequences: false).map(String.init)
+            guard c.count >= 6 else { continue }
+            total += 1
+            if firstT.isEmpty { firstT = c[0] }
+            lastT = c[0]
+            if let b = Int(c[1]), b > 0 { bpms.append(b) }
+            if let m = Int(c[3]), m >= 30 { movHigh += 1 }
+            if c[5] == "1" { presentCnt += 1 }
+        }
+        guard total > 0 else { return "Nachtlog ist leer (keine Sonar-Daten aufgezeichnet)." }
+        let sorted = bpms.sorted()
+        let median = sorted.isEmpty ? 0 : sorted[sorted.count/2]
+        let lo = sorted.first ?? 0, hi = sorted.last ?? 0
+        let breathPct = Int(Double(bpms.count) / Double(total) * 100)
+        let movPct = Int(Double(movHigh) / Double(total) * 100)
+        let presPct = Int(Double(presentCnt) / Double(total) * 100)
+        var s = "SONAR-NACHT — ZUSAMMENFASSUNG\n"
+        s += "Zeitraum: \(firstT) – \(lastT)\n"
+        s += "Fenster gesamt: \(total) (à ~5 s)\n"
+        s += "Signal vorhanden: \(presPct)%\n"
+        s += "Atem erkannt: \(breathPct)% der Zeit\n"
+        s += "Atemrate: Median \(median)/min (Bereich \(lo)–\(hi))\n"
+        s += "Bewegung ≥30%: \(movPct)% der Zeit\n"
+        return s
     }
 }
