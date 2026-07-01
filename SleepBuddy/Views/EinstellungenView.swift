@@ -1518,29 +1518,47 @@ final class SonarService {
         let count = iBB.count
         guard count >= Int(basebandRate * 8) else { return }   // ≥ 8 s Daten
 
-        // I/Q glätten (Ein-Pol-Tiefpass ~3 Hz @ 50 Hz) → weniger Demod-Rauschen in Phase/Mag.
+        // I/Q glätten (Ein-Pol-Tiefpass ~3 Hz @ 50 Hz) → weniger Demod-Rauschen.
         let iS = lowpass(iBB, alpha: 0.30)
         let qS = lowpass(qBB, alpha: 0.30)
 
-        // Phase (Mikro-Bewegung der Brust) + Magnitude (grobe Reflexionsstärke)
-        var phase = [Float](repeating: 0, count: count)
-        var mag = [Float](repeating: 0, count: count)
-        for k in 0..<count {
-            phase[k] = atan2(qS[k], iS[k])
-            mag[k] = sqrt(iS[k]*iS[k] + qS[k]*qS[k])
-        }
-        let meanMag = mag.reduce(0, +) / Float(count)
-        unwrap(&phase)
-        // Detrend Phase (linearer Drift raus) → reines Atem-/Bewegungssignal
-        detrend(&phase)
-        // Zusätzliche leichte Glättung des Atemsignals (killt hochfrequentes Restrauschen).
-        phase = lowpass(phase, alpha: 0.5)
+        // CLUTTER-REMOVAL (bindend): Der statische Reflexionsanteil (Wände, Decke, Bettgestell)
+        // dominiert I/Q und „friert" die Rohphase ein → das kleine Atem-Signal geht unter.
+        // Deshalb den DC (Mittelwert = statischer Anteil) abziehen; übrig bleibt die
+        // BEWEGTE Komponente (Atmung/Körper).
+        var mi: Float = 0, mq: Float = 0
+        vDSP_meanv(iS, 1, &mi, vDSP_Length(count))
+        vDSP_meanv(qS, 1, &mq, vDSP_Length(count))
+        var ir = [Float](repeating: 0, count: count)
+        var qr = [Float](repeating: 0, count: count)
+        for k in 0..<count { ir[k] = iS[k] - mi; qr[k] = qS[k] - mq }
 
-        let (bpm, reg) = breathing(from: phase, rate: basebandRate)
-        let movement = movementLevel(phase: phase, rate: basebandRate)
-        // Signal gilt als vorhanden, wenn die Reflexion klar über dem Rauschen liegt.
-        let present = meanMag > 1e-4
+        // Hauptbewegungsachse (2D-PCA) → 1D-Signal, das im Atemtakt schwingt.
+        var sii: Float = 0, sqq: Float = 0, siq: Float = 0
+        vDSP_measqv(ir, 1, &sii, vDSP_Length(count))
+        vDSP_measqv(qr, 1, &sqq, vDSP_Length(count))
+        vDSP_dotpr(ir, 1, qr, 1, &siq, vDSP_Length(count)); siq /= Float(count)
+        let theta = 0.5 * atan2(2*siq, sii - sqq)
+        let ct = cos(theta), st = sin(theta)
+        var motionSig = [Float](repeating: 0, count: count)
+        for k in 0..<count { motionSig[k] = ir[k]*ct + qr[k]*st }
+
+        // Signalpräsenz = Stärke des STATISCHEN Reflexionsanteils (Ton reflektiert überhaupt).
+        let meanMag = sqrt(mi*mi + mq*mq)
         signalLevel = meanMag
+        let present = meanMag > 1e-4
+
+        detrend(&motionSig)
+        motionSig = lowpass(motionSig, alpha: 0.5)   // Atemband glätten
+        // Atmung aus der clutter-bereinigten Bewegungskomponente (das war der Fix).
+        let (bpm, reg) = breathing(from: motionSig, rate: basebandRate)
+
+        // Bewegung aus der Rohphase (guter absoluter Maßstab: still = klein, Wälzen = groß).
+        var phase = [Float](repeating: 0, count: count)
+        for k in 0..<count { phase[k] = atan2(qS[k], iS[k]) }
+        unwrap(&phase)
+        detrend(&phase)
+        let movement = movementLevel(phase: phase, rate: basebandRate)
 
         let feat = SonarFeatures(
             breathingRateBPM: present ? bpm : 0,
@@ -1548,8 +1566,8 @@ final class SonarService {
             movementIntensity: movement,
             signalPresent: present
         )
-        // Letzte ~6 s als Wellenform fürs UI
-        let tail = Array(phase.suffix(Int(basebandRate * 6)))
+        // Letzte ~6 s der Atem-Bewegungskomponente als Wellenform fürs UI
+        let tail = Array(motionSig.suffix(Int(basebandRate * 6)))
         let elapsed = Date().timeIntervalSince(logStart)
         let line = String(format: "%5.0fs  Atem %2.0f/min  Reg %3.0f%%  Bew %3.0f%%  Pegel %.5f  %@",
                           elapsed, bpm, reg * 100, movement * 100, meanMag,
