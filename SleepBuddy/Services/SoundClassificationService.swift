@@ -241,7 +241,11 @@ final class SoundClassificationService: NSObject {
         }
     }
 
-    /// Returns a gain-scaled copy of the buffer, hard-clipped to [-1, 1].
+    /// Returns a gain-scaled copy, **soft-clipped** via tanh to [-1, 1].
+    /// Hard clipping (vDSP_vclip) erzeugte bei lauten Transienten (z. B. Hundegebell) harsche
+    /// Oberwellen, die Apples Modell fälschlich Richtung „snoring" schoben. tanh sättigt weich:
+    /// leise Signale bleiben linear verstärkt (tanh(x)≈x), laute werden ohne harte Kanten
+    /// begrenzt — bessere, sauberere Klassifikation ohne Empfindlichkeitsverlust.
     private static func applyGain(_ buffer: AVAudioPCMBuffer, gain: Float) -> AVAudioPCMBuffer? {
         guard let inCh = buffer.floatChannelData,
               let out = AVAudioPCMBuffer(pcmFormat: buffer.format, frameCapacity: buffer.frameCapacity),
@@ -249,11 +253,10 @@ final class SoundClassificationService: NSObject {
         out.frameLength = buffer.frameLength
         let n = vDSP_Length(buffer.frameLength)
         var g = gain
-        var lo: Float = -1.0
-        var hi: Float = 1.0
+        var count = Int32(buffer.frameLength)
         for c in 0..<Int(buffer.format.channelCount) {
-            vDSP_vsmul(inCh[c], 1, &g, outCh[c], 1, n)
-            vDSP_vclip(outCh[c], 1, &lo, &hi, outCh[c], 1, n)
+            vDSP_vsmul(inCh[c], 1, &g, outCh[c], 1, n)   // out = in * gain
+            vvtanhf(outCh[c], outCh[c], &count)          // out = tanh(out) → weiche Sättigung
         }
         return out
     }

@@ -781,7 +781,9 @@ request.overlapFactor = 0.75  // mehr Overlap = häufigere Ergebnisse = weniger 
 // Jeder Buffer wird analysiert (analyzeEveryN = 1) für maximale Nacht-Erkennungsrate
 ```
 
-> **Software-Gain für den ML-Pfad (bindend):** Die AVAudioSession läuft im `.measurement`-Modus (AGC aus) für eine saubere Atemanalyse → sehr niedriger Eingangspegel. Auf der Matratze zusätzlich gedämpft. Ohne Verstärkung erreicht `SNClassifySoundRequest` für **keine** Klasse die Konfidenz → es werden **gar keine** Geräusche erkannt (auch keine externen, da diese rein ML-getriggert sind). Daher wird in `analyze(buffer:time:)` eine **gain-verstärkte Kopie** (Faktor 8, hart auf [-1,1] geclippt via `vDSP_vsmul`/`vDSP_vclip`) an den Analyzer gegeben. Das rohe Signal bleibt für die Atem-/Amplitudenanalyse unberührt. Gain ggf. anhand echter Nächte nachjustieren.
+> **Software-Gain für den ML-Pfad (bindend):** Die AVAudioSession läuft im `.measurement`-Modus (AGC aus) für eine saubere Atemanalyse → sehr niedriger Eingangspegel. Auf der Matratze zusätzlich gedämpft. Ohne Verstärkung erreicht `SNClassifySoundRequest` für **keine** Klasse die Konfidenz → es werden **gar keine** Geräusche erkannt (auch keine externen, da diese rein ML-getriggert sind). Daher wird in `analyze(buffer:time:)` eine **gain-verstärkte Kopie** (Faktor 8) an den Analyzer gegeben. Das rohe Signal bleibt für die Atem-/Amplitudenanalyse unberührt.
+>
+> **Weiche Sättigung statt Hard-Clip (bindend, datenbelegt):** `applyGain` sättigt mit **`vvtanhf` (tanh)**, nicht mit `vDSP_vclip`. Hard-Clipping erzeugte bei lauten Transienten (v.a. **Hundegebell**) harsche Oberwellen, die Apples Modell fälschlich Richtung `snoring` schoben (real beobachtet: Hund nur bei sehr lautem/nahem Audio korrekt als `dog` erkannt, nachts als Schnarchen gelabelt). tanh hält leise Signale linear (`tanh(x)≈x`, keine Empfindlichkeitseinbuße) und begrenzt laute weich → sauberere Klassifikation. Gain ggf. anhand echter Nächte nachjustieren.
 
 **Erkannte Klassen und Mindest-Konfidenz (90+ ML-Identifier → 24 Typen, Best-Match-Logik):**
 
