@@ -1386,6 +1386,11 @@ final class SonarService {
     private var newSinceEmit = 0
     private let emitEverySamples = 250           // ~5 s @ 50 Hz (schnelles Test-Feedback)
 
+    // Halten des letzten guten Atemwerts über kurze Lücken (bei Ruhe).
+    private var lastGoodBpm: Float = 0
+    private var lastGoodReg: Float = 0
+    private var lastGoodAt = Date.distantPast
+
     // MARK: - Lifecycle
 
     func start() {
@@ -1448,6 +1453,7 @@ final class SonarService {
 
     private func reset() {
         carrierPhase = 0
+        lastGoodBpm = 0; lastGoodReg = 0; lastGoodAt = .distantPast
         log.removeAll()
         logStart = Date()
         iBB.removeAll(keepingCapacity: true)
@@ -1551,7 +1557,7 @@ final class SonarService {
         detrend(&motionSig)
         motionSig = lowpass(motionSig, alpha: 0.5)   // Atemband glätten
         // Atmung aus der clutter-bereinigten Bewegungskomponente (das war der Fix).
-        let (bpm, reg) = breathing(from: motionSig, rate: basebandRate)
+        var (bpm, reg) = breathing(from: motionSig, rate: basebandRate)
 
         // Bewegung aus der Rohphase (guter absoluter Maßstab: still = klein, Wälzen = groß).
         var phase = [Float](repeating: 0, count: count)
@@ -1559,6 +1565,17 @@ final class SonarService {
         unwrap(&phase)
         detrend(&phase)
         let movement = movementLevel(phase: phase, rate: basebandRate)
+
+        // Kontinuität: letzten guten Atemwert über kurze Lücken halten, solange ruhig
+        // (kein starkes Wälzen) und der letzte Lock < 25 s her ist. Regularität wird dabei
+        // abgewertet (gehaltener Wert = geringere Konfidenz).
+        let nowT = Date()
+        if bpm > 0 {
+            lastGoodBpm = bpm; lastGoodReg = reg; lastGoodAt = nowT
+        } else if movement < 0.4, lastGoodBpm > 0, nowT.timeIntervalSince(lastGoodAt) < 25 {
+            bpm = lastGoodBpm
+            reg = lastGoodReg * 0.6
+        }
 
         let feat = SonarFeatures(
             breathingRateBPM: present ? bpm : 0,
