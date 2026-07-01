@@ -999,13 +999,33 @@ final class SleepTrackingViewModel {
                 while j < totalMin && moveByMin[j] > elevated { j += 1 }
                 let runLen = j - i
                 // Sustained restlessness (≥ 2 min) or one strong getting-up spike.
-                if runLen >= 2 || moveByMin[i] > strong {
+                if runLen >= 2 || moveByMin[i] > strong || rawMove[i] > strong {
                     markAwake(in: session, fromMinute: i, toMinute: j)
                     changed = true
                 }
                 i = j
             } else { i += 1 }
         }
+
+        // Intermittent restlessness (Umherwälzen): tossing and turning is often NOT
+        // continuous — roll, lie still 30–60 s, roll again. A sustained-run check misses
+        // this. Slide a 10-min window; if ≥ 3 of its minutes show elevated movement, the
+        // whole window counts as restless → awake. Catches "die ganze Nacht hin und her".
+        let windowLen = 10
+        let minActive = 3
+        var m = 0
+        while m < totalMin {
+            let hi = min(totalMin, m + windowLen)
+            let active = (m..<hi).filter { moveByMin[$0] > elevated }.count
+            if active >= minActive {
+                markAwake(in: session, fromMinute: m, toMinute: hi)
+                changed = true
+                m = hi
+            } else {
+                m += 1
+            }
+        }
+
         if changed { try? context.save() }
     }
 

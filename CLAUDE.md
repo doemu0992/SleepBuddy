@@ -1007,7 +1007,9 @@ if Date().timeIntervalSince(lastBCGSampleDate) >= 60, let session = currentSessi
 
 **Nächtliche Wachphasen aus Bewegung (`applyMovementWake`, bindend):**
 
-> Bewegung ist das **zuverlässigste** Wach-Signal (Umdrehen, Aufstehen, Unruhe). `applyMovementWake` nutzt die Pro-Minute-`movementIntensity` aus den TrainingSamples: anhaltend erhöhte Bewegung (> 0.30 für ≥ 2 min) **oder** ein starker Einzel-Spike (> 0.55, z.B. Aufstehen) → `.awake` (via `markAwake`-Splitting). **Bewusst KEIN BCG-Null-Heuristik** (die markierte fälschlich ruhigen Schlaf als wach). Völlig ruhiges Wachliegen bleibt prinzipbedingt unerkennbar. Läuft in `stopTracking` und im „neu berechnen"-Batch. Die Plausibilitäts-Korrektur **merged `.awake` nie weg**.
+> Bewegung ist das **zuverlässigste** Wach-Signal (Umdrehen, Aufstehen, Unruhe). `applyMovementWake` nutzt die Pro-Minute-`movementIntensity` aus den TrainingSamples: anhaltend erhöhte Bewegung (> 0.30 für ≥ 2 min) **oder** ein starker Einzel-Spike (> 0.55, z.B. Aufstehen) → `.awake` (via `markAwake`-Splitting).
+>
+> **Intermittierende Unruhe (bindend, „hin und her wälzen"):** Umherwälzen ist oft **nicht durchgängig** (drehen, 30–60 s still, wieder drehen) — die Sustained-Run-Prüfung verpasst das. Zusätzlicher Pass: gleitendes **10-min-Fenster**; sind ≥ 3 Minuten darin erhöht (> `elevated`), gilt das ganze Fenster als unruhig → `.awake`. Fängt „die ganze Nacht hin und her" ab. `movementIntensity` selbst ist peak-sensitiv (`√var×25 + peak×3`), damit kurze Rollbewegungen nicht im 30-s-Mittel untergehen. **Bewusst KEIN BCG-Null-Heuristik** (die markierte fälschlich ruhigen Schlaf als wach). Völlig ruhiges Wachliegen bleibt prinzipbedingt unerkennbar. Läuft in `stopTracking` und im „neu berechnen"-Batch. Die Plausibilitäts-Korrektur **merged `.awake` nie weg**.
 > - **`mergeAdjacentSamePhases`** (am Ende von `applyPlausibilityCorrection`) verschmilzt aufeinanderfolgende gleichtypige Phasen zu einer — sonst zeigt das Splitting mehrere benachbarte `.awake`-Segmente als getrennte Einträge im Verlauf.
 
 **Telefon-Nutzung als Wach-Signal (`applyUsageAwake` / `deviceInUse`, bindend):**

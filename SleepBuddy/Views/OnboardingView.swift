@@ -206,15 +206,22 @@ struct OnboardingView: View {
         }
     }
 
+    /// Hero-Icon mit weichem Glow (Blur-Kreis + Symbol-Schatten) — neues Nacht-Design.
+    private func glowIcon(_ systemName: String, color: Color, granted: Bool) -> some View {
+        let c = granted ? Color.green : color
+        return ZStack {
+            Circle().fill(c.opacity(0.35)).frame(width: 150, height: 150).blur(radius: 55)
+            Image(systemName: granted ? "checkmark.circle.fill" : systemName)
+                .font(.system(size: 60))
+                .foregroundStyle(c)
+                .shadow(color: c.opacity(0.6), radius: 14)
+        }
+    }
+
     // Step 3: Microphone
     private var micStep: some View {
         VStack(spacing: 28) {
-            ZStack {
-                Circle().fill(Color.orange.opacity(0.15)).frame(width: 130, height: 130)
-                Image(systemName: micGranted ? "checkmark.circle.fill" : "mic.fill")
-                    .font(.system(size: 56))
-                    .foregroundStyle(micGranted ? .green : .orange)
-            }
+            glowIcon("mic.fill", color: .orange, granted: micGranted)
 
             Text("Mikrofon-Zugriff")
                 .font(.title.bold()).foregroundStyle(.white)
@@ -250,12 +257,7 @@ struct OnboardingView: View {
     // Step 4: HealthKit
     private var healthStep: some View {
         VStack(spacing: 28) {
-            ZStack {
-                Circle().fill(Color.pink.opacity(0.15)).frame(width: 130, height: 130)
-                Image(systemName: healthGranted ? "checkmark.circle.fill" : "heart.fill")
-                    .font(.system(size: 56))
-                    .foregroundStyle(healthGranted ? .green : .pink)
-            }
+            glowIcon("heart.fill", color: .pink, granted: healthGranted)
 
             Text("Apple Health")
                 .font(.title.bold()).foregroundStyle(.white)
@@ -291,12 +293,7 @@ struct OnboardingView: View {
     // Step 5: Notifications
     private var notifStep: some View {
         VStack(spacing: 28) {
-            ZStack {
-                Circle().fill(Color.yellow.opacity(0.15)).frame(width: 130, height: 130)
-                Image(systemName: notifGranted ? "checkmark.circle.fill" : "bell.fill")
-                    .font(.system(size: 56))
-                    .foregroundStyle(notifGranted ? .green : .yellow)
-            }
+            glowIcon("bell.fill", color: .yellow, granted: notifGranted)
 
             Text("Benachrichtigungen")
                 .font(.title.bold()).foregroundStyle(.white)
@@ -332,12 +329,7 @@ struct OnboardingView: View {
     // Step 6: Partnermodus
     private var partnerModusStep: some View {
         VStack(spacing: 28) {
-            ZStack {
-                Circle().fill(Color.purple.opacity(0.15)).frame(width: 130, height: 130)
-                Image(systemName: "person.2.fill")
-                    .font(.system(size: 52))
-                    .foregroundStyle(.purple)
-            }
+            glowIcon("person.2.fill", color: .purple, granted: false)
 
             Text("Partnermodus")
                 .font(.title.bold()).foregroundStyle(.white)
@@ -411,9 +403,12 @@ struct OnboardingView: View {
     // Step 7: Sleep goal
     private var goalStep: some View {
         VStack(spacing: 28) {
-            Image(systemName: "moon.stars.fill")
-                .font(.system(size: 64))
-                .foregroundStyle(.indigo)
+            ZStack {
+                Circle().fill(Color.indigo.opacity(0.3)).frame(width: 150, height: 150).blur(radius: 55)
+                Image(systemName: "moon.stars.fill")
+                    .font(.system(size: 64))
+                    .foregroundStyle(LinearGradient(colors: [.indigo, .purple], startPoint: .topLeading, endPoint: .bottomTrailing))
+            }
 
             Text("Dein Schlafdauer-Ziel")
                 .font(.title.bold()).foregroundStyle(.white)
