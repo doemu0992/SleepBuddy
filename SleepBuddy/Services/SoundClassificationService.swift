@@ -326,12 +326,20 @@ extension SoundClassificationService: SNResultsObserving {
         // mit präsent, ist es kein Schnarchen → neu wählen ohne Schnarchen (labelt korrekt den Hund).
         if best?.type == .snoring {
             let competitorIDs = ["dog", "dog_bark", "dog_bow_wow", "dog_howl", "dog_growl",
-                                 "dog_whimper", "bark", "cat", "cat_meow", "bird",
-                                 "livestock_farm_animals_working_animals", "rooster", "crowing_cock_a_doodle_doo"]
+                                 "dog_whimper", "bark", "bow_wow", "animal", "domestic_animals_pets",
+                                 "cat", "cat_meow", "bird", "livestock_farm_animals_working_animals",
+                                 "rooster", "crowing_cock_a_doodle_doo", "growling", "whimper_dog"]
             let competingConf = competitorIDs
                 .compactMap { classifications.classification(forIdentifier: $0)?.confidence }
                 .max() ?? 0
-            if competingConf >= 0.20 {
+            // Auch wenn Apples #1-Klasse (höchste Konfidenz überhaupt) eine Tier-Klasse ist,
+            // obwohl sie unter ihrer eigenen Schwelle liegt: dann ist es kein Schnarchen.
+            let topIsAnimal = classifications.classifications.first.map { competitorIDs.contains($0.identifier) } ?? false
+            // Schon eine schwache Tier-Aktivierung (≥ 0.08) reicht, um Schnarchen zu vetoen —
+            // echtes Schnarchen aktiviert Hunde-/Tierklassen praktisch gar nicht. Ein einzelner
+            // verworfener Frame schadet der Schnarch-Zählung nicht (Schnarchen feuert über viele
+            // Frames); ein Bellen wird so nicht mehr als Schnarchen gelabelt.
+            if competingConf >= 0.08 || topIsAnimal {
                 best = selectBest(excluding: .snoring)
             }
         }
