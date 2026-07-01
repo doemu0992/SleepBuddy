@@ -95,7 +95,11 @@ final class SmartAlarmService {
     // Tone generation via AVAudioEngine
     private var toneEngine: AVAudioEngine?
     private var toneNode: AVAudioPlayerNode?
+    private var toneReverb: AVAudioUnitReverb?
     private var toneLoopTask: Task<Void, Never>?
+    // Sanftes Crescendo: der Wecker startet leise und wird über die ersten Pulse lauter —
+    // ein beruhigendes, allmähliches Aufwecken statt eines abrupten lauten Tons.
+    private var pulseIndex = 0
 
     // Short preview playback (vorschauSpielen)
     private var previewEngine: AVAudioEngine?
@@ -219,13 +223,22 @@ final class SmartAlarmService {
 
         let engine = AVAudioEngine()
         let player = AVAudioPlayerNode()
+        // Weicher Hall gibt den synthetisierten Tönen Wärme und Raum (angenehmer, weniger
+        // „elektronisch"). player → reverb → mainMixer.
+        let reverb = AVAudioUnitReverb()
+        reverb.loadFactoryPreset(.largeHall2)
+        reverb.wetDryMix = 40
         engine.attach(player)
+        engine.attach(reverb)
 
         let sampleRate = 44100.0
         let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1)!
-        engine.connect(player, to: engine.mainMixerNode, format: format)
+        engine.connect(player, to: reverb, format: format)
+        engine.connect(reverb, to: engine.mainMixerNode, format: format)
         engine.mainMixerNode.outputVolume = 1.0
-        player.volume = 1.0   // Wecker immer 100 % (ignoriert die lautstaerke-Einstellung)
+        pulseIndex = 0
+        // Crescendo-Start: erster Puls leise; scheduleNextPulse rampt auf 1.0.
+        player.volume = 0.35
 
         do {
             try engine.start()
@@ -243,12 +256,16 @@ final class SmartAlarmService {
 
         toneEngine = engine
         toneNode = player
+        toneReverb = reverb
 
         scheduleNextPulse(player: player, engine: engine, sampleRate: sampleRate)
     }
 
     private func scheduleNextPulse(player: AVAudioPlayerNode, engine: AVAudioEngine, sampleRate: Double) {
         guard alarmFired else { return }
+        // Sanftes Crescendo über die ersten ~6 Pulse (leise → 100 %), danach voll laut.
+        pulseIndex += 1
+        player.volume = Float(min(0.35 + 0.11 * Double(pulseIndex), 1.0))
         let (toneBuf, silenceBuf) = makePulseBuffers(for: alarmTon, sampleRate: sampleRate)
 
         player.scheduleBuffer(toneBuf, completionCallbackType: .dataPlayedBack) { [weak self] _ in
@@ -262,43 +279,50 @@ final class SmartAlarmService {
         player.play()
     }
 
-    // Returns (tone, silence) buffers tailored for each alarm type
+    // Returns (tone, silence) buffers tailored for each alarm type.
+    // Alle Töne sind bewusst weich (sanfte Attack/Release, warme Obertöne, kein Clipping)
+    // und werden durch den Hall zusätzlich beruhigend — kein hartes Piepen mehr.
     private func makePulseBuffers(for ton: AlarmTon, sampleRate: Double) -> (AVAudioPCMBuffer, AVAudioPCMBuffer) {
         switch ton {
         case .sanft:
-            // Gentle rising chord: fundamental + soft 5th, slow crescendo over 1.2 s, long 1.8 s gap
-            return (makeSanftBuffer(sampleRate: sampleRate), makeSilenceBuffer(sampleRate: sampleRate, duration: 1.8))
+            // Warmer, atmender Dur-Akkord mit sanftem Vibrato, langer 2.2 s Ruhe.
+            return (makeSanftBuffer(sampleRate: sampleRate), makeSilenceBuffer(sampleRate: sampleRate, duration: 2.2))
         case .natur:
-            // Bird-like FM chirp: three quick ascending whistles, 1.4 s gap
-            return (makeNaturBuffer(sampleRate: sampleRate), makeSilenceBuffer(sampleRate: sampleRate, duration: 1.4))
+            // Weiche Vogel-Pfiffe (entschärft), 1.6 s Ruhe.
+            return (makeNaturBuffer(sampleRate: sampleRate), makeSilenceBuffer(sampleRate: sampleRate, duration: 1.6))
         case .klassisch:
-            // Arpeggio of C-major triad (C5→E5→G5), piano-like decay, 1.0 s gap
-            return (makeKlassischBuffer(sampleRate: sampleRate), makeSilenceBuffer(sampleRate: sampleRate, duration: 1.0))
+            // Sanftes Glockenspiel-Arpeggio (C-Dur), weicher Ausklang, 1.2 s Ruhe.
+            return (makeKlassischBuffer(sampleRate: sampleRate), makeSilenceBuffer(sampleRate: sampleRate, duration: 1.2))
         case .signal:
-            // Two-tone alert: alternating 880 Hz / 660 Hz pulses, sharp attack, 0.6 s gap
-            return (makeSignalBuffer(sampleRate: sampleRate), makeSilenceBuffer(sampleRate: sampleRate, duration: 0.6))
+            // Zartes Zwei-Ton-Glockenspiel (G5→C6), weicher Mallet-Anschlag, 1.0 s Ruhe.
+            return (makeChimeBuffer(sampleRate: sampleRate), makeSilenceBuffer(sampleRate: sampleRate, duration: 1.0))
         case .digital:
-            // Rising sweep 440→1320 Hz with subtle odd-harmonic texture, 0.8 s gap
-            return (makeDigitalBuffer(sampleRate: sampleRate), makeSilenceBuffer(sampleRate: sampleRate, duration: 0.8))
+            // Weiches Schimmern: drei sanft aufsteigende Glockentöne, 1.0 s Ruhe.
+            return (makeShimmerBuffer(sampleRate: sampleRate), makeSilenceBuffer(sampleRate: sampleRate, duration: 1.0))
         }
     }
 
     // MARK: - Tone synthesisers
 
-    // Sanft: smooth rising chord (C4 + G4 + C5), long fade-in
+    // Sanft: warmer, breathing C-major chord (C4 + E4 + G4 + C5) with gentle vibrato and a
+    // long, soft fade in/out — like a distant harmonium easing you awake.
     private func makeSanftBuffer(sampleRate: Double) -> AVAudioPCMBuffer {
-        let duration = 1.2
+        let duration = 2.0
         let buf = allocBuffer(sampleRate: sampleRate, duration: duration)
         let data = buf.floatChannelData![0]
-        let freqs = [261.63, 392.0, 523.25]          // C4, G4, C5
-        let amps  = [0.55,   0.30,  0.20]
+        let freqs = [261.63, 329.63, 392.0, 523.25]     // C4, E4, G4, C5
+        let amps  = [0.42,   0.26,   0.24,  0.16]
         for i in 0..<Int(buf.frameLength) {
             let t = Double(i) / sampleRate
-            // slow crescendo: reaches full volume at 0.8 s, then holds
-            let env = min(t / 0.8, 1.0) * max(1.0 - max(t - 1.0, 0.0) / 0.2, 0.0)
+            // Smooth bell-shaped envelope: fade in over 0.9 s, hold, fade out over 0.7 s.
+            let fadeIn  = min(t / 0.9, 1.0)
+            let fadeOut = min(max(duration - t, 0.0) / 0.7, 1.0)
+            let env = fadeIn * fadeOut
+            // gentle 5 Hz vibrato for a living, calming timbre
+            let vib = 1.0 + 0.004 * sin(2.0 * .pi * 5.0 * t)
             var s = 0.0
-            for (f, a) in zip(freqs, amps) { s += a * sin(2.0 * .pi * f * t) }
-            data[i] = Float(s * env * 0.85)
+            for (f, a) in zip(freqs, amps) { s += a * sin(2.0 * .pi * f * vib * t) }
+            data[i] = Float(s * env * 0.8)
         }
         return buf
     }
@@ -310,8 +334,9 @@ final class SmartAlarmService {
         let duration = 3.0 * (chirpDur + gap)
         let buf = allocBuffer(sampleRate: sampleRate, duration: duration)
         let data = buf.floatChannelData![0]
-        let startFreqs = [1200.0, 1500.0, 1800.0]
-        let endFreqs   = [1600.0, 1900.0, 2200.0]
+        // Lower, softer whistles (less shrill) with a much gentler FM index.
+        let startFreqs = [900.0, 1150.0, 1400.0]
+        let endFreqs   = [1150.0, 1400.0, 1650.0]
         for i in 0..<Int(buf.frameLength) {
             let t = Double(i) / sampleRate
             var s = 0.0
@@ -323,9 +348,9 @@ final class SmartAlarmService {
                 let phase = lt / chirpDur
                 let freq = startFreqs[k] + (endFreqs[k] - startFreqs[k]) * phase
                 let env = sin(.pi * phase)            // bell-shaped per chirp
-                // FM: modulator at 3× carrier for brightness
-                let carrier = sin(2.0 * .pi * freq * lt + 1.4 * sin(2.0 * .pi * freq * 3.0 * lt))
-                s += carrier * env * 0.75
+                // gentle FM (index 0.6) → warmer, less piercing than before
+                let carrier = sin(2.0 * .pi * freq * lt + 0.6 * sin(2.0 * .pi * freq * 2.0 * lt))
+                s += carrier * env * 0.55
             }
             data[i] = Float(s)
         }
@@ -347,56 +372,61 @@ final class SmartAlarmService {
                 let t0 = Double(n) * (noteLen - overlap)
                 let lt = t - t0
                 guard lt >= 0 else { continue }
-                // piano-style: quick attack, exponential decay
-                let env = min(lt / 0.008, 1.0) * exp(-lt * 5.5)
-                // fundamental + 2nd + 3rd harmonic for warmth
+                // soft mallet: gentle attack, longer mellow decay
+                let env = min(lt / 0.02, 1.0) * exp(-lt * 4.0)
+                // fundamental + soft 2nd harmonic (less 3rd) → mellower, bell-like
                 s += (sin(2.0 * .pi * freq * lt)
-                    + 0.35 * sin(4.0 * .pi * freq * lt)
-                    + 0.15 * sin(6.0 * .pi * freq * lt)) * env * 0.6
+                    + 0.22 * sin(4.0 * .pi * freq * lt)
+                    + 0.07 * sin(6.0 * .pi * freq * lt)) * env * 0.6
             }
             data[i] = Float(max(-1.0, min(1.0, s)))
         }
         return buf
     }
 
-    // Signal: alternating 880 Hz / 660 Hz, 3 pairs, sharp beep
-    private func makeSignalBuffer(sampleRate: Double) -> AVAudioPCMBuffer {
-        let beepDur  = 0.12
-        let beepGap  = 0.05
-        let pairs    = 3
-        let duration = Double(pairs) * 2.0 * (beepDur + beepGap)
+    // Chime: two soft mallet bells (G5 → C6), gentle attack + mellow decay, no clipping.
+    private func makeChimeBuffer(sampleRate: Double) -> AVAudioPCMBuffer {
+        let noteLen = 0.8
+        let overlap = 0.25
+        let notes: [Double] = [783.99, 1046.50]     // G5, C6
+        let duration = Double(notes.count) * (noteLen - overlap) + overlap + 0.3
         let buf = allocBuffer(sampleRate: sampleRate, duration: duration)
         let data = buf.floatChannelData![0]
-        let freqs = [880.0, 660.0]
         for i in 0..<Int(buf.frameLength) {
             let t = Double(i) / sampleRate
-            let slot = Int(t / (beepDur + beepGap))
-            let lt   = t - Double(slot) * (beepDur + beepGap)
-            guard lt < beepDur else { data[i] = 0; continue }
-            let freq = freqs[slot % 2]
-            let env  = min(lt / 0.006, 1.0) * min((beepDur - lt) / 0.012, 1.0)
-            // slightly clipped sine for punch
-            let raw  = sin(2.0 * .pi * freq * lt) * env
-            data[i]  = Float(max(-0.9, min(0.9, raw * 1.15)))
+            var s = 0.0
+            for (n, freq) in notes.enumerated() {
+                let t0 = Double(n) * (noteLen - overlap)
+                let lt = t - t0
+                guard lt >= 0 else { continue }
+                let env = min(lt / 0.02, 1.0) * exp(-lt * 3.2)
+                s += (sin(2.0 * .pi * freq * lt) + 0.18 * sin(4.0 * .pi * freq * lt)) * env * 0.55
+            }
+            data[i] = Float(max(-1.0, min(1.0, s)))
         }
         return buf
     }
 
-    // Digital: rising frequency sweep with square-wave harmonics
-    private func makeDigitalBuffer(sampleRate: Double) -> AVAudioPCMBuffer {
-        let duration = 0.9
+    // Shimmer: three softly rising bell tones (C5, E5, G5) with slight detune — a calm,
+    // dreamy ascent instead of a harsh digital sweep.
+    private func makeShimmerBuffer(sampleRate: Double) -> AVAudioPCMBuffer {
+        let noteLen = 0.7
+        let step    = 0.22
+        let notes: [Double] = [523.25, 659.25, 783.99]   // C5, E5, G5
+        let duration = Double(notes.count - 1) * step + noteLen + 0.3
         let buf = allocBuffer(sampleRate: sampleRate, duration: duration)
         let data = buf.floatChannelData![0]
-        let f0 = 440.0, f1 = 1320.0
-        var phase = 0.0
         for i in 0..<Int(buf.frameLength) {
-            let t   = Double(i) / sampleRate
-            let p   = t / duration                          // 0→1
-            let env = min(t / 0.01, 1.0) * min((duration - t) / 0.05, 1.0)
-            let freq = f0 + (f1 - f0) * p * p              // quadratic sweep
-            phase += 2.0 * .pi * freq / sampleRate
-            // Odd harmonics only (square-ish) — just fundamental + 3rd for clarity
-            let s = (sin(phase) + 0.28 * sin(3.0 * phase) + 0.10 * sin(5.0 * phase)) * env * 0.75
+            let t = Double(i) / sampleRate
+            var s = 0.0
+            for (n, freq) in notes.enumerated() {
+                let t0 = Double(n) * step
+                let lt = t - t0
+                guard lt >= 0 else { continue }
+                let env = min(lt / 0.03, 1.0) * exp(-lt * 2.8)
+                // slight detune (+0.3 %) layered for a shimmering, soft chorus
+                s += (sin(2.0 * .pi * freq * lt) + 0.5 * sin(2.0 * .pi * freq * 1.003 * lt)) * env * 0.32
+            }
             data[i] = Float(max(-1.0, min(1.0, s)))
         }
         return buf
@@ -429,12 +459,17 @@ final class SmartAlarmService {
 
         let engine = AVAudioEngine()
         let player = AVAudioPlayerNode()
+        let reverb = AVAudioUnitReverb()
+        reverb.loadFactoryPreset(.largeHall2)
+        reverb.wetDryMix = 40
         engine.attach(player)
+        engine.attach(reverb)
         let sampleRate = 44100.0
         let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1)!
-        engine.connect(player, to: engine.mainMixerNode, format: format)
+        engine.connect(player, to: reverb, format: format)
+        engine.connect(reverb, to: engine.mainMixerNode, format: format)
         engine.mainMixerNode.outputVolume = 1.0
-        player.volume = lautstaerke
+        player.volume = max(lautstaerke, 0.6)   // preview always clearly audible
 
         guard (try? engine.start()) != nil else { return }
         previewEngine = engine
@@ -470,6 +505,7 @@ final class SmartAlarmService {
         toneEngine?.stop()
         toneNode = nil
         toneEngine = nil
+        toneReverb = nil
         // Failsafe-Notification-Burst abbrechen — sonst klingelt der Hintergrund-Wecker
         // (alle 30 s über 5 min) weiter, obwohl der In-App-Ton gestoppt wurde.
         let center = UNUserNotificationCenter.current()

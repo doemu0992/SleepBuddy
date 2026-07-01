@@ -1383,15 +1383,17 @@ Weckt in der Leichtschlaf- oder Wach-Phase innerhalb eines Zeitfensters.
 
 **Snooze:** Max. 3×, je 5 Minuten. `snoozeCount` wird über `Task` gesteuert.
 
-**Alarm-Töne (AVAudioEngine-Synthese):**
+**Alarm-Töne (AVAudioEngine-Synthese, beruhigend, bindend):**
+
+> **Weicher Hall + Crescendo (bindend):** Die Engine-Kette ist `player → AVAudioUnitReverb (.largeHall2, wetDryMix 40) → mainMixer` — gibt den Tönen Wärme/Raum. Zusätzlich ein **sanftes Crescendo**: `scheduleNextPulse` startet bei `player.volume = 0.35` und rampt über ~6 Pulse auf 1.0 (leiser Start → beruhigendes, allmähliches Wecken; der Failsafe garantiert weiterhin lautes Klingeln). Alle Töne sind weich (sanfte Attack/Release, warme Obertöne, **kein Clipping**). `vorschauSpielen()` nutzt denselben Hall.
 
 | Ton | Beschreibung | Gap |
 |-----|-------------|-----|
-| `.sanft` | C4+G4+C5 Akkord, langsames Crescendo | 1.8s |
-| `.natur` | 3 FM-Vogel-Pfiffe (1200→1600, 1500→1900, 1800→2200 Hz) | 1.4s |
-| `.klassisch` | C5→E5→G5→C6 Arpeggio, Piano-Decay | 1.0s |
-| `.signal` | Alternierend 880/660 Hz, 3 Paare | 0.6s |
-| `.digital` | Quadratischer Sweep 440→1320 Hz | 0.8s |
+| `.sanft` | C4+E4+G4+C5 Dur-Akkord, 5 Hz-Vibrato, langer weicher Fade | 2.2s |
+| `.natur` | 3 weiche FM-Vogel-Pfiffe (entschärft, tiefer, FM-Index 0.6) | 1.6s |
+| `.klassisch` | C5→E5→G5→C6 Glockenspiel-Arpeggio, weicher Ausklang | 1.2s |
+| `.signal` | Zartes Zwei-Ton-Glockenspiel G5→C6 (`makeChimeBuffer`) | 1.0s |
+| `.digital` | Weiches Schimmern C5/E5/G5, leicht detuned (`makeShimmerBuffer`) | 1.0s |
 
 **AVAudioSession beim Alarm:**
 ```swift
