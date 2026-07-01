@@ -892,18 +892,26 @@ struct ICloudAudioTestView: View {
 /// Shows the Apple sound-taxonomy audit (dead identifiers + full class list) with a
 /// copy button so the report can be shared for correcting the mappings.
 struct SoundAuditView: View {
-    let report: String
+    // Optional übergebener Text; wird sonst selbst berechnet (verhindert leere Seite durch
+    // SwiftUI-State-Timing beim gleichzeitigen Setzen von Text + Sheet-Flag).
+    var report: String = ""
     @Environment(\.dismiss) private var dismiss
     @State private var kopiert = false
+    @State private var text = ""
 
     var body: some View {
         NavigationStack {
             ScrollView {
-                Text(report)
+                Text(text.isEmpty ? "Lade Klassen…" : text)
                     .font(.system(.caption, design: .monospaced))
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding()
+            }
+            .onAppear {
+                if !report.isEmpty { text = report; return }
+                if #available(iOS 15, *) { text = SoundClassificationService.auditText() }
+                else { text = "Erfordert iOS 15 oder neuer." }
             }
             .navigationTitle("Geräusch-Klassen")
             .navigationBarTitleDisplayMode(.inline)
@@ -913,7 +921,7 @@ struct SoundAuditView: View {
                 }
                 ToolbarItem(placement: .primaryAction) {
                     Button {
-                        UIPasteboard.general.string = report
+                        UIPasteboard.general.string = text
                         kopiert = true
                     } label: {
                         Label(kopiert ? "Kopiert ✓" : "Kopieren",
@@ -935,7 +943,6 @@ struct EntwickleroptionenView: View {
     @State private var zeigeMikrofonTest = false
     @State private var zeigeICloudTest = false
     @State private var zeigeSoundAudit = false
-    @State private var soundAuditText = ""
     @State private var normalisiereLaeuft = false
     @State private var normalisiereErgebnis: String?
     @State private var phasenLaeuft = false
@@ -956,13 +963,11 @@ struct EntwickleroptionenView: View {
                 .sheet(isPresented: $zeigeICloudTest) { ICloudAudioTestView() }
 
                 Button {
-                    if #available(iOS 15, *) { soundAuditText = SoundClassificationService.auditText() }
-                    else { soundAuditText = "Erfordert iOS 15 oder neuer." }
                     zeigeSoundAudit = true
                 } label: {
                     Label("Geräusch-Klassen prüfen", systemImage: "checklist").foregroundStyle(.indigo)
                 }
-                .sheet(isPresented: $zeigeSoundAudit) { SoundAuditView(report: soundAuditText) }
+                .sheet(isPresented: $zeigeSoundAudit) { SoundAuditView() }
             } header: {
                 Text("Tests")
             }
