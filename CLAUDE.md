@@ -1010,6 +1010,13 @@ if Date().timeIntervalSince(lastBCGSampleDate) >= 60, let session = currentSessi
 > Bewegung ist das **zuverlässigste** Wach-Signal (Umdrehen, Aufstehen, Unruhe). `applyMovementWake` nutzt die Pro-Minute-`movementIntensity` aus den TrainingSamples: anhaltend erhöhte Bewegung (> 0.30 für ≥ 2 min) **oder** ein starker Einzel-Spike (> 0.55, z.B. Aufstehen) → `.awake` (via `markAwake`-Splitting). **Bewusst KEIN BCG-Null-Heuristik** (die markierte fälschlich ruhigen Schlaf als wach). Völlig ruhiges Wachliegen bleibt prinzipbedingt unerkennbar. Läuft in `stopTracking` und im „neu berechnen"-Batch. Die Plausibilitäts-Korrektur **merged `.awake` nie weg**.
 > - **`mergeAdjacentSamePhases`** (am Ende von `applyPlausibilityCorrection`) verschmilzt aufeinanderfolgende gleichtypige Phasen zu einer — sonst zeigt das Splitting mehrere benachbarte `.awake`-Segmente als getrennte Einträge im Verlauf.
 
+**Telefon-Nutzung als Wach-Signal (`applyUsageAwake` / `deviceInUse`, bindend):**
+
+> Wenn das Gerät während des Trackings **entsperrt** ist (Nutzer checkt das Handy, surft, spielt), ist der Nutzer wach — unabhängig vom Zyklusmodell. Erkennung über die **`protectedData`-Lock-Notifications** (`protectedDataWillBecomeUnavailable` = gesperrt/schlafend, `protectedDataDidBecomeAvailable` = entsperrt/in Nutzung). Entsperrte Intervalle werden in `usageAwakeIntervals` gesammelt und in `stopTracking` (nach `applyMovementWake`, vor `applyPlausibilityCorrection`) via `markAwake` als `.awake` gesetzt. Live overridet `deviceInUse` die aktuelle Phase auf `.awake`.
+> - **`sawLockEvent`-Gate (bindend, kritisch):** Ohne Passcode/FaceID feuern die Lock-Notifications **nie** → das Gerät gilt fälschlich die ganze Nacht als „in Nutzung". Daher werden **weder** das offene End-Intervall angewendet **noch** der Live-Override aktiviert, solange nicht mindestens **ein echtes** Lock/Unlock-Event kam. Ohne Passcode ist das Feature komplett inert (kein False-Positive).
+> - Kurze Blicke (< 90 s) werden in `applyUsageAwake` ignoriert (kein Über-Gewichten eines Uhrzeit-Checks).
+> - Das Anfangsintervall `[Tracking-Start … erstes Sperren]` deckt die Einschlaf-/Einricht-Phase ab (real wach).
+
 ---
 
 ## Sensor-System

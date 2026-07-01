@@ -1,6 +1,7 @@
 import SwiftUI
 import SwiftData
 import Observation
+import UIKit
 
 @Observable
 @MainActor
@@ -51,6 +52,19 @@ final class SleepTrackingViewModel {
     private var snoringTimestamps: [Date] = []
     private(set) var snoringIsObstructive: Bool = false  // periodic pattern = OSA-like
 
+    // Phone-usage awake detection: the device being UNLOCKED during tracking is a strong
+    // "awake" signal (checking the phone, browsing, gaming). When asleep the phone is locked.
+    // Uses the protectedData lock notifications, which fire reliably when a passcode/FaceID
+    // is set (the vast majority of devices). Without a passcode the feature is simply inert.
+    private var usageAwakeIntervals: [(start: Date, end: Date)] = []
+    private var currentUnlockStart: Date?
+    private var usageObservers: [NSObjectProtocol] = []
+    /// True once a real lock/unlock event fired — proves the device reports lock state
+    /// (passcode/FaceID set). Without it the usage signal is untrustworthy and stays inert.
+    private var sawLockEvent = false
+    /// True while the device is unlocked / actively used during tracking (live awake hint).
+    private(set) var deviceInUse = false
+
     // Turn detection: track consecutive still periods so a movement spike counts as a turn
 
     // Phase smoothing: commit after stability window.
@@ -98,6 +112,8 @@ final class SleepTrackingViewModel {
         lastBCGUpdate = .distantPast
         snoringTimestamps.removeAll()
         snoringIsObstructive = false
+
+        beginUsageMonitoring()
 
         motionService.onFeaturesUpdated = { [weak self] motion in
             self?.latestMotionFeatures = motion
@@ -180,6 +196,7 @@ final class SleepTrackingViewModel {
         soundClassifier.stop()
         soundEventService.reset()
         healthKit.stopHeartRatePolling()
+        endUsageMonitoring()
 
         // If awake was pending (detected but < minPhaseDuration elapsed) when the user
         // pressed "Aufwachen", honour it: close the sleep phase at pendingPhaseStartDate
@@ -227,6 +244,9 @@ final class SleepTrackingViewModel {
 
         // Post-hoc mid-night wake from sustained body movement (turning, getting up).
         if let ctx = modelContext { applyMovementWake(to: session, context: ctx) }
+
+        // Post-hoc: phone was unlocked / in use → that time was clearly awake.
+        applyUsageAwake(to: session)
 
         // Post-hoc plausibility correction: remove/merge implausibly short isolated phases
         applyPlausibilityCorrection(to: session)
@@ -296,7 +316,15 @@ final class SleepTrackingViewModel {
 
     private func handleFeatures(audio: AudioFeatures, motion: MotionFeatures) {
         // Classification first (onset confirmation needs it)
-        let result = classifier.classify(audio: audio, motion: motion)
+        var result = classifier.classify(audio: audio, motion: motion)
+
+        // Phone in active use (device unlocked) → the user is awake, regardless of what the
+        // cycle model would draw. This overrides the live phase so browsing/gaming after
+        // starting tracking is not counted as sleep. Gated on sawLockEvent so a no-passcode
+        // device (which never reports lock state) can't get stuck forcing awake all night.
+        if deviceInUse && sawLockEvent {
+            result = (.awake, max(result.confidence, 0.9))
+        }
 
         // Sleep onset: set as soon as detector fires.
         // We no longer require classifier agreement — the onset detector already
@@ -852,6 +880,76 @@ final class SleepTrackingViewModel {
                 session.phases?.append(after); session.phases?.append(awake)
             }
         }
+    }
+
+    // MARK: - Phone-usage awake detection
+
+    private func beginUsageMonitoring() {
+        usageAwakeIntervals.removeAll()
+        sawLockEvent = false
+        // Tracking just started via a tap → device is unlocked and in use right now.
+        currentUnlockStart = Date()
+        deviceInUse = true
+        let nc = NotificationCenter.default
+        func observe(_ name: Notification.Name, _ handler: @escaping () -> Void) {
+            usageObservers.append(nc.addObserver(forName: name, object: nil, queue: .main) { _ in
+                Task { @MainActor in handler() }
+            })
+        }
+        observe(UIApplication.protectedDataWillBecomeUnavailableNotification) { [weak self] in
+            self?.deviceDidLock()
+        }
+        observe(UIApplication.protectedDataDidBecomeAvailableNotification) { [weak self] in
+            self?.deviceDidUnlock()
+        }
+    }
+
+    private func deviceDidLock() {
+        guard isTracking else { return }
+        sawLockEvent = true
+        if let start = currentUnlockStart {
+            usageAwakeIntervals.append((start, Date()))
+            currentUnlockStart = nil
+        }
+        deviceInUse = false
+    }
+
+    private func deviceDidUnlock() {
+        guard isTracking else { return }
+        sawLockEvent = true
+        if currentUnlockStart == nil { currentUnlockStart = Date() }
+        deviceInUse = true
+    }
+
+    private func endUsageMonitoring() {
+        // Only trust the still-open interval if lock state actually works on this device —
+        // otherwise a no-passcode phone would report the whole night as "in use".
+        if sawLockEvent, let start = currentUnlockStart {
+            usageAwakeIntervals.append((start, Date()))
+        }
+        currentUnlockStart = nil
+        deviceInUse = false
+        usageObservers.forEach { NotificationCenter.default.removeObserver($0) }
+        usageObservers.removeAll()
+    }
+
+    /// Marks every interval the phone was unlocked / in use during the night as awake.
+    /// Short glances (< 90 s) are ignored so a quick time-check isn't over-weighted.
+    private func applyUsageAwake(to session: SleepSession) {
+        let start = session.startDate
+        let end = session.endDate ?? Date()
+        let totalMin = max(1, Int(end.timeIntervalSince(start) / 60))
+        var marked = false
+        for interval in usageAwakeIntervals {
+            guard interval.end.timeIntervalSince(interval.start) >= 90 else { continue }
+            let from = max(0, Int(interval.start.timeIntervalSince(start) / 60))
+            let to = min(totalMin, Int(ceil(interval.end.timeIntervalSince(start) / 60)))
+            if to > from {
+                markAwake(in: session, fromMinute: from, toMinute: to)
+                marked = true
+            }
+        }
+        if marked { try? modelContext?.save() }
     }
 
     // MARK: - Mid-night wake from movement
