@@ -28,6 +28,11 @@ final class SleepTrackingViewModel {
     private let healthKit = HealthKitService()
     let soundEventService = SoundEventService()
     let soundClassifier = SoundClassificationService()
+    let sonar = SonarService()
+
+    // Sonar (experimentell, opt-in): letzte Features + Flag
+    private var sonarEnabled = false
+    private var latestSonar = SonarFeatures.neutral
 
     private var modelContext: ModelContext?
     private var currentPhaseStartDate = Date()
@@ -115,6 +120,16 @@ final class SleepTrackingViewModel {
 
         beginUsageMonitoring()
 
+        // Sonar (experimentell): wenn aktiviert, Ton+Demodulation über AudioAnalysisService.
+        sonarEnabled = UserDefaults.standard.bool(forKey: "sonar_enabled")
+        latestSonar = .neutral
+        if sonarEnabled {
+            audioService.sonar = sonar
+            sonar.onFeaturesUpdated = { [weak self] f in self?.latestSonar = f }
+        } else {
+            audioService.sonar = nil
+        }
+
         motionService.onFeaturesUpdated = { [weak self] motion in
             self?.latestMotionFeatures = motion
             // Lower the sound-event threshold while the phone rests on the mattress.
@@ -196,6 +211,7 @@ final class SleepTrackingViewModel {
         soundClassifier.stop()
         soundEventService.reset()
         healthKit.stopHeartRatePolling()
+        audioService.sonar = nil
         endUsageMonitoring()
 
         // If awake was pending (detected but < minPhaseDuration elapsed) when the user
@@ -314,7 +330,25 @@ final class SleepTrackingViewModel {
 
     // MARK: - Feature handling
 
-    private func handleFeatures(audio: AudioFeatures, motion: MotionFeatures) {
+    private func handleFeatures(audio: AudioFeatures, motion motionIn: MotionFeatures) {
+        // Sonar (experimentell): wenn ein sauberes Reflexionssignal vorliegt, ist es die
+        // bevorzugte Atem-/Bewegungsquelle (funktioniert auch vom Nachttisch). Mit vollem
+        // Fallback: ohne Signal bleibt alles beim Accelerometer/Mikro.
+        var motion = motionIn
+        if sonarEnabled, latestSonar.signalPresent {
+            let s = latestSonar
+            let hasBreath = s.breathingRateBPM > 0
+            motion = MotionFeatures(
+                movementIntensity: max(motionIn.movementIntensity, s.movementIntensity),
+                breathingRateBPM: hasBreath ? s.breathingRateBPM : motionIn.breathingRateBPM,
+                breathingRegularity: hasBreath ? s.breathingRegularity : motionIn.breathingRegularity,
+                isOnMattress: hasBreath ? true : motionIn.isOnMattress,
+                bcgHeartRateBPM: motionIn.bcgHeartRateBPM,
+                isPLMSuspected: motionIn.isPLMSuspected,
+                timestamp: motionIn.timestamp
+            )
+        }
+
         // Classification first (onset confirmation needs it)
         var result = classifier.classify(audio: audio, motion: motion)
 

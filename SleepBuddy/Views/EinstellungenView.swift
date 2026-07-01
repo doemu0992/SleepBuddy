@@ -15,6 +15,7 @@ struct EinstellungenView: View {
     @AppStorage("soundEvents_enabled") private var soundEventsAktiv = false
     @AppStorage("partnerModus_aktiv") private var partnerModusAktiv = false
     @AppStorage("partnerModus_stufe") private var partnerModusStufe = 1
+    @AppStorage("sonar_enabled") private var sonarAktiv = false
 
     @State private var exportLaeuft = false
     @State private var exportErgebnis: String?
@@ -64,10 +65,21 @@ struct EinstellungenView: View {
             .onChange(of: partnerModusAktiv) { _, on in
                 if on && partnerModusStufe < 1 { partnerModusStufe = 1 }   // Alt-Wert 0 normalisieren
             }
+
+            Toggle(isOn: $sonarAktiv) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Label("Sonar (experimentell)", systemImage: "dot.radiowaves.left.and.right")
+                    Text("Atmung/Bewegung via Ultraschall — auch vom Nachttisch")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            .tint(.indigo)
         } header: {
             Text("Aufzeichnung")
         } footer: {
-            if soundEventsAktiv {
+            if sonarAktiv {
+                Text("Experimentell: Sendet nachts einen fast unhörbaren ~19 kHz-Ton und misst die reflektierte Atem-/Bewegungswelle. Wird nach der ersten Nacht feingetunt — bei Problemen einfach wieder ausschalten.")
+            } else if soundEventsAktiv {
                 Text("Kurze Audioclips werden bei Schnarchen oder Geräuschen in iCloud gespeichert.")
             } else if partnerModusAktiv {
                 Text("SleepBuddy filtert Geräusche einer zweiten Person im Bett heraus.")
@@ -1420,6 +1432,18 @@ final class SonarService {
         engine.stop()
         isRunning = false
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+    }
+
+    // MARK: - Externer Betrieb (Tracking): keine eigene Engine/Ton — der AudioAnalysisService
+    // spielt den Ton und liefert die Roh-Buffer. Nur Demodulation + Feature-Emit.
+
+    /// Für das Tracking: Zustand zurücksetzen, ohne eine eigene Engine zu starten.
+    func resetForTracking() { reset() }
+
+    /// Roh-Mikrofon-Buffer von außen einspeisen (enthält den vom AudioAnalysisService
+    /// gespielten 19-kHz-Ton + Reflexion).
+    func feedExternal(_ buffer: AVAudioPCMBuffer) {
+        processQueue.async { [weak self] in self?.process(buffer: buffer) }
     }
 
     private func reset() {

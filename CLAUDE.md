@@ -1100,7 +1100,13 @@ Aktives Sonar (Sleep-Cycle-Stil): sendet einen fast unhörbaren **~19 kHz-Ton** 
 
 **Pipeline:** eigene `AVAudioEngine` (Ton-Ausgabe + Mikro-Tap, `.playAndRecord`/`.measurement`) → I/Q-Demodulation am Träger → Blockmittelung auf 50 Hz Basisband → Phase (unwrap+detrend) → Autokorrelation (6–30 BPM) für Atmung, Phasen-Diff-RMS für Bewegung. Emit alle ~30 s als `SonarFeatures`.
 
-> **Status (bindend):** Vorerst **nur Live-Test** (Entwickleroptionen → „Sonar testen"), **noch nicht** im Tracking-Klassifikator verdrahtet — erst nach On-Device-Validierung. So bleibt die bestehende Aufnahme-Pipeline unangetastet. Nächster Schritt nach Validierung: als bevorzugte Atem-/Bewegungsquelle in `SleepPhaseClassifier` einspeisen (Nachttisch-tauglich).
+**Tracking-Integration (opt-in, `sonar_enabled`, Standard AUS, bindend):**
+
+> **Eine Engine (bindend):** Zwei Mikrofon-Engines gleichzeitig gehen nicht. Bei aktivem Sonar spielt **`AudioAnalysisService`s** Engine zusätzlich den 19-kHz-Ton (`sonarTonePlayer`) und die Session wird `.playAndRecord`/`.measurement` (kein BluetoothHFP). Jeder Roh-Buffer geht an `sonar.feedExternal(buffer)`; für die restliche Analyse (Amplitude/dB, ML, Clips) wird der Ton per **Notch-Biquad (`notchedCopy`, RBJ, f0=19 kHz, Q=8)** entfernt — sonst würde der Dauerton die Lautstärke-/Geräuschmessung verfälschen. `SonarService` läuft dann **ohne eigene Engine** (`resetForTracking`/`feedExternal`).
+>
+> **Klassifikator-Einspeisung (voller Fallback):** In `SleepTrackingViewModel.handleFeatures` wird bei `latestSonar.signalPresent` das `MotionFeatures` überschrieben (Atemrate/-regularität + `isOnMattress=true`, `movementIntensity` gemerged) → Sonar ist die **bevorzugte** Atem-/Bewegungsquelle. Ohne Signal bleibt alles beim Accelerometer/Mikro (kein Regressionsrisiko).
+>
+> **Standard AUS (bindend):** `sonar_enabled` default `false` (Toggle in EinstellungenView → Aufzeichnung, iCloud-synced). Ist es aus, ist die Audio-Pipeline **exakt wie zuvor** (`.record`, kein Ton, kein Notch). Nach der ersten Nacht feintunen; bei Problemen einfach ausschalten. Live-Test weiterhin über „Sonar testen".
 
 ---
 

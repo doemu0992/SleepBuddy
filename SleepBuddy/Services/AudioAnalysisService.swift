@@ -21,6 +21,19 @@ final class AudioAnalysisService {
     private let engine = AVAudioEngine()
     private let analysisQueue = DispatchQueue(label: "com.sleepbuddy.audio", qos: .utility)
 
+    // MARK: - Sonar (experimentell, opt-in)
+    /// Wenn gesetzt (und `sonar_enabled`), spielt die Engine zusätzlich einen 19-kHz-Ton und
+    /// leitet jeden Roh-Buffer an das Sonar weiter. Der Ton wird für die restliche Analyse per
+    /// Notch-Filter entfernt (sonst würde er Lautstärke-/Geräuschmessung verfälschen).
+    weak var sonar: SonarService?
+    private var sonarActive = false
+    private let sonarTonePlayer = AVAudioPlayerNode()
+    private let sonarCarrier: Double = 19_000
+    private let sonarToneAmp: Float = 0.35
+    // Notch-Biquad-Koeffizienten (bei start berechnet) + Zustand (Direct Form 1)
+    private var nb0: Float = 1, nb1: Float = 0, nb2: Float = 0, na1: Float = 0, na2: Float = 0
+    private var nx1: Float = 0, nx2: Float = 0, ny1: Float = 0, ny2: Float = 0
+
     // Amplitude envelope at 8 Hz for breathing rate detection
     private var envelopeBuffer: [Float] = []
     private let envelopeSampleRate: Double = 8.0
@@ -48,8 +61,17 @@ final class AudioAnalysisService {
     private let envelopeFftSize = 256
 
     func start() throws {
+        sonarActive = (sonar != nil) && UserDefaults.standard.bool(forKey: "sonar_enabled")
+
         let session = AVAudioSession.sharedInstance()
-        try session.setCategory(.record, mode: .measurement, options: [.mixWithOthers, .allowBluetoothHFP])
+        if sonarActive {
+            // Ton raus UND Mikro rein; kein BluetoothHFP (würde 19 kHz auf 8/16 kHz-Route killen).
+            try session.setCategory(.playAndRecord, mode: .measurement,
+                                    options: [.defaultToSpeaker, .mixWithOthers])
+            try? session.setPreferredSampleRate(48_000)
+        } else {
+            try session.setCategory(.record, mode: .measurement, options: [.mixWithOthers, .allowBluetoothHFP])
+        }
         try session.setActive(true, options: .notifyOthersOnDeactivation)
 
         let inputNode = engine.inputNode
@@ -62,17 +84,42 @@ final class AudioAnalysisService {
         let log2env = vDSP_Length(log2(Float(envelopeFftSize)))
         envelopeFftSetup = vDSP_create_fftsetup(log2env, FFTRadix(FFT_RADIX2))
 
+        if sonarActive {
+            configureNotch(fs: audioSampleRate, f0: sonarCarrier, q: 8)
+            sonar?.resetForTracking()
+            let outFormat = engine.mainMixerNode.outputFormat(forBus: 0)
+            engine.attach(sonarTonePlayer)
+            engine.connect(sonarTonePlayer, to: engine.mainMixerNode, format: outFormat)
+        }
+
         inputNode.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, time in
-            self?.onBufferReady?(buffer, time)
-            self?.analysisQueue.async { self?.processBuffer(buffer) }
+            guard let self else { return }
+            if self.sonarActive {
+                self.sonar?.feedExternal(buffer)          // Roh (mit Ton) → Sonar
+                let clean = self.notchedCopy(buffer)       // Ton entfernt → restliche Analyse
+                self.onBufferReady?(clean, time)
+                self.analysisQueue.async { self.processBuffer(clean) }
+            } else {
+                self.onBufferReady?(buffer, time)
+                self.analysisQueue.async { self.processBuffer(buffer) }
+            }
         }
 
         try engine.start()
+        if sonarActive {
+            let outFormat = engine.mainMixerNode.outputFormat(forBus: 0)
+            sonarTonePlayer.scheduleBuffer(makeSonarTone(format: outFormat), at: nil, options: .loops)
+            sonarTonePlayer.play()
+        }
         isRunning = true
     }
 
     func stop() {
         guard isRunning else { return }
+        if sonarActive {
+            sonarTonePlayer.stop()
+            sonarActive = false
+        }
         engine.inputNode.removeTap(onBus: 0)
         engine.stop()
         if let setup = fftSetup { vDSP_destroy_fftsetup(setup); fftSetup = nil }
@@ -83,6 +130,59 @@ final class AudioAnalysisService {
         rawSampleBuffer.removeAll()
         currentFormat = nil
         isRunning = false
+    }
+
+    // MARK: - Sonar tone + notch helpers
+
+    /// RBJ-Notch-Biquad-Koeffizienten für f0 (Ton) berechnen.
+    private func configureNotch(fs: Double, f0: Double, q: Double) {
+        let w0 = 2.0 * Double.pi * f0 / fs
+        let alpha = sin(w0) / (2.0 * q)
+        let cosw = cos(w0)
+        let a0 = 1.0 + alpha
+        nb0 = Float((1.0) / a0)
+        nb1 = Float((-2.0 * cosw) / a0)
+        nb2 = Float((1.0) / a0)
+        na1 = Float((-2.0 * cosw) / a0)
+        na2 = Float((1.0 - alpha) / a0)
+        nx1 = 0; nx2 = 0; ny1 = 0; ny2 = 0
+    }
+
+    /// Kopie des Buffers mit per Notch entferntem 19-kHz-Ton (nur Kanal 0).
+    private func notchedCopy(_ buffer: AVAudioPCMBuffer) -> AVAudioPCMBuffer {
+        guard let inCh = buffer.floatChannelData?[0],
+              let out = AVAudioPCMBuffer(pcmFormat: buffer.format, frameCapacity: buffer.frameCapacity),
+              let outCh = out.floatChannelData?[0] else { return buffer }
+        out.frameLength = buffer.frameLength
+        let n = Int(buffer.frameLength)
+        for i in 0..<n {
+            let x = inCh[i]
+            let y = nb0*x + nb1*nx1 + nb2*nx2 - na1*ny1 - na2*ny2
+            nx2 = nx1; nx1 = x
+            ny2 = ny1; ny1 = y
+            outCh[i] = y
+        }
+        // weitere Kanäle unverändert kopieren (falls vorhanden)
+        let ch = Int(buffer.format.channelCount)
+        if ch > 1, let ic = buffer.floatChannelData, let oc = out.floatChannelData {
+            for c in 1..<ch { for i in 0..<n { oc[c][i] = ic[c][i] } }
+        }
+        return out
+    }
+
+    /// 1-Sekunden-Sonar-Trägerbuffer (klickfrei loopbar).
+    private func makeSonarTone(format: AVAudioFormat) -> AVAudioPCMBuffer {
+        let fs = format.sampleRate
+        let frames = AVAudioFrameCount(fs)
+        let buf = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frames)!
+        buf.frameLength = frames
+        for c in 0..<Int(format.channelCount) {
+            guard let p = buf.floatChannelData?[c] else { continue }
+            for i in 0..<Int(frames) {
+                p[i] = sonarToneAmp * Float(sin(2.0 * .pi * sonarCarrier * Double(i) / fs))
+            }
+        }
+        return buf
     }
 
     // MARK: - Buffer processing

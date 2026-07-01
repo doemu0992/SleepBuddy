@@ -13,6 +13,7 @@ final class ICloudSettingsSync {
         "einst_erinnerung_aktiv",
         "einst_erinnerung_zeit",
         "soundEvents_enabled",
+        "sonar_enabled",
         "partnerModus_aktiv",
         "partnerModus_stufe",
         "profil_paindiary_verknuepft",
