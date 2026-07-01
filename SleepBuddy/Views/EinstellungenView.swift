@@ -1252,10 +1252,15 @@ struct SonarTestView: View {
                     .padding()
                     .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16))
 
-                    Label(feat.signalPresent ? "Signal erkannt" : "Kein Signal — näher/ruhiger legen",
-                          systemImage: feat.signalPresent ? "checkmark.circle.fill" : "questionmark.circle")
-                        .font(.subheadline)
-                        .foregroundStyle(feat.signalPresent ? .green : .secondary)
+                    VStack(spacing: 4) {
+                        Label(feat.signalPresent ? "Signal erkannt" : "Kein Signal — näher/ruhiger legen",
+                              systemImage: feat.signalPresent ? "checkmark.circle.fill" : "questionmark.circle")
+                            .font(.subheadline)
+                            .foregroundStyle(feat.signalPresent ? .green : .secondary)
+                        // Diagnose-Pegel: 0 = Ton kommt nicht am Mikro an; > 0.0001 = Reflexion da.
+                        Text(String(format: "Pegel: %.5f", sonar.signalLevel))
+                            .font(.caption2.monospaced()).foregroundStyle(.secondary)
+                    }
 
                     Button {
                         if sonar.isRunning { sonar.stop() } else { sonar.start() }
@@ -1331,13 +1336,16 @@ final class SonarService {
     private let engine = AVAudioEngine()
     private let player = AVAudioPlayerNode()
     private let carrier: Double = 19_000        // Trägerfrequenz (Hz), nahe Ultraschall
-    private let toneAmplitude: Float = 0.12     // leise (großteils unhörbar), Lautsprecher-schonend
+    private let toneAmplitude: Float = 0.45     // kräftiger, damit die Reflexion klar messbar ist
+    /// Diagnose: mittlere Basisband-Magnitude des letzten Fensters (0 = Ton kommt nicht am Mikro an).
+    private(set) var signalLevel: Float = 0
 
     private var outputSampleRate: Double = 48_000
     private var inputSampleRate: Double = 48_000
 
-    // Demodulations-Zustand (durchlaufender Trägerphasen-Index über Buffergrenzen hinweg)
-    private var sampleIndex: Int = 0
+    // Demodulations-Zustand: laufende Trägerphase (mod 2π) über Buffergrenzen hinweg —
+    // bounded, daher kein Präzisionsverlust über Stunden, aber phasenkontinuierlich.
+    private var carrierPhase: Double = 0
     private let processQueue = DispatchQueue(label: "sonar.dsp")
 
     // Basisband (dezimiert auf ~50 Hz): I/Q + abgeleitete Phase & Magnitude
@@ -1347,7 +1355,7 @@ final class SonarService {
     private var qBB: [Float] = []
     private let bbCapacity = 3000                // ~60 s @ 50 Hz
     private var newSinceEmit = 0
-    private let emitEverySamples = 1500          // ~30 s @ 50 Hz
+    private let emitEverySamples = 250           // ~5 s @ 50 Hz (schnelles Test-Feedback)
 
     // MARK: - Lifecycle
 
@@ -1356,8 +1364,11 @@ final class SonarService {
         let session = AVAudioSession.sharedInstance()
         // playAndRecord + measurement: Ton raus UND Mikro rein, ohne Voice-Processing/AGC
         // (das Echo/den Ton wollen wir bewusst mitschneiden), Lautsprecher erzwungen.
+        // KEIN Bluetooth-HFP: das würde die Route auf 8/16 kHz zwingen → 19 kHz wäre weg.
+        // Hohe Samplerate erzwingen, damit 19 kHz (< Nyquist) sicher erhalten bleibt.
         try? session.setCategory(.playAndRecord, mode: .measurement,
-                                 options: [.defaultToSpeaker, .mixWithOthers, .allowBluetoothHFP])
+                                 options: [.defaultToSpeaker, .mixWithOthers])
+        try? session.setPreferredSampleRate(48_000)
         try? session.setActive(true, options: .notifyOthersOnDeactivation)
 
         let input = engine.inputNode
@@ -1395,7 +1406,7 @@ final class SonarService {
     }
 
     private func reset() {
-        sampleIndex = 0
+        carrierPhase = 0
         iBB.removeAll(keepingCapacity: true)
         qBB.removeAll(keepingCapacity: true)
         newSinceEmit = 0
@@ -1426,25 +1437,29 @@ final class SonarService {
     private func process(buffer: AVAudioPCMBuffer) {
         guard let ch = buffer.floatChannelData?[0] else { return }
         let n = Int(buffer.frameLength)
-        let fs = inputSampleRate
+        // Authoritative Samplerate aus dem Buffer (nicht die evtl. veraltete Annahme).
+        let fs = buffer.format.sampleRate
+        let dec = max(1, Int((fs / basebandRate).rounded()))
         let w = 2.0 * .pi * carrier / fs
 
-        // I/Q-Demodulation + Blockmittelung (grober Tiefpass) auf ~50 Hz
+        // I/Q-Demodulation + Blockmittelung (grober Tiefpass) auf ~50 Hz.
         var accI: Float = 0, accQ: Float = 0, cnt = 0
+        var phase = carrierPhase
+        let twoPi = 2.0 * Double.pi
         for k in 0..<n {
-            let idx = sampleIndex + k
-            let ph = w * Double(idx)
             let x = ch[k]
-            accI += x * Float(cos(ph))
-            accQ += x * Float(sin(ph))
+            accI += x * Float(cos(phase))
+            accQ += x * Float(sin(phase))
+            phase += w
+            if phase >= twoPi { phase -= twoPi }
             cnt += 1
-            if cnt >= decim {
+            if cnt >= dec {
                 let inv = 1.0 / Float(cnt)
                 appendBaseband(i: accI * inv, q: accQ * inv)
                 accI = 0; accQ = 0; cnt = 0
             }
         }
-        sampleIndex += n
+        carrierPhase = phase
 
         if newSinceEmit >= emitEverySamples { emitFeatures() }
     }
@@ -1467,13 +1482,16 @@ final class SonarService {
             phase[k] = atan2(qBB[k], iBB[k])
             mag[k] = sqrt(iBB[k]*iBB[k] + qBB[k]*qBB[k])
         }
+        let meanMag = mag.reduce(0, +) / Float(count)
         unwrap(&phase)
         // Detrend Phase (linearer Drift raus) → reines Atem-/Bewegungssignal
         detrend(&phase)
 
         let (bpm, reg) = breathing(from: phase, rate: basebandRate)
         let movement = movementLevel(phase: phase, rate: basebandRate)
-        let present = mag.reduce(0, +) / Float(count) > 1e-5
+        // Signal gilt als vorhanden, wenn die Reflexion klar über dem Rauschen liegt.
+        let present = meanMag > 1e-4
+        signalLevel = meanMag
 
         let feat = SonarFeatures(
             breathingRateBPM: present ? bpm : 0,
