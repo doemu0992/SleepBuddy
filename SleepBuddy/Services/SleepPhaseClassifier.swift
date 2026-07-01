@@ -92,36 +92,16 @@ final class SleepPhaseClassifier {
     // Raised in partner mode because partner movements inflate the 30 s motion window.
     // Reduced by FeedbackCalibrationService when user reports "öfter wach als angezeigt".
     private var awakeMotionThreshold: Float {
-        let base: Float
-        if UserDefaults.standard.bool(forKey: "partnerModus_aktiv") {
-            switch UserDefaults.standard.integer(forKey: "partnerModus_stufe") {
-            case 1:  base = 0.50
-            case 2:  base = 0.65
-            default: base = 0.35
-            }
-        } else {
-            base = 0.35
-        }
+        // Base × Partnerfaktor (1.0 / 1.4 / 1.8) — zentral in PartnerMode definiert.
         let offset = Float(UserDefaults.standard.double(forKey: "calibration.awakeMotionOffset"))
-        return max(0.15, base + offset)
+        return max(0.15, 0.35 * PartnerMode.motionFactor + offset)
     }
 
     // Raised in partner mode because partner's voice / TV / ambient noise is louder.
     // Reduced by FeedbackCalibrationService when user reports "öfter wach als angezeigt".
     private var awakeAmplitudeThreshold: Float {
-        let base: Float
-        if UserDefaults.standard.bool(forKey: "partnerModus_aktiv") {
-            switch UserDefaults.standard.integer(forKey: "partnerModus_stufe") {
-            case 1:  base = 0.062
-            case 2:  base = 0.095
-            default: base = 0.035
-            }
-        } else {
-            base = 0.035
-        }
         let offset = Float(UserDefaults.standard.double(forKey: "calibration.awakeAmplitudeOffset"))
-        return max(0.010, base + offset)
-
+        return max(0.010, 0.035 * PartnerMode.amplitudeFactor + offset)
     }
 
     private var sleepAmplitudeMax: Float { PersonalCalibrationService.shared.sleepAmplitudeMax }

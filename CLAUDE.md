@@ -1292,13 +1292,23 @@ return cycle >= 65
 | `breathREM` Regularitäts-Schwelle | < 0.45 | Unregelmäßige Atmung → REM |
 | `breathValid` Qualitäts-Gate | reg > 0.25 | Mindest-Signalqualität (gesenkt für Atem-Fallback) |
 
-**Partner-Modus-Anpassungen:**
+**Partner-Modus (bindend, zentralisiert):**
 
-| Stufe | `awakeMotionThreshold` | `awakeAmplitudeThreshold` | `deepRegularityMin` |
-|-------|----------------------|--------------------------|---------------------|
-| Aus | 0.35 | 0.035 | 0.65 |
-| 1 (zwischen Partnern) | 0.50 | 0.062 | 0.52 |
-| 2 (Partner näher) | 0.65 | 0.095 | 0.45 |
+> **Eine Quelle der Wahrheit: `enum PartnerMode`** (in `SoundEventService.swift`, modulweit sichtbar). Zwei Stufen — **1 = normaler Abstand, 2 = direkt daneben** (Default 1; Alt-Wert 0 wird geklemmt). Statt fixer Absolutwerte in jedem Service liefert `PartnerMode` **Multiplikatoren** auf die adaptiven Basis-Schwellen:
+> - `motionFactor`: aus 1.0 · Stufe 1 = 1.4 · Stufe 2 = 1.8 (Bewegung/Wach)
+> - `amplitudeFactor`: aus 1.0 · Stufe 1 = 1.6 · Stufe 2 = 2.4 (Audio)
+>
+> **Warum Multiplikatoren (zuverlässig für Matratze UND Nachttisch):** Audio-Schwelle = `calibratedThreshold × amplitudeFactor` (adaptive 60-s-Kalibrierung × Partner-Marge) → passt sich an Raum/Platzierung an. Bewegung: `applyMovementWake` skaliert seine **relativen** (Median-basierten) `elevated`/`strong`-Schwellen mit `motionFactor`, sodass die schwächere, über die Matratze übertragene Partner-Bewegung nicht als „Nutzer wach" zählt. Auf dem Nachttisch ist Bewegung ohnehin irrelevant → Audio-Marge trägt.
+>
+> **Genutzt in:** `SleepPhaseClassifier` (awakeMotion/Amplitude = base × Faktor), `SleepOnsetDetector` (Onset-Schwellen × Faktor), `SoundEventService` (amplitudeThreshold × amplitudeFactor), `SleepTrackingViewModel.applyMovementWake` (relative Schwellen × motionFactor).
+>
+> **UI einheitlich (bindend):** EinstellungenView **und** OnboardingView nutzen dieselbe 2-Stufen-Skala (1/2), gleiche Labels, Default 1. Nie wieder die alte 0/1/2-„Meine Seite/Mitte/Partner"-Variante.
+
+| Stufe | Bewegung (base 0.35) | Audio (base 0.035) |
+|-------|----------------------|--------------------|
+| Aus | 0.35 (×1.0) | 0.035 (×1.0) |
+| 1 (normaler Abstand) | 0.49 (×1.4) | 0.056 (×1.6) |
+| 2 (direkt daneben) | 0.63 (×1.8) | 0.084 (×2.4) |
 
 **History-Smoothing:** Letzte 3 Messungen — Mehrheitsvotum nach gewichteter Konfidenz.
 

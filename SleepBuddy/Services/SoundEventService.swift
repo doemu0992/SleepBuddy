@@ -3,6 +3,34 @@ import Foundation
 import Observation
 import Accelerate
 
+/// Single source of truth for the Partnermodus (bindend, modulweit).
+/// Zwei Stufen — 1 = Partner in normalem Abstand, 2 = Partner direkt daneben.
+/// Höhere Stufe = stärkere Filterung, damit Bewegungen/Geräusche des Partners nicht als
+/// die eigenen gezählt werden. Die Faktoren sind **Multiplikatoren** auf die adaptiven
+/// Basis-Schwellen jedes Services — so wirkt der Modus zuverlässig für Matratze
+/// (adaptive Bewegungs-/Median-Schwellen) UND Nachttisch (adaptive Audio-Kalibrierung).
+enum PartnerMode {
+    static var isActive: Bool { UserDefaults.standard.bool(forKey: "partnerModus_aktiv") }
+
+    /// Nur 1 oder 2 sind gültig (geklemmt) — schützt vor Alt-Wert 0.
+    static var stufe: Int {
+        let s = UserDefaults.standard.integer(forKey: "partnerModus_stufe")
+        return min(max(s, 1), 2)
+    }
+
+    /// Multiplikator für Bewegungs-/Wach-Schwellen (Classifier, Onset, Movement-Wake).
+    static var motionFactor: Float {
+        guard isActive else { return 1.0 }
+        return stufe == 2 ? 1.8 : 1.4
+    }
+
+    /// Multiplikator für Audio-Amplituden-Schwellen (Sound-Events, Onset, Classifier).
+    static var amplitudeFactor: Float {
+        guard isActive else { return 1.0 }
+        return stufe == 2 ? 2.4 : 1.6
+    }
+}
+
 /// Detects sound events during sleep (snoring, talking, coughing, bruxism, other) and saves
 /// 30-second audio clips to iCloud Documents on opt-in.
 ///
@@ -51,26 +79,14 @@ final class SoundEventService {
     private var thresholdOverMedian: Float = 4.0
 
     private var amplitudeThreshold: Float {
-        // Once calibrated, the measured ambient ceiling drives detection.
+        // Once calibrated, the measured ambient ceiling drives detection (layered with the
+        // partner factor → adapts to the room AND keeps the partner's quieter sounds out).
         if let cal = calibratedThreshold {
-            if UserDefaults.standard.bool(forKey: "partnerModus_aktiv") {
-                switch UserDefaults.standard.integer(forKey: "partnerModus_stufe") {
-                case 1: return cal * 1.6   // raise further between partners
-                case 2: return cal * 2.4   // partner very close
-                default: return cal
-                }
-            }
-            return cal
+            return cal * PartnerMode.amplitudeFactor
         }
         // Pre-calibration fallback (fixed) — used only during the first 60 s.
-        guard UserDefaults.standard.bool(forKey: "partnerModus_aktiv") else {
-            return isOnMattress ? 0.006 : 0.010
-        }
-        switch UserDefaults.standard.integer(forKey: "partnerModus_stufe") {
-        case 1: return 0.022
-        case 2: return 0.040
-        default: return 0.010
-        }
+        let base: Float = isOnMattress ? 0.006 : 0.010
+        return base * PartnerMode.amplitudeFactor
     }
 
     // MARK: - Circular raw-sample buffer (last 35 s at native sample rate)

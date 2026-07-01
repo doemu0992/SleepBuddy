@@ -13,7 +13,7 @@ struct EinstellungenView: View {
 
     @AppStorage("soundEvents_enabled") private var soundEventsAktiv = false
     @AppStorage("partnerModus_aktiv") private var partnerModusAktiv = false
-    @AppStorage("partnerModus_stufe") private var partnerModusStufe = 0
+    @AppStorage("partnerModus_stufe") private var partnerModusStufe = 1
 
     @State private var exportLaeuft = false
     @State private var exportErgebnis: String?
@@ -60,6 +60,9 @@ struct EinstellungenView: View {
                 Label("Partnermodus", systemImage: "person.2.fill")
             }
             .tint(.indigo)
+            .onChange(of: partnerModusAktiv) { _, on in
+                if on && partnerModusStufe < 1 { partnerModusStufe = 1 }   // Alt-Wert 0 normalisieren
+            }
         } header: {
             Text("Aufzeichnung")
         } footer: {
@@ -78,13 +81,12 @@ struct EinstellungenView: View {
         if partnerModusAktiv {
             Section {
                 VStack(alignment: .leading, spacing: 10) {
-                    Text("Position des Telefons")
+                    Text("Wie nah liegt dein Partner?")
                         .font(.subheadline)
 
-                    Picker("Position", selection: $partnerModusStufe) {
-                        Label("Meine Seite", systemImage: "iphone").tag(0)
-                        Label("Mitte", systemImage: "arrow.left.and.right").tag(1)
-                        Label("Partner", systemImage: "person.2.fill").tag(2)
+                    Picker("Abstand", selection: $partnerModusStufe) {
+                        Text("Normaler Abstand").tag(1)
+                        Text("Direkt daneben").tag(2)
                     }
                     .pickerStyle(.segmented)
 
@@ -181,10 +183,8 @@ struct EinstellungenView: View {
 
     private var partnerModusHinweis: String {
         switch partnerModusStufe {
-        case 0: return "Telefon liegt auf deinem Nachttisch — deine Geräusche sind am lautesten."
-        case 1: return "Telefon liegt in der Mitte — Geräusche beider Personen werden gefiltert."
-        case 2: return "Telefon liegt näher am Partner — nur sehr laute Geräusche werden erkannt."
-        default: return ""
+        case 2: return "Partner liegt direkt neben dir — nur klar nähere/lautere Signale (deine) werden gewertet. Funktioniert auf Matratze und Nachttisch."
+        default: return "Partner in normalem Abstand — Bewegungen und leisere Geräusche des Partners werden herausgefiltert."
         }
     }
 

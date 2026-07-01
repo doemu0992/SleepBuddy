@@ -989,8 +989,11 @@ final class SleepTrackingViewModel {
         let sortedMove = moveByMin.sorted()
         let baseline = sortedMove[sortedMove.count / 2]                 // median = quiet sleep
         let p90 = sortedMove[min(sortedMove.count - 1, Int(Double(sortedMove.count) * 0.90))]
-        let elevated: Float = max(min(baseline * 2.5, 0.30), 0.12)      // clearly above quiet sleep
-        let strong:   Float = max(min(p90, 0.55), 0.35)                 // a strong spike (getting up)
+        // Partner mode raises the bar so the partner's mattress-transmitted (= weaker,
+        // farther) movements don't get flagged as the user being awake.
+        let pf = PartnerMode.motionFactor
+        let elevated: Float = max(min(baseline * 2.5, 0.30), 0.12) * pf  // clearly above quiet sleep
+        let strong:   Float = max(min(p90, 0.55), 0.35) * pf            // a strong spike (getting up)
         var changed = false
         var i = 0
         while i < totalMin {

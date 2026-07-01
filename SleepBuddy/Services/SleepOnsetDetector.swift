@@ -17,24 +17,10 @@ final class SleepOnsetDetector {
     private let mattressOnsetWindows = 5
     private let wakeWindowsRequired = 3
 
-    private var awakeAmplitude: Float {
-        guard UserDefaults.standard.bool(forKey: "partnerModus_aktiv") else { return 0.025 }
-        switch UserDefaults.standard.integer(forKey: "partnerModus_stufe") {
-        case 1: return 0.045
-        case 2: return 0.070
-        default: return 0.025
-        }
-    }
+    private var awakeAmplitude: Float { 0.025 * PartnerMode.amplitudeFactor }
 
     // Raised in partner mode so partner turning over doesn't reset the onset window.
-    private var awakeMotionThreshold: Float {
-        guard UserDefaults.standard.bool(forKey: "partnerModus_aktiv") else { return 0.35 }
-        switch UserDefaults.standard.integer(forKey: "partnerModus_stufe") {
-        case 1: return 0.50
-        case 2: return 0.65
-        default: return 0.35
-        }
-    }
+    private var awakeMotionThreshold: Float { 0.35 * PartnerMode.motionFactor }
 
     private let windowDuration: TimeInterval = 30
     private var quietWindowCount = 0

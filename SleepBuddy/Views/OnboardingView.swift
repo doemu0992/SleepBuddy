@@ -351,8 +351,8 @@ struct OnboardingView: View {
 
                 if partnerModusAktiv {
                     VStack(spacing: 8) {
-                        partnerStufeButton(stufe: 1, icon: "iphone.and.arrow.forward", title: "Stufe 1 – Nebeneinander", sub: "iPhone liegt zwischen euch oder sehr nah am eigenen Kissen")
-                        partnerStufeButton(stufe: 2, icon: "person.2.wave.2.fill", title: "Stufe 2 – Wenig Abstand", sub: "Partner liegt direkt daneben, iPhone am eigenen Kissen")
+                        partnerStufeButton(stufe: 1, icon: "iphone.and.arrow.forward", title: "Normaler Abstand", sub: "Partner in üblichem Abstand — leisere Geräusche & Bewegungen werden gefiltert")
+                        partnerStufeButton(stufe: 2, icon: "person.2.wave.2.fill", title: "Direkt daneben", sub: "Partner liegt dicht neben dir — nur klar nähere Signale (deine) zählen")
                     }
                 }
             }
