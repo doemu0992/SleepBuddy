@@ -1658,8 +1658,10 @@ final class SonarService {
             }
         }
         mean /= Float(maxLag - minLag - 1)
-        // Prominenz-Gate: der Peak muss klar über dem ACF-Mittel liegen und positiv sein.
-        guard bestLag > 0, bestVal > 0.15, bestVal > mean + 0.1 else { return (0, 0) }
+        // Prominenz-Gate: der Peak muss über dem ACF-Mittel liegen und positiv sein.
+        // Moderat (nicht zu streng) — echte Atmung lockt so durchgängiger, ohne dass
+        // Rauschen an den Bandrändern durchrutscht (Rand-Latch ist separat ausgeschlossen).
+        guard bestLag > 0, bestVal > 0.08, bestVal > mean + 0.05 else { return (0, 0) }
         let bpm = Float(rate * 60.0 / Double(bestLag))
         let reg = min(max(bestVal, 0), 1)
         return (bpm, reg)
