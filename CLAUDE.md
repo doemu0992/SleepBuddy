@@ -1094,7 +1094,7 @@ Liest Beschleunigungssensor via `CMMotionManager` bei **50 Hz**. Erkennt:
 
 | Feature | Methode | Beschreibung |
 |---------|---------|-------------|
-| `movementIntensity` | RMS-Varianz der Magnitude (30s, 1500 Samples) | 0=still, 1=wach/bewegt |
+| `movementIntensity` | RMS-Varianz **+ Peak** der Magnitude (30s, 1500 Samples): `√var×25 + peak×3` | 0=still, 1=wach/bewegt. Peak-Anteil fängt kurze Bewegungen (Umdrehen), die der 30-s-RMS sonst verwässert |
 | `breathingRateBPM` | Autokorrelation (10 Hz, 9–30 BPM) | Atemfrequenz aus Mattress-Vibration |
 | `breathingRegularity` | ACF-Peak-Stärke | Zuverlässigkeit der Atemmessung |
 | `isOnMattress` | `rms > 0.0003` (ACF-Schwelle, gesenkt) | Telefon liegt auf Matratze |

@@ -132,7 +132,13 @@ final class MotionAnalysisService {
         let demeaned = rawSamples.map { $0 - mean }
         var variance: Float = 0
         vDSP_measqv(demeaned, 1, &variance, n)
-        let intensity = min(sqrt(variance) * 25.0, 1.0)
+        // Peak-Abweichung fängt KURZE Bewegungen (schnelles Umdrehen) ab, die im 30-s-RMS
+        // sonst verwässern und untergehen. Blend: anhaltende Bewegung via RMS + kurze
+        // Spitzen via Peak. Peak wird moderat gewichtet, damit Sensor-Rauschen (~0.02 g)
+        // niedrig bleibt, ein echtes Umdrehen (> 0.1 g) aber klar registriert wird.
+        var peak: Float = 0
+        vDSP_maxmgv(demeaned, 1, &peak, n)
+        let intensity = min(sqrt(variance) * 25.0 + peak * 3.0, 1.0)
 
         // Breathing via accelerometer autocorrelation (downsampled 10 Hz buffer)
         let (breathBPM, breathReg, onMattress) = detectBreathing(samples: breathingSamples)
