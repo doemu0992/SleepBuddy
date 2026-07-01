@@ -30,9 +30,17 @@ final class AudioAnalysisService {
     private let sonarTonePlayer = AVAudioPlayerNode()
     private let sonarCarrier: Double = 19_000
     private let sonarToneAmp: Float = 0.35
-    // Notch-Biquad-Koeffizienten (bei start berechnet) + Zustand (Direct Form 1)
-    private var nb0: Float = 1, nb1: Float = 0, nb2: Float = 0, na1: Float = 0, na2: Float = 0
-    private var nx1: Float = 0, nx2: Float = 0, ny1: Float = 0, ny2: Float = 0
+    // Notch-Biquad-Koeffizienten (bei start berechnet) + Zustand (Direct Form 1).
+    // Je eine Zeile: @Observable verträgt keine Mehrfach-Deklaration pro Zeile.
+    @ObservationIgnored private var nb0: Float = 1
+    @ObservationIgnored private var nb1: Float = 0
+    @ObservationIgnored private var nb2: Float = 0
+    @ObservationIgnored private var na1: Float = 0
+    @ObservationIgnored private var na2: Float = 0
+    @ObservationIgnored private var nx1: Float = 0
+    @ObservationIgnored private var nx2: Float = 0
+    @ObservationIgnored private var ny1: Float = 0
+    @ObservationIgnored private var ny2: Float = 0
 
     // Amplitude envelope at 8 Hz for breathing rate detection
     private var envelopeBuffer: [Float] = []
