@@ -83,6 +83,10 @@ final class SmartAlarmService {
 
     private(set) var alarmFired = false
     private(set) var alarmFiredDate: Date?
+    // Beim Arm auf das NÄCHSTE Vorkommen (ab Tracking-Start) verankerte Weck-Zeitpunkte —
+    // robuster als jede Tageszeit-Heuristik: die Weckzeit liegt immer in der Zukunft.
+    private var armedEarliest: Date?
+    private var armedLatest: Date?
     private(set) var snoozeCount = 0
     private var snoozeTask: Task<Void, Never>?
 
@@ -134,6 +138,14 @@ final class SmartAlarmService {
         guard isEnabled else { return }
         alarmFired = false
         alarmFiredDate = nil
+        // Weckfenster auf das NÄCHSTE Vorkommen ab jetzt ankern (immer in der Zukunft).
+        let now = Date()
+        var e = nextOccurrence(of: earliestWakeTime, after: now)
+        var l = nextOccurrence(of: latestWakeTime, after: now)
+        // Spätestens muss ≥ Frühestens sein (falls latest-Tageszeit < earliest → nächster Tag).
+        if l < e { l = Calendar.current.date(byAdding: .day, value: 1, to: l) ?? l }
+        armedEarliest = e
+        armedLatest = l
         // Make sure notification permission is granted so the failsafe burst can fire even
         // if the app gets suspended; harmless if already authorised.
         Task { await requestPermission() }
@@ -142,9 +154,21 @@ final class SmartAlarmService {
 
     func disarm() {
         UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: failsafeIDs)
+        armedEarliest = nil
+        armedLatest = nil
         snoozeTask?.cancel()
         snoozeTask = nil
         stopAlarm()
+    }
+
+    /// Nächstes Vorkommen der Tageszeit von `time` am/nach `ref`.
+    private func nextOccurrence(of time: Date, after ref: Date) -> Date {
+        let cal = Calendar.current
+        let h = cal.component(.hour, from: time)
+        let m = cal.component(.minute, from: time)
+        var t = cal.date(bySettingHour: h, minute: m, second: 0, of: ref) ?? ref
+        if t < ref { t = cal.date(byAdding: .day, value: 1, to: t) ?? t }
+        return t
     }
 
     // MARK: - Snooze
@@ -579,10 +603,13 @@ final class SmartAlarmService {
     }
 
     private func isPastLatest(_ date: Date) -> Bool {
+        // Bevorzugt die beim Arm verankerten Zeitpunkte (immer korrekt in der Zukunft).
+        if let l = armedLatest { return date >= l }
         return date >= normalizedWindowTime(latestWakeTime, relativeTo: date)
     }
 
     private func isInsideWindow(_ date: Date) -> Bool {
+        if let e = armedEarliest, let l = armedLatest { return date >= e && date <= l }
         let earliest = normalizedWindowTime(earliestWakeTime, relativeTo: date)
         let latest = normalizedWindowTime(latestWakeTime, relativeTo: date)
         return date >= earliest && date <= latest
