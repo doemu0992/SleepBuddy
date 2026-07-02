@@ -30,6 +30,7 @@ final class AudioAnalysisService {
     private let sonarTonePlayer = AVAudioPlayerNode()
     private let sonarCarrier: Double = 19_000
     private let sonarToneAmp: Float = 0.35
+    @ObservationIgnored private var sonarToneFormat: AVAudioFormat?
     // Notch-Biquad-Koeffizienten (bei start berechnet) + Zustand (Direct Form 1).
     // Je eine Zeile: @Observable verträgt keine Mehrfach-Deklaration pro Zeile.
     @ObservationIgnored private var nb0: Float = 1
@@ -95,9 +96,13 @@ final class AudioAnalysisService {
         if sonarActive {
             configureNotch(fs: audioSampleRate, f0: sonarCarrier, q: 8)
             sonar?.resetForTracking()
-            let outFormat = engine.mainMixerNode.outputFormat(forBus: 0)
+            // EIN konsistentes Format für Verbindung UND Ton-Buffer — sonst wird der
+            // Buffer bei Format-Abweichung (SR vor/nach engine.start()) still verworfen → Pegel 0.
+            let toneFormat = AVAudioFormat(standardFormatWithSampleRate: audioSampleRate, channels: 1)
+                ?? engine.mainMixerNode.outputFormat(forBus: 0)
+            sonarToneFormat = toneFormat
             engine.attach(sonarTonePlayer)
-            engine.connect(sonarTonePlayer, to: engine.mainMixerNode, format: outFormat)
+            engine.connect(sonarTonePlayer, to: engine.mainMixerNode, format: toneFormat)
         }
 
         inputNode.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, time in
@@ -114,9 +119,8 @@ final class AudioAnalysisService {
         }
 
         try engine.start()
-        if sonarActive {
-            let outFormat = engine.mainMixerNode.outputFormat(forBus: 0)
-            sonarTonePlayer.scheduleBuffer(makeSonarTone(format: outFormat), at: nil, options: .loops)
+        if sonarActive, let toneFormat = sonarToneFormat {
+            sonarTonePlayer.scheduleBuffer(makeSonarTone(format: toneFormat), at: nil, options: .loops)
             sonarTonePlayer.play()
         }
         isRunning = true

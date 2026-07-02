@@ -1028,8 +1028,12 @@ final class SleepTrackingViewModel {
         // Partner mode raises the bar so the partner's mattress-transmitted (= weaker,
         // farther) movements don't get flagged as the user being awake.
         let pf = PartnerMode.motionFactor
-        let elevated: Float = max(min(baseline * 2.5, 0.30), 0.12) * pf  // clearly above quiet sleep
-        let strong:   Float = max(min(p90, 0.55), 0.35) * pf            // a strong spike (getting up)
+        // REIN RELATIV (bindend): keine feste Obergrenze mehr. Der Peak-Anteil in
+        // movementIntensity hebt den Grundpegel; eine Deckelung (früher 0.30) lag dann UNTER
+        // dem Median → praktisch alles galt als „erhöht" → massive Falsch-Wach (39 % beobachtet).
+        // Schwellen skalieren jetzt mit dem tatsächlichen Nacht-Niveau.
+        let elevated: Float = max(baseline * 2.5, 0.12) * pf   // klar über dem Ruhe-Niveau
+        let strong:   Float = max(p90 * 1.3, baseline * 4.0, 0.40) * pf   // starker Einzel-Spike
         var changed = false
         var i = 0
         while i < totalMin {
@@ -1050,13 +1054,17 @@ final class SleepTrackingViewModel {
         // continuous — roll, lie still 30–60 s, roll again. A sustained-run check misses
         // this. Slide a 10-min window; if ≥ 3 of its minutes show elevated movement, the
         // whole window counts as restless → awake. Catches "die ganze Nacht hin und her".
+        // Konservativ (bindend): ein 10-min-Fenster gilt nur als unruhig, wenn die MEHRHEIT
+        // der Minuten erhöht ist UND mindestens ein echter starker Spike drin ist. Sonst
+        // markierte sporadisches Umdrehen ganze Stunden fälschlich als wach.
         let windowLen = 10
-        let minActive = 3
+        let minActive = 6
         var m = 0
         while m < totalMin {
             let hi = min(totalMin, m + windowLen)
             let active = (m..<hi).filter { moveByMin[$0] > elevated }.count
-            if active >= minActive {
+            let hasStrong = (m..<hi).contains { rawMove[$0] > strong }
+            if active >= minActive && hasStrong {
                 markAwake(in: session, fromMinute: m, toMinute: hi)
                 changed = true
                 m = hi
