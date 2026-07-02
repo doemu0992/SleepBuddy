@@ -590,12 +590,25 @@ final class SleepTrackingViewModel {
 
             // Onset = Beginn des ersten ruhigen Blocks (≥ 5 min mit Label-Stütze,
             // ≥ 10 min im rein sensorischen All-Awake-Fall — konservativer).
+            // NACHHALTIGKEIT (nutzerbelegt): Eine kurze ruhige Insel beim Wachliegen
+            // (real: 1m Wach → 15m „Schlaf" → 22m Wach → Tief) darf den Onset NICHT
+            // setzen — sie gehört noch zur Abend-Wachphase. Ein Kandidat zählt nur,
+            // wenn die 45 min danach zu ≥ 70 % schlaf-kompatibel sind; sonst weitersuchen.
             let needRun = allAwake ? 10 : 5
             var onsetMin = 0, run = 0
             for m in 0..<totalMin {
                 if canSleep(m) && minuteMove[m] < quiet {
                     run += 1
-                    if run >= needRun { onsetMin = m - (needRun - 1); break }
+                    if run >= needRun {
+                        let candidate = m - (needRun - 1)
+                        let hi = min(totalMin, candidate + 45)
+                        let sleepy = (candidate..<hi).filter { canSleep($0) }.count
+                        if sleepy >= Int(Double(hi - candidate) * 0.7) {
+                            onsetMin = candidate
+                            break
+                        }
+                        run = 0   // ruhige Insel im Wachliegen → weiter suchen
+                    }
                 } else { run = 0 }
             }
             let cycleLen = Double(detectCycleLength(session))   // HR-empty → 100 min fallback
