@@ -519,6 +519,53 @@ final class SleepTrackingViewModel {
         var last: SleepPhaseType = minuteLabel.first(where: { $0 != nil }).flatMap { $0 } ?? .light
         for m in 0..<totalMin { if let l = minuteLabel[m] { last = l } else { minuteLabel[m] = last } }
 
+        // 1b. Fallback cycle overlay for STRUCTURELESS nights (onset bug):
+        // If the raw live labels have essentially no deep/REM (the signature of a
+        // night that ran without a sleep-onset reference, so the 90-min cycle model
+        // never engaged), reconstruct an onset from the movement data and overlay the
+        // cycle architecture retroactively — exactly what would have happened live.
+        // Real wake minutes (from movement/noise) are preserved; only the flat
+        // light/quiet stretch is given deep/REM structure. Normal nights (which have
+        // real deep/REM in their labels) are left completely untouched.
+        let sleepMin = minuteLabel.reduce(0) { $0 + (($1 == .awake || $1 == nil) ? 0 : 1) }
+        let deepRemMin = minuteLabel.reduce(0) { $0 + (($1 == .deep || $1 == .rem) ? 1 : 0) }
+        if sleepMin >= 20 && Double(deepRemMin) / Double(max(1, sleepMin)) < 0.05 {
+            // Per-minute mean movement (forward-filled) to find the quiet onset.
+            var moveSum = [Float](repeating: 0, count: totalMin)
+            var moveCnt = [Int](repeating: 0, count: totalMin)
+            for s in samples {
+                let m = Int(s.timestamp.timeIntervalSince(start) / 60)
+                if m >= 0 && m < totalMin { moveSum[m] += s.movementIntensity; moveCnt[m] += 1 }
+            }
+            var minuteMove = [Float](repeating: 0, count: totalMin)
+            var lastMove: Float = 0
+            for m in 0..<totalMin {
+                if moveCnt[m] > 0 { lastMove = moveSum[m] / Float(moveCnt[m]) }
+                minuteMove[m] = lastMove
+            }
+            // Onset = start of the first ≥5-min run that is not-awake AND low-movement.
+            let quiet: Float = 0.30
+            var onsetMin = 0, run = 0
+            for m in 0..<totalMin {
+                if minuteLabel[m] != .awake && minuteMove[m] < quiet {
+                    run += 1
+                    if run >= 5 { onsetMin = m - 4; break }
+                } else { run = 0 }
+            }
+            let cycleLen = Double(detectCycleLength(session))   // HR-empty → 100 min fallback
+            for m in 0..<totalMin {
+                if m < onsetMin { minuteLabel[m] = .awake; continue }
+                if minuteLabel[m] == .awake { continue }        // keep real sensor-based wake
+                let frac = (Double(m - onsetMin).truncatingRemainder(dividingBy: cycleLen)) / cycleLen
+                // Zones scaled from the 90-min model: A(light) B(deep) C(rem).
+                if frac < 0.22 { minuteLabel[m] = .light }
+                else if frac < 0.72 { minuteLabel[m] = .deep }
+                else { minuteLabel[m] = .rem }
+            }
+            // Give the correction passes (RemRefinement/detectCycleLength) an onset ref.
+            session.sleepOnsetDate = start.addingTimeInterval(Double(onsetMin) * 60)
+        }
+
         // 2. Smooth with a ±2-minute majority window to remove single-minute spikes.
         let smoothed: [SleepPhaseType] = (0..<totalMin).map { m in
             var w: [SleepPhaseType: Int] = [:]
