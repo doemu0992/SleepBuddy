@@ -1098,8 +1098,12 @@ final class SleepTrackingViewModel {
                 var j = i
                 while j < totalMin && moveByMin[j] > elevated { j += 1 }
                 let runLen = j - i
-                // Sustained restlessness (≥ 2 min) or one strong getting-up spike.
-                if runLen >= 2 || moveByMin[i] > strong || rawMove[i] > strong {
+                // Real awakening = SUSTAINED elevated movement (≥ 3 min). A single- or
+                // two-minute spike is a position change (turning over) and must NOT read
+                // as a wake epoch — the user reported never being awake mid-night, only
+                // turning. Getting up (toilet) always spans several minutes of movement,
+                // so it is still caught. (Removed the 1-min strong-spike clause.)
+                if runLen >= 3 {
                     markAwake(in: session, fromMinute: i, toMinute: j)
                     changed = true
                 }
@@ -1128,6 +1132,32 @@ final class SleepTrackingViewModel {
             } else {
                 m += 1
             }
+        }
+
+        // Remove SPURIOUS mid-night wake: brief awake islands flanked by sleep on BOTH
+        // sides that are NOT backed by sustained elevated movement (< 3 elevated minutes)
+        // are turn-overs or a single noise blip — not real awakenings. The live
+        // classifier commits these from a momentary movement/amplitude spike; the user
+        // reported never being awake mid-night. Retype them to the surrounding sleep
+        // phase, then merge. Evening/morning edge-wake (contiguous awake, or first/last
+        // phase) is never touched — only islands with sleep on both sides.
+        let phasesForClean = session.phasesArray.sorted { $0.startDate < $1.startDate }
+        if phasesForClean.count >= 3 {
+            for idx in 1..<(phasesForClean.count - 1) {
+                let p = phasesForClean[idx]
+                guard p.phaseType == .awake else { continue }
+                let prev = phasesForClean[idx - 1], next = phasesForClean[idx + 1]
+                guard prev.phaseType != .awake, next.phaseType != .awake else { continue }
+                guard p.endDate.timeIntervalSince(p.startDate) < 6 * 60 else { continue }
+                let sMin = max(0, Int(p.startDate.timeIntervalSince(start) / 60))
+                let eMin = min(totalMin, max(sMin + 1, Int(p.endDate.timeIntervalSince(start) / 60)))
+                let elevMin = (sMin..<eMin).filter { moveByMin[$0] > elevated }.count
+                if elevMin < 3 {
+                    p.phaseType = prev.phaseType   // absorb into the surrounding sleep
+                    changed = true
+                }
+            }
+            if changed { _ = mergeAdjacentSamePhases(session) }
         }
 
         if changed { try? context.save() }
