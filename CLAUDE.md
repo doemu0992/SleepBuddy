@@ -1612,6 +1612,8 @@ Format: `Xh Ym` wenn ≥ 1h, sonst `Ym`. Wird in StatistikView, SleepDetailView,
 
 App Group `group.com.doemu0992.sleepbuddy` — `SleepNightSummary` wird nach jeder abgeschlossenen Nacht (≥ 30 min) exportiert.
 
+> **Automatische Profil-Übernahme (bindend):** PainDiary spiegelt sein Benutzerprofil bei **jedem App-Start** in die App Group (`shared_vorname/nachname/geburtsdatum/geschlecht`, `ContentView.syncProfilZuAppGroupBeimStart` in PainDiary) — nicht nur beim Öffnen der Profil-Seite. SleepBuddy erkennt die Daten im **Onboarding** (`uebernehmePainDiaryProfil` im welcomeStep): zeigt „PainDiary erkannt — Profil übernommen: <Name>" und setzt `profil_paindiary_verknuepft = true` automatisch. `SharedProfil` liest dieselben Keys live — kein Kopieren nötig, kein erneutes Eintippen.
+
 ```swift
 // ContentView: Auto-Sync bei neuen Sessions
 private func autoSyncPainDiaryIfNeeded() {

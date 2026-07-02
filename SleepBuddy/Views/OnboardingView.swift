@@ -115,8 +115,40 @@ struct OnboardingView: View {
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.white.opacity(0.7))
                 .padding(.horizontal, 16)
+
+            // PainDiary erkannt: Profil wurde automatisch übernommen (App Group).
+            if !painDiaryName.isEmpty {
+                HStack(spacing: 10) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(.green)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("PainDiary erkannt").font(.subheadline.bold()).foregroundStyle(.white)
+                        Text("Profil übernommen: \(painDiaryName)")
+                            .font(.caption).foregroundStyle(.white.opacity(0.7))
+                    }
+                    Spacer()
+                }
+                .padding(12)
+                .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
+                .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color.green.opacity(0.35)))
+            }
         }
         .padding(.horizontal, 24)
+        .onAppear(perform: uebernehmePainDiaryProfil)
+    }
+
+    // MARK: - PainDiary-Profil-Übernahme
+
+    @State private var painDiaryName = ""
+
+    /// Wenn PainDiary installiert ist und sein Profil in die App Group gespiegelt hat,
+    /// übernimmt SleepBuddy alle Daten automatisch (SharedProfil liest live dieselben
+    /// Keys) und aktiviert die Verknüpfung — kein erneutes Eintippen nötig.
+    private func uebernehmePainDiaryProfil() {
+        let name = SharedProfil.shared.anzeigeName
+        guard !name.isEmpty else { return }
+        painDiaryName = name
+        UserDefaults.standard.set(true, forKey: "profil_paindiary_verknuepft")
     }
 
     // Step 1: Placement guide
