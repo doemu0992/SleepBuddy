@@ -1494,17 +1494,19 @@ final class SonarService {
 
     func beginNightLog() {
         let f = DateFormatter(); f.dateFormat = "dd.MM.yyyy HH:mm"
-        let header = "# SLEEPBUDDY SONAR-NACHTLOG — Start \(f.string(from: Date()))\n# zeit,atem_bpm,reg_pct,bew_pct,pegel,signal\n"
+        let header = "# SLEEPBUDDY SONAR-NACHTLOG — Start \(f.string(from: Date()))\n# zeit,atem_bpm,reg_pct,bew_pct,pegel,signal,puls_bpm\n"
         try? header.write(to: Self.nightLogURL, atomically: true, encoding: .utf8)
         nightLogActive = true
     }
 
     func endNightLog() { nightLogActive = false }
 
-    private func appendNightLine(bpm: Float, reg: Float, mov: Float, pegel: Float, present: Bool) {
+    private func appendNightLine(bpm: Float, reg: Float, mov: Float, pegel: Float, present: Bool, hr: Float = 0) {
         guard nightLogActive else { return }
         let f = DateFormatter(); f.dateFormat = "HH:mm:ss"
-        let line = "\(f.string(from: Date())),\(Int(bpm)),\(Int(reg*100)),\(Int(mov*100)),\(String(format: "%.4f", pegel)),\(present ? 1 : 0)\n"
+        // puls_bpm als LETZTE Spalte angehängt — bestehende Spalten-Indizes (Summary-Parser)
+        // bleiben unverändert gültig.
+        let line = "\(f.string(from: Date())),\(Int(bpm)),\(Int(reg*100)),\(Int(mov*100)),\(String(format: "%.4f", pegel)),\(present ? 1 : 0),\(Int(hr))\n"
         if let h = try? FileHandle(forWritingTo: Self.nightLogURL) {
             h.seekToEndOfFile()
             if let d = line.data(using: .utf8) { h.write(d) }
@@ -1615,6 +1617,8 @@ final class SonarService {
         let ct = cos(theta), st = sin(theta)
         var motionSig = [Float](repeating: 0, count: count)
         for k in 0..<count { motionSig[k] = ir[k]*ct + qr[k]*st }
+        // Kopie VOR Detrend/Atem-Glättung sichern — Quelle für das Herz-Band (0,7–1,8 Hz).
+        let heartSrc = motionSig
 
         // Signalpräsenz = Stärke des STATISCHEN Reflexionsanteils (Ton reflektiert überhaupt).
         let meanMag = sqrt(mi*mi + mq*mq)
@@ -1632,6 +1636,11 @@ final class SonarService {
         unwrap(&phase)
         detrend(&phase)
         let movement = movementLevel(phase: phase, rate: basebandRate)
+
+        // EXPERIMENTELL: Puls aus der Sonar-Reflexion — geht NUR in die Nacht-CSV
+        // (Validierung gegen BCG/Watch), fließt in kein anderes System ein. Nur bei
+        // ruhigem Liegen versucht (Bewegung zerstört das winzige Herz-Signal).
+        let sonarHR: Float = (present && movement < 0.3) ? heartRate(from: heartSrc, rate: basebandRate) : 0
 
         // Kontinuität: letzten guten Atemwert über kurze Lücken halten, solange ruhig
         // (kein starkes Wälzen) und der letzte Lock < 25 s her ist. Regularität wird dabei
@@ -1653,10 +1662,10 @@ final class SonarService {
         // Letzte ~6 s der Atem-Bewegungskomponente als Wellenform fürs UI
         let tail = Array(motionSig.suffix(Int(basebandRate * 6)))
         let elapsed = Date().timeIntervalSince(logStart)
-        let line = String(format: "%5.0fs  Atem %2.0f/min  Reg %3.0f%%  Bew %3.0f%%  Pegel %.5f  %@",
-                          elapsed, bpm, reg * 100, movement * 100, meanMag,
+        let line = String(format: "%5.0fs  Atem %2.0f/min  Reg %3.0f%%  Bew %3.0f%%  Puls %3.0f  Pegel %.5f  %@",
+                          elapsed, bpm, reg * 100, movement * 100, sonarHR, meanMag,
                           present ? "OK" : "-")
-        appendNightLine(bpm: bpm, reg: reg, mov: movement, pegel: meanMag, present: present)
+        appendNightLine(bpm: bpm, reg: reg, mov: movement, pegel: meanMag, present: present, hr: sonarHR)
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.latest = feat
@@ -1672,7 +1681,7 @@ final class SonarService {
         var s = "SLEEPBUDDY SONAR-DIAGNOSE\n"
         s += String(format: "Träger %.0f Hz · Ton-Amp %.2f · Input %.0f Hz · Output %.0f Hz · Dezim %d\n",
                     carrier, toneAmplitude, inputSampleRate, outputSampleRate, decim)
-        s += "Spalten: Zeit · Atemfrequenz · Regelmäßigkeit · Bewegung · Reflexions-Pegel · Signal\n"
+        s += "Spalten: Zeit · Atemfrequenz · Regelmäßigkeit · Bewegung · Puls (experimentell) · Reflexions-Pegel · Signal\n"
         s += "— — —\n"
         s += log.joined(separator: "\n")
         return s
@@ -1750,6 +1759,57 @@ final class SonarService {
         let bpm = Float(rate * 60.0 / Double(bestLag))
         let reg = min(max(bestVal, 0), 1)
         return (bpm, reg)
+    }
+
+    /// EXPERIMENTELL: Puls (40–110 BPM) aus der clutter-bereinigten Bewegungskomponente.
+    /// Der Herzschlag bewegt die Brustwand nur ~0,2–0,5 mm — eine Größenordnung schwächer
+    /// als die Atmung, daher strengere Gates (nur bei Ruhe, höhere Prominenz-Schwelle).
+    /// Hochpass (1,2-s-MA) entfernt das Atemband; Autokorrelation wie bei der Atmung.
+    private func heartRate(from signal: [Float], rate: Double) -> Float {
+        let n = signal.count
+        let win = min(n, Int(rate * 20))                 // letzte ~20 s
+        guard win > Int(rate * 10) else { return 0 }
+        let src = Array(signal.suffix(win))
+        // Hochpass: gleitenden 1,2-s-Mittelwert abziehen (Atmung raus, Herz bleibt)
+        let w = max(2, Int(rate * 1.2))
+        var hp = [Float](repeating: 0, count: win)
+        var runSum: Float = 0
+        for i in 0..<win {
+            runSum += src[i]
+            if i >= w { runSum -= src[i - w] }
+            hp[i] = src[i] - runSum / Float(min(i + 1, w))
+        }
+        // leichte Glättung gegen Demod-Rauschen (3er-MA)
+        var seg = hp
+        for i in 2..<win { seg[i] = (hp[i] + hp[i-1] + hp[i-2]) / 3 }
+        var energy: Float = 0
+        vDSP_measqv(seg, 1, &energy, vDSP_Length(win))
+        guard energy > 1e-14 else { return 0 }
+        let minLag = Int(rate * 60.0 / 110.0)            // 110 BPM
+        let maxLag = min(Int(rate * 60.0 / 40.0), win - 2) // 40 BPM
+        guard maxLag > minLag + 2 else { return 0 }
+        var acf = [Float](repeating: 0, count: maxLag + 1)
+        seg.withUnsafeBufferPointer { buf in
+            let base = buf.baseAddress!
+            for lag in minLag...maxLag {
+                var dot: Float = 0
+                vDSP_dotpr(base, 1, base + lag, 1, &dot, vDSP_Length(win - lag))
+                acf[lag] = dot / (energy * Float(win - lag))
+            }
+        }
+        var bestLag = -1
+        var bestVal: Float = -.greatestFiniteMagnitude
+        var mean: Float = 0
+        for lag in (minLag+1)...(maxLag-1) {
+            mean += acf[lag]
+            if acf[lag] > acf[lag-1] && acf[lag] >= acf[lag+1] && acf[lag] > bestVal {
+                bestVal = acf[lag]; bestLag = lag
+            }
+        }
+        mean /= Float(maxLag - minLag - 1)
+        // Strenger als Atmung (0.15/0.08): das Herz-Signal ist winzig — lieber 0 als Müll.
+        guard bestLag > 0, bestVal > 0.15, bestVal > mean + 0.08 else { return 0 }
+        return Float(rate * 60.0 / Double(bestLag))
     }
 
     /// Bewegungsintensität: kurzfristige Energie schneller Phasenänderungen (Körperbewegung
