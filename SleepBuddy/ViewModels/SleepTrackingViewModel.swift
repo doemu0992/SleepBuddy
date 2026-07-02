@@ -386,9 +386,19 @@ final class SleepTrackingViewModel {
             pendingPhase = result.phase
             pendingPhaseStartDate = now
         } else if result.phase != currentPhase,
-                  now.timeIntervalSince(pendingPhaseStartDate) >= minPhaseDuration,
-                  isSleepOnsetDetected || result.phase == .awake {
+                  now.timeIntervalSince(pendingPhaseStartDate) >= minPhaseDuration {
             guard let session = currentSession else { return }
+            // Fallback onset: the dedicated onset detector can fail to fire on a
+            // nightstand (it needs 10 consecutive audio-quiet windows; a single room
+            // noise resets the counter). When the classifier itself has settled on a
+            // stable NON-awake phase, that IS sleep onset. Without this the commit gate
+            // blocked every sleep phase and the whole night was recorded as one awake
+            // block ("keine Phasen erkannt"). It also gives the classifier its cycle
+            // reference (classifier.sleepOnsetDate) so the 90-min model can start.
+            if !isSleepOnsetDetected && result.phase != .awake {
+                isSleepOnsetDetected = true
+                classifier.sleepOnsetDate = pendingPhaseStartDate
+            }
             finalizeCurrentPhase(endDate: now, session: session)
             currentPhaseStartDate = now
             currentPhase = result.phase

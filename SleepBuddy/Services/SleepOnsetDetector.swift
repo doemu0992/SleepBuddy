@@ -65,8 +65,12 @@ final class SleepOnsetDetector {
                 return true
             }
         } else {
-            quietWindowCount = 0
-            firstQuietDate = nil
+            // A single noisy window (a car passing, partner shifting) must not wipe
+            // minutes of accumulated quiet progress — otherwise onset is never reached
+            // in a room that isn't perfectly silent (common on a nightstand), and the
+            // whole night ends up recorded as awake. Decay instead of hard-resetting.
+            quietWindowCount = max(0, quietWindowCount - 2)
+            if quietWindowCount == 0 { firstQuietDate = nil }
 
             if isAsleep {
                 awakeWindowCount += 1

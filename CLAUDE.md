@@ -1371,6 +1371,10 @@ if !isSleepOnsetDetected && onsetDetector.update(audio: audio, motion: motion) {
 
 > **Niemals** `classifier.sleepOnsetDate` als Anzeigewert für Einschlaflatenz verwenden — dieser Wert ist bewusst früher gesetzt als der tatsächliche Schlafbeginn.
 
+> **Fallback-Onset (bindend, kritisch — Nachttisch):** Der Onset-Detektor kann im Nachttisch-Modus **komplett versagen**: Er braucht 10 aufeinanderfolgende audio-ruhige 30-s-Fenster, und **ein einzelnes** lauteres Fenster (Auto, Partner) setzte den Zähler früher auf 0 → in einem nicht perfekt stillen Raum wurde Onset **nie** erkannt. Da der Phasen-Commit in `SleepTrackingViewModel.handleFeatures` früher an `isSleepOnsetDetected || result.phase == .awake` gekoppelt war, wurde dann **keine einzige** Nicht-Wach-Phase committet → **ganze Nacht als ein Wach-Block** („keine Phasen erkannt"). Zwei Absicherungen (nie entfernen):
+> 1. **Commit-Fallback:** Wird eine stabile **Nicht-Wach**-Phase committet und `isSleepOnsetDetected` ist noch `false`, wird Onset **jetzt** gesetzt (`classifier.sleepOnsetDate = pendingPhaseStartDate`). Der Klassifikator gibt bei nil-Onset ohnehin `.light` zurück (nicht `.awake`) — der Commit darf also nicht mehr an den Onset-Detektor gekoppelt sein.
+> 2. **Onset-Detektor decay:** Ein einzelnes lautes Fenster setzt `quietWindowCount` nicht mehr hart auf 0, sondern `max(0, count - 2)` — so wird Onset auch in einem nicht perfekt ruhigen Raum realistisch erreicht.
+
 ---
 
 ## SmartAlarmService
