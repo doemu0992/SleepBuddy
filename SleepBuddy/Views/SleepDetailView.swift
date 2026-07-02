@@ -151,9 +151,13 @@ struct SleepDetailView: View {
                             Text(session.endDate?.formatted(date: .omitted, time: .shortened) ?? "–")
                                 .font(.caption).foregroundStyle(.white.opacity(0.7))
                         }
-                        Text(session.totalDuration.formattedDuration)
+                        Text(session.sleepDuration.formattedDuration)
                             .font(.system(size: 40, weight: .bold, design: .rounded))
                             .foregroundStyle(.white)
+                        if session.sleepDuration < session.totalDuration {
+                            Label("Zeit im Bett \(session.totalDuration.formattedDuration)", systemImage: "bed.double.fill")
+                                .font(.caption).foregroundStyle(.white.opacity(0.75))
+                        }
                         HStack(spacing: 4) {
                             Text("Schlafindex ansehen")
                                 .font(.subheadline).foregroundStyle(.white.opacity(0.7))

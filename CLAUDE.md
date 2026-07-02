@@ -485,7 +485,8 @@ NavigationStack
 
 | Property | Typ | Beschreibung |
 |----------|-----|-------------|
-| `totalDuration` | `TimeInterval` | end - start (oder jetzt wenn aktiv) |
+| `totalDuration` | `TimeInterval` | **Zeit im Bett**: end - start (oder jetzt wenn aktiv) |
+| `sleepDuration` | `TimeInterval` | **Schlafdauer** = totalDuration − awakeDuration (Apple-Stil; Fallback totalDuration ohne Phasen). Prominente Dauer-Anzeigen (Heros, Verlauf, Wochen-/Langzeit-Charts, KI-Prompts) nutzen `sleepDuration`; „Zeit im Bett" erscheint als Zusatzzeile. Effizienz/Phasen-Prozente rechnen weiter auf `totalDuration` |
 | `sleepOnsetLatency` | `TimeInterval?` | Zeit bis Einschlafen |
 | `isActive` | `Bool` | `endDate == nil` |
 | `phasesArray` | `[SleepPhase]` | `phases ?? []` |

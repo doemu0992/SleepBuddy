@@ -85,6 +85,14 @@ final class SleepSession {
         phasesArray.filter { $0.phaseType == .awake }.reduce(0) { $0 + $1.duration }
     }
 
+    /// Tatsächliche Schlafdauer = Zeit im Bett (totalDuration) minus Wachphasen —
+    /// Apple-Stil: „Zeit im Bett 6h 56m, Schlafdauer 6h 34m". Ohne erkannte Phasen
+    /// (alte/leere Sessions) fällt der Wert auf die Zeit im Bett zurück.
+    var sleepDuration: TimeInterval {
+        guard !phasesArray.isEmpty else { return totalDuration }
+        return max(0, totalDuration - awakeDuration)
+    }
+
     /// Quality 0–100: restorative sleep ratio + onset latency penalty + snoring penalty
     var computedQualityScore: Double {
         let total = totalDuration

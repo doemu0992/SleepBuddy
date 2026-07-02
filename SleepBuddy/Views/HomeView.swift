@@ -282,9 +282,13 @@ struct HomeView: View {
                 HStack(spacing: 20) {
                     scoreRing(SchlafindexView.score(for: session))
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(session.totalDuration.formattedDuration)
+                        Text(session.sleepDuration.formattedDuration)
                             .font(.system(size: 30, weight: .bold)).foregroundStyle(.white)
-                        Text("Letzte Nacht").font(.caption).foregroundStyle(.white.opacity(0.7))
+                        Text("Schlafdauer · Letzte Nacht").font(.caption).foregroundStyle(.white.opacity(0.7))
+                        if session.sleepDuration < session.totalDuration {
+                            Label("Zeit im Bett \(session.totalDuration.formattedDuration)", systemImage: "bed.double.fill")
+                                .font(.caption2).foregroundStyle(.white.opacity(0.8))
+                        }
                         if let lat = session.sleepOnsetLatency {
                             Label("Einschlafen \(formatMinutes(lat))", systemImage: "zzz")
                                 .font(.caption2).foregroundStyle(.white.opacity(0.8))
@@ -376,7 +380,7 @@ struct HomeView: View {
 
     private var weekTrendCard: some View {
         let bars: [NightBar] = doneSessions.prefix(7).reversed().map {
-            NightBar(date: $0.startDate, hours: $0.totalDuration / 3600)
+            NightBar(date: $0.startDate, hours: $0.sleepDuration / 3600)
         }
         let avg = bars.isEmpty ? 0 : bars.map(\.hours).reduce(0, +) / Double(bars.count)
         return VStack(alignment: .leading, spacing: 12) {
@@ -439,8 +443,8 @@ struct HomeView: View {
                             .rotationEffect(.degrees(-90))
                     }
                     VStack(spacing: 0) {
-                        Text(session.totalDuration.formattedDuration).font(.subheadline.bold())
-                        Text("gesamt").font(.caption2).foregroundStyle(.secondary)
+                        Text(session.sleepDuration.formattedDuration).font(.subheadline.bold())
+                        Text("Schlaf").font(.caption2).foregroundStyle(.secondary)
                     }
                 }
                 .frame(width: 104, height: 104)
@@ -606,7 +610,7 @@ struct WochenMusterKarte: View {
         fmt.timeStyle = .none
 
         var lines = sessions.map { s -> String in
-            let dur = Int(s.totalDuration / 60)
+            let dur = Int(s.sleepDuration / 60)
             let deep = Int(s.deepSleepDuration / s.totalDuration * 100)
             let rem = Int(s.remSleepDuration / s.totalDuration * 100)
             let score = SchlafindexView.score(for: s)

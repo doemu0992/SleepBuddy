@@ -182,9 +182,13 @@ struct StatistikView: View {
                     VStack(alignment: .leading, spacing: 6) {
                         Text(session.startDate.formatted(.dateTime.weekday(.wide).day().month()))
                             .font(.caption).foregroundStyle(.white.opacity(0.7))
-                        Text(session.totalDuration.formattedDuration)
+                        Text(session.sleepDuration.formattedDuration)
                             .font(.system(size: 40, weight: .bold, design: .rounded))
                             .foregroundStyle(.white)
+                        if session.sleepDuration < session.totalDuration {
+                            Label("Zeit im Bett \(session.totalDuration.formattedDuration)", systemImage: "bed.double.fill")
+                                .font(.caption).foregroundStyle(.white.opacity(0.75))
+                        }
                         HStack(spacing: 4) {
                             Text("Nacht im Detail")
                                 .font(.subheadline).foregroundStyle(.white.opacity(0.7))
@@ -405,7 +409,7 @@ struct StatistikView: View {
             .map { s in
                 TrendPoint(
                     date: cal.startOfDay(for: s.startDate),
-                    duration: s.totalDuration / 3600,
+                    duration: s.sleepDuration / 3600,
                     score: SchlafindexView.score(for: s)
                 )
             }

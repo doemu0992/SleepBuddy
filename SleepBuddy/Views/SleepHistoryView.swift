@@ -156,7 +156,7 @@ private struct WochenSummaryCard: View {
                 byWeek[key, default: []].append(s)
             }
             return byWeek.sorted { $0.key < $1.key }.map { key, ss in
-                let avgH = ss.map { $0.totalDuration / 3600 }.reduce(0, +) / Double(ss.count)
+                let avgH = ss.map { $0.sleepDuration / 3600 }.reduce(0, +) / Double(ss.count)
                 let avgQ = ss.map { SchlafindexView.score(for: $0) }.reduce(0, +) / ss.count
                 return TagDaten(datum: key, stunden: avgH, qualitaet: avgQ)
             }
@@ -165,14 +165,14 @@ private struct WochenSummaryCard: View {
             return (0..<days).reversed().compactMap { offset -> TagDaten? in
                 guard let tag = cal.date(byAdding: .day, value: -offset, to: cal.startOfDay(for: Date())) else { return nil }
                 let s = sessions.first { cal.isDate($0.endDate ?? .distantPast, inSameDayAs: tag) }
-                return TagDaten(datum: tag, stunden: (s?.totalDuration ?? 0) / 3600, qualitaet: s.map { SchlafindexView.score(for: $0) } ?? 0)
+                return TagDaten(datum: tag, stunden: (s?.sleepDuration ?? 0) / 3600, qualitaet: s.map { SchlafindexView.score(for: $0) } ?? 0)
             }
         }
     }
 
     private var avgDauerDiese: Double {
         guard !sessions.isEmpty else { return 0 }
-        return sessions.map { $0.totalDuration / 3600 }.reduce(0, +) / Double(sessions.count)
+        return sessions.map { $0.sleepDuration / 3600 }.reduce(0, +) / Double(sessions.count)
     }
 
     private var avgQualitaetDiese: Int {
@@ -225,7 +225,7 @@ private struct WochenSummaryCard: View {
 
             // Phase breakdown bar
             if !sessions.isEmpty {
-                let totalSleep = sessions.map { $0.totalDuration }.reduce(0, +)
+                let totalSleep = sessions.map { $0.sleepDuration }.reduce(0, +)
                 let deep  = sessions.map { $0.deepSleepDuration  }.reduce(0, +)
                 let rem   = sessions.map { $0.remSleepDuration   }.reduce(0, +)
                 let light = sessions.map { $0.lightSleepDuration }.reduce(0, +)
@@ -443,7 +443,7 @@ struct SleepSessionRow: View {
             }
 
             HStack(spacing: 16) {
-                Label(session.totalDuration.formattedDuration, systemImage: "clock")
+                Label(session.sleepDuration.formattedDuration, systemImage: "clock")
                 Label(session.deepSleepDuration.formattedDuration, systemImage: "moon.fill")
                 if session.snoringEventCount > 0 {
                     Label("\(session.snoringEventCount)×", systemImage: "waveform")

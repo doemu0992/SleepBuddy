@@ -28,7 +28,7 @@ struct MorgenBerichtCard: View {
     private var wochenSchnittDauer: Double? {
         let letzte7 = vorherige.prefix(7)
         guard letzte7.count >= 2 else { return nil }
-        return letzte7.map { $0.totalDuration / 3600 }.reduce(0, +) / Double(letzte7.count)
+        return letzte7.map { $0.sleepDuration / 3600 }.reduce(0, +) / Double(letzte7.count)
     }
 
     private var currentScore: Int { SchlafindexView.score(for: session) }
@@ -108,7 +108,7 @@ struct MorgenBerichtCard: View {
 
     private func buildPrompt() -> String {
         let qualityInt = currentScore
-        let totalHours = String(format: "%.1f", session.totalDuration / 3600)
+        let totalHours = String(format: "%.1f", session.sleepDuration / 3600)
         let deepMin = Int(session.deepSleepDuration / 60)
         let remMin = Int(session.remSleepDuration / 60)
         let snoring = session.snoringEventCount
@@ -139,7 +139,7 @@ struct MorgenBerichtCard: View {
 
     private func templateReport() -> String {
         let quality = currentScore
-        let totalHours = session.totalDuration / 3600
+        let totalHours = session.sleepDuration / 3600
         let deepMin = Int(session.deepSleepDuration / 60)
         let remMin = Int(session.remSleepDuration / 60)
         let snoring = session.snoringEventCount
