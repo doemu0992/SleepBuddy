@@ -1374,6 +1374,7 @@ struct SonarFeatures {
     let breathingRegularity: Float  // 0…1, ACF-Peak-Stärke
     let movementIntensity: Float    // 0 = still, 1 = deutliche Körperbewegung
     let signalPresent: Bool         // true wenn ein plausibles Reflexionssignal vorliegt
+    var heartRateBPM: Float = 0     // EXPERIMENTELL: Puls aus der Reflexion (0 = kein Lock)
 
     static let neutral = SonarFeatures(breathingRateBPM: 0, breathingRegularity: 0,
                                        movementIntensity: 0, signalPresent: false)
@@ -1657,7 +1658,8 @@ final class SonarService {
             breathingRateBPM: present ? bpm : 0,
             breathingRegularity: present ? reg : 0,
             movementIntensity: movement,
-            signalPresent: present
+            signalPresent: present,
+            heartRateBPM: sonarHR
         )
         // Letzte ~6 s der Atem-Bewegungskomponente als Wellenform fürs UI
         let tail = Array(motionSig.suffix(Int(basebandRate * 6)))

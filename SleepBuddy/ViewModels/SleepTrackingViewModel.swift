@@ -33,6 +33,7 @@ final class SleepTrackingViewModel {
     // Sonar (experimentell, opt-in): letzte Features + Flag
     private var sonarEnabled = false
     private var latestSonar = SonarFeatures.neutral
+    private var lastSonarUpdate = Date.distantPast
 
     private var modelContext: ModelContext?
     private var currentPhaseStartDate = Date()
@@ -123,9 +124,13 @@ final class SleepTrackingViewModel {
         // Sonar (experimentell): wenn aktiviert, Ton+Demodulation über AudioAnalysisService.
         sonarEnabled = UserDefaults.standard.bool(forKey: "sonar_enabled")
         latestSonar = .neutral
+        lastSonarUpdate = .distantPast
         if sonarEnabled {
             audioService.sonar = sonar
-            sonar.onFeaturesUpdated = { [weak self] f in self?.latestSonar = f }
+            sonar.onFeaturesUpdated = { [weak self] f in
+                self?.latestSonar = f
+                self?.lastSonarUpdate = Date()
+            }
             sonar.beginNightLog()
         } else {
             audioService.sonar = nil
@@ -427,11 +432,26 @@ final class SleepTrackingViewModel {
             // held value must NOT be stored as if measured (that caused fake flat lines).
             let bcgFresh = Date().timeIntervalSince(lastBCGUpdate) < 90
             let bcgHR = bcgFresh ? Double(liveBCGHeartRateBPM) : 0
+            // Sonar-HR (experimentell) als DRITTE Quelle + BCG-Plausibilitätsstütze.
+            // Nur frische Werte (< 90 s) und nur im Schlaf-Plausibilitätsband.
+            let sonarFresh = sonarEnabled && Date().timeIntervalSince(lastSonarUpdate) < 90
+            let sonarHR = sonarFresh ? Double(latestSonar.heartRateBPM) : 0
+            let sonarValid = sonarHR >= 40 && sonarHR <= 110
             let hr: Double
             if watchHR >= 40 && watchHR <= 110 {
                 hr = watchHR                       // Apple Watch is authoritative
             } else if bcgHR >= 40 && bcgHR <= 110 {
-                hr = bcgHR                         // plausible, fresh BCG
+                // BCG primär. Sonar stützt: Zeigt das (unabhängige) Sonar denselben
+                // Puls in etwa halber BCG-Höhe, ist der BCG-Wert ein Oberwellen-Sprung
+                // (harmonischer Lock) → Sonar-Wert nehmen. Bei grober Übereinstimmung
+                // oder ohne Sonar-Lock bleibt BCG unangetastet.
+                if sonarValid && bcgHR > sonarHR * 1.7 && bcgHR < sonarHR * 2.3 {
+                    hr = sonarHR
+                } else {
+                    hr = bcgHR
+                }
+            } else if sonarValid {
+                hr = sonarHR                       // BCG ohne Lock (z.B. Nachttisch) → Sonar füllt
             } else {
                 hr = 0                             // implausible / stale / no data
             }

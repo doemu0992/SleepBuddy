@@ -1107,7 +1107,9 @@ Aktives Sonar (Sleep-Cycle-Stil): sendet einen fast unhörbaren **~19 kHz-Ton** 
 
 **Pipeline:** eigene `AVAudioEngine` (Ton-Ausgabe + Mikro-Tap, `.playAndRecord`/`.measurement`) → I/Q-Demodulation am Träger → Blockmittelung auf 50 Hz Basisband → Phase (unwrap+detrend) → Autokorrelation (6–30 BPM) für Atmung, Phasen-Diff-RMS für Bewegung. Emit alle ~30 s als `SonarFeatures`.
 
-> **Sonar-Puls (EXPERIMENTELL, nur CSV):** `heartRate(from:rate:)` schätzt den Puls (40–110 BPM) aus der clutter-bereinigten Bewegungskomponente (Hochpass 1,2-s-MA gegen das Atemband, Autokorrelation, strengere Prominenz-Gates als Atmung, nur bei Bewegung < 0.3). Der Wert geht **ausschließlich** in die Nacht-CSV (`puls_bpm`, **letzte** Spalte — Parser-Indizes bleiben gültig) und den Live-Log — er fließt in **kein** anderes System, bis er gegen BCG/Watch validiert ist.
+> **Sonar-Puls (EXPERIMENTELL):** `heartRate(from:rate:)` schätzt den Puls (40–110 BPM) aus der clutter-bereinigten Bewegungskomponente (Hochpass 1,2-s-MA gegen das Atemband, Autokorrelation, strengere Prominenz-Gates als Atmung, nur bei Bewegung < 0.3). Geht in die Nacht-CSV (`puls_bpm`, **letzte** Spalte — Parser-Indizes bleiben gültig), den Live-Log und in `SonarFeatures.heartRateBPM`.
+>
+> **HR-Fusion (konservativ, bindend):** Prioritität im Minuten-Sampler: **Watch → BCG → Sonar**. Sonar stützt das BCG in zwei engen Fällen: (1) **Oberwellen-Korrektur** — zeigt das unabhängige Sonar denselben Puls bei ~halber BCG-Höhe (`bcgHR ≈ 1.7–2.3 × sonarHR`), ist der BCG-Wert ein harmonischer Sprung → Sonar-Wert wird gespeichert. (2) **Lücken-Füller** — BCG ohne Lock (z.B. Nachttisch) + gültiges frisches Sonar (< 90 s, 40–110 BPM) → Sonar-Wert statt 0. Bei Übereinstimmung oder ohne Sonar-Lock bleibt BCG unangetastet; die Watch wird nie überstimmt.
 
 **Tracking-Integration (opt-in, `sonar_enabled`, Standard AUS, bindend):**
 
