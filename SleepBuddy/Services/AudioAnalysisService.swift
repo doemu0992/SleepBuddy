@@ -42,6 +42,16 @@ final class AudioAnalysisService {
     @ObservationIgnored private var nx2: Float = 0
     @ObservationIgnored private var ny1: Float = 0
     @ObservationIgnored private var ny2: Float = 0
+    // 11-kHz-Lowpass-Biquad (kaskadiert hinter dem Notch) — siehe configureLowpass.
+    @ObservationIgnored private var lb0: Float = 1
+    @ObservationIgnored private var lb1: Float = 0
+    @ObservationIgnored private var lb2: Float = 0
+    @ObservationIgnored private var la1: Float = 0
+    @ObservationIgnored private var la2: Float = 0
+    @ObservationIgnored private var lx1: Float = 0
+    @ObservationIgnored private var lx2: Float = 0
+    @ObservationIgnored private var ly1: Float = 0
+    @ObservationIgnored private var ly2: Float = 0
 
     // Amplitude envelope at 8 Hz for breathing rate detection
     private var envelopeBuffer: [Float] = []
@@ -95,6 +105,7 @@ final class AudioAnalysisService {
 
         if sonarActive {
             configureNotch(fs: audioSampleRate, f0: sonarCarrier, q: 8)
+            configureLowpass(fs: audioSampleRate, f0: 11_000)
             sonar?.resetForTracking()
             // EIN konsistentes Format für Verbindung UND Ton-Buffer — sonst wird der
             // Buffer bei Format-Abweichung (SR vor/nach engine.start()) still verworfen → Pegel 0.
@@ -160,7 +171,25 @@ final class AudioAnalysisService {
         nx1 = 0; nx2 = 0; ny1 = 0; ny2 = 0
     }
 
-    /// Kopie des Buffers mit per Notch entferntem 19-kHz-Ton (nur Kanal 0).
+    /// RBJ-Lowpass-Biquad (f0, Q=0.707) — kaskadiert hinter dem Notch. Der Notch allein
+    /// ist zu schmal: Rest-Ton, Lautsprecher-Verzerrungen (Intermodulation bei lautem
+    /// 19-kHz-Ton) und Reflexionen liegen knapp daneben und hoben real den gemessenen
+    /// Pegel an (~45 dB die ganze Nacht, alles als „Geräusch", ML fand nichts).
+    /// Schlafgeräusche liegen < 8 kHz — alles darüber ist für die Analyse Müll.
+    private func configureLowpass(fs: Double, f0: Double) {
+        let w0 = 2.0 * Double.pi * f0 / fs
+        let alpha = sin(w0) / (2.0 * 0.7071)
+        let cosw = cos(w0)
+        let a0 = 1.0 + alpha
+        lb0 = Float(((1.0 - cosw) / 2.0) / a0)
+        lb1 = Float((1.0 - cosw) / a0)
+        lb2 = Float(((1.0 - cosw) / 2.0) / a0)
+        la1 = Float((-2.0 * cosw) / a0)
+        la2 = Float((1.0 - alpha) / a0)
+        lx1 = 0; lx2 = 0; ly1 = 0; ly2 = 0
+    }
+
+    /// Kopie des Buffers mit entferntem 19-kHz-Ton: Notch + 11-kHz-Lowpass (nur Kanal 0).
     private func notchedCopy(_ buffer: AVAudioPCMBuffer) -> AVAudioPCMBuffer {
         guard let inCh = buffer.floatChannelData?[0],
               let out = AVAudioPCMBuffer(pcmFormat: buffer.format, frameCapacity: buffer.frameCapacity),
@@ -172,7 +201,10 @@ final class AudioAnalysisService {
             let y = nb0*x + nb1*nx1 + nb2*nx2 - na1*ny1 - na2*ny2
             nx2 = nx1; nx1 = x
             ny2 = ny1; ny1 = y
-            outCh[i] = y
+            let z = lb0*y + lb1*lx1 + lb2*lx2 - la1*ly1 - la2*ly2
+            lx2 = lx1; lx1 = y
+            ly2 = ly1; ly1 = z
+            outCh[i] = z
         }
         // weitere Kanäle unverändert kopieren (falls vorhanden)
         let ch = Int(buffer.format.channelCount)
