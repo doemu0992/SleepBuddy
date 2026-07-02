@@ -238,7 +238,13 @@ final class SmartAlarmService {
         // duckOthers: alarm gets full priority over all other audio (including recording output).
         // The microphone INPUT is unaffected — recording continues for phase detection.
         // overrideOutputAudioPort forces the loud speaker even when earphones are connected.
-        try? session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .duckOthers, .allowBluetoothHFP])
+        // With sonar active: NO BluetoothHFP — an HFP route forces 8/16 kHz and would kill
+        // the 19 kHz sonar tone (during snooze the tracking keeps running).
+        let sonarAktiv = UserDefaults.standard.bool(forKey: "sonar_enabled")
+        let alarmOpts: AVAudioSession.CategoryOptions = sonarAktiv
+            ? [.defaultToSpeaker, .duckOthers]
+            : [.defaultToSpeaker, .duckOthers, .allowBluetoothHFP]
+        try? session.setCategory(.playAndRecord, mode: .default, options: alarmOpts)
         try? session.overrideOutputAudioPort(.speaker)
         try? session.setActive(true, options: .notifyOthersOnDeactivation)
 
@@ -535,9 +541,16 @@ final class SmartAlarmService {
         let center = UNUserNotificationCenter.current()
         center.removePendingNotificationRequests(withIdentifiers: failsafeIDs)
         center.removeDeliveredNotifications(withIdentifiers: failsafeIDs)
-        // Restore recording session: mixWithOthers + remove forced speaker override
+        // Restore recording session: mixWithOthers + remove forced speaker override.
+        // Sonar-aware (kritisch): mit aktivem Sonar KEIN BluetoothHFP (8/16-kHz-Route
+        // würde den 19-kHz-Ton töten) und Lautsprecher-Ausgabe behalten — sonst wäre
+        // der Sonar-Ton nach Alarm/Snooze für den Rest der Nacht stumm.
         let session = AVAudioSession.sharedInstance()
-        try? session.setCategory(.playAndRecord, mode: .measurement, options: [.mixWithOthers, .allowBluetoothHFP])
+        let sonarAktivRestore = UserDefaults.standard.bool(forKey: "sonar_enabled")
+        let restoreOpts: AVAudioSession.CategoryOptions = sonarAktivRestore
+            ? [.mixWithOthers, .defaultToSpeaker]
+            : [.mixWithOthers, .allowBluetoothHFP]
+        try? session.setCategory(.playAndRecord, mode: .measurement, options: restoreOpts)
         try? session.overrideOutputAudioPort(.none)
         try? session.setActive(true)
     }
