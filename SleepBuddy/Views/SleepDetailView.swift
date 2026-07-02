@@ -15,6 +15,10 @@ struct SleepDetailView: View {
     @State private var downloadingEventID: Date?
     @State private var correctingEvent: SleepSoundEvent?
     @State private var phaseTimelineExpanded = false
+    // Aufklapp-Zustand der Sound-Listen (Schlafgeräusche/Umgebungsgeräusche, per Titel)
+    // und der Geräusch-Intensität — gleiches Muster wie phaseTimelineExpanded.
+    @State private var expandedSoundSections: Set<String> = []
+    @State private var intensityExpanded = false
     @State private var spo2Percent: Double? = nil
     @State private var spo2Loaded = false
     @Environment(\.modelContext) private var modelContext
@@ -896,7 +900,11 @@ struct SleepDetailView: View {
     // MARK: - Sound Events
 
     private func soundGroup(events: [SleepSoundEvent], title: String, icon: String) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
+        // Aufklappbar wie „Phasen im Detail": erst 4 Ereignisse, „Alle X anzeigen".
+        let sorted = events.sorted { $0.timestamp < $1.timestamp }
+        let expanded = expandedSoundSections.contains(title)
+        let visible = expanded ? sorted : Array(sorted.prefix(4))
+        return VStack(alignment: .leading, spacing: 12) {
             HStack {
                 Image(systemName: icon).foregroundStyle(.indigo)
                 Text(title).font(.headline)
@@ -905,8 +913,28 @@ struct SleepDetailView: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
 
-            ForEach(events.sorted { $0.timestamp < $1.timestamp }, id: \.timestamp) { event in
+            ForEach(visible, id: \.timestamp) { event in
                 soundEventRow(event)
+            }
+
+            if sorted.count > 4 {
+                Button {
+                    withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) {
+                        if expanded { expandedSoundSections.remove(title) }
+                        else { expandedSoundSections.insert(title) }
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        Text(expanded ? "Weniger anzeigen" : "Alle \(sorted.count) Ereignisse anzeigen")
+                            .font(.caption.bold())
+                        Image(systemName: expanded ? "chevron.up" : "chevron.down")
+                            .font(.caption2.bold())
+                    }
+                    .foregroundStyle(.indigo)
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 6)
+                }
+                .buttonStyle(.plain)
             }
         }
     }
@@ -991,11 +1019,13 @@ struct SleepDetailView: View {
     }
 
     private func soundIntensitySection(_ events: [SleepSoundEvent]) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
+        // Aufklappbar wie „Phasen im Detail": erst 4 Balken, „Alle X anzeigen".
+        let visible = intensityExpanded ? events : Array(events.prefix(4))
+        return VStack(alignment: .leading, spacing: 12) {
             Label("Geräusch-Intensität", systemImage: "waveform")
                 .font(.headline).foregroundStyle(.indigo)
 
-            ForEach(events, id: \.timestamp) { event in
+            ForEach(visible, id: \.timestamp) { event in
                 let db = event.decibelLevel
                 let dbColor: Color = db < 50 ? .green : (db < 65 ? .yellow : .red)
                 HStack(spacing: 12) {
@@ -1021,6 +1051,25 @@ struct SleepDetailView: View {
                         .font(.caption.bold()).foregroundStyle(dbColor)
                         .frame(width: 44, alignment: .trailing)
                 }
+            }
+
+            if events.count > 4 {
+                Button {
+                    withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) {
+                        intensityExpanded.toggle()
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        Text(intensityExpanded ? "Weniger anzeigen" : "Alle \(events.count) anzeigen")
+                            .font(.caption.bold())
+                        Image(systemName: intensityExpanded ? "chevron.up" : "chevron.down")
+                            .font(.caption2.bold())
+                    }
+                    .foregroundStyle(.indigo)
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 6)
+                }
+                .buttonStyle(.plain)
             }
         }
     }
