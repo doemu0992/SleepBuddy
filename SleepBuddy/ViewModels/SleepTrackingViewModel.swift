@@ -1098,12 +1098,13 @@ final class SleepTrackingViewModel {
                 var j = i
                 while j < totalMin && moveByMin[j] > elevated { j += 1 }
                 let runLen = j - i
-                // Real awakening = SUSTAINED elevated movement (≥ 3 min). A single- or
-                // two-minute spike is a position change (turning over) and must NOT read
-                // as a wake epoch — the user reported never being awake mid-night, only
-                // turning. Getting up (toilet) always spans several minutes of movement,
-                // so it is still caught. (Removed the 1-min strong-spike clause.)
-                if runLen >= 3 {
+                // Real awakening = SUSTAINED elevated movement (≥ 3 min). Crucially the
+                // sustain check counts RAW minutes: the ±2-min neighbour smoothing smears
+                // a single turn-over spike into a 3–5 min "elevated" run, which made the
+                // smoothed run length alone always pass. A turn-over has 1–2 raw elevated
+                // minutes; getting up (toilet) has several — only the latter is a wake.
+                let rawElev = (i..<j).filter { rawMove[$0] > elevated }.count
+                if runLen >= 3 && rawElev >= 3 {
                     markAwake(in: session, fromMinute: i, toMinute: j)
                     changed = true
                 }
@@ -1123,7 +1124,9 @@ final class SleepTrackingViewModel {
         var m = 0
         while m < totalMin {
             let hi = min(totalMin, m + windowLen)
-            let active = (m..<hi).filter { moveByMin[$0] > elevated }.count
+            // RAW minutes — smoothed counting let two turn-over spikes (smeared to
+            // ~5 min each) fill the window and flag calm sleep as restless.
+            let active = (m..<hi).filter { rawMove[$0] > elevated }.count
             let hasStrong = (m..<hi).contains { rawMove[$0] > strong }
             if active >= minActive && hasStrong {
                 markAwake(in: session, fromMinute: m, toMinute: hi)
@@ -1148,10 +1151,12 @@ final class SleepTrackingViewModel {
                 guard p.phaseType == .awake else { continue }
                 let prev = phasesForClean[idx - 1], next = phasesForClean[idx + 1]
                 guard prev.phaseType != .awake, next.phaseType != .awake else { continue }
-                guard p.endDate.timeIntervalSince(p.startDate) < 6 * 60 else { continue }
+                guard p.endDate.timeIntervalSince(p.startDate) < 10 * 60 else { continue }
                 let sMin = max(0, Int(p.startDate.timeIntervalSince(start) / 60))
                 let eMin = min(totalMin, max(sMin + 1, Int(p.endDate.timeIntervalSince(start) / 60)))
-                let elevMin = (sMin..<eMin).filter { moveByMin[$0] > elevated }.count
+                // Count RAW elevated minutes — the smoothed curve smears one spike over
+                // ±2 min and would falsely "back" the island with 3+ elevated minutes.
+                let elevMin = (sMin..<eMin).filter { rawMove[$0] > elevated }.count
                 if elevMin < 3 {
                     p.phaseType = prev.phaseType   // absorb into the surrounding sleep
                     changed = true
