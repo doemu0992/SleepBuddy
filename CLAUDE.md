@@ -1317,13 +1317,15 @@ return cycle >= 65
 | Parameter | Wert | Beschreibung |
 |-----------|------|-------------|
 | `awakeMotionThreshold` (normal) | 0.35 | Bewegungsgrenze für Wach |
-| `awakeAmplitudeThreshold` (normal) | 0.035 | Lautstärkegrenze für Wach |
+| `awakeAmplitudeThreshold` (normal) | 0.035 | Lautstärke-**Basiswert** für Wach — effektiv gilt `effectiveAwakeAmplitude` (siehe unten) |
 | `sleepAmplitudeMax` | 0.028 | Maximal-Amplitude für Schlaf |
 | Deep-Threshold Watch | 56 BPM | HR-Override Tiefschlaf |
 | Deep-Threshold BCG | 60 BPM | HR-Override Tiefschlaf (erhöht) |
 | `breathDeep` BPM-Schwelle | < 13 BPM | Tiefschlaf-Atemfrequenz |
 | `breathREM` Regularitäts-Schwelle | < 0.45 | Unregelmäßige Atmung → REM |
 | `breathValid` Qualitäts-Gate | reg > 0.25 | Mindest-Signalqualität (gesenkt für Atem-Fallback) |
+
+> **Adaptiver Geräuschboden für die Wach-Amplitude (bindend, gerätebelegt):** Die fixe Schwelle 0.035 (≈ 61 dB) versagt auf Geräten mit heißerem Mikrofon-Gain oder in lauten Räumen — real beobachtet (zweites Gerät, Nachttisch): Dauerboden 60–67 dB → **jede** Messung „wach" → 100 % Wach-Nacht, alle TrainingSamples falsch gelabelt. `updateAmbientFloor` führt daher einen rollenden Amplitude-Median (≈ 10 min); `effectiveAwakeAmplitude = max(awakeAmplitudeThreshold, ambientMedian × 2.2)` und `effectiveSleepAmplitudeMax = max(sleepAmplitudeMax, ambientMedian × 1.8)`. Die Wach-Schwelle liegt so IMMER klar über dem Boden **dieser** Nacht/dieses Geräts. Buffer wird in `reset()` geleert. **Rückwirkend:** `rebuildPhasesFromSamples` erkennt auch **100-%-Wach-Nächte** (`sleepMin < 20`, ≥ 60 min) als strukturlos und rekonstruiert dann rein sensorisch (Bewegung < 0.30 UND Minuten-Amplitude ≤ Median × 1.5, Onset erst nach ≥ 10 ruhigen Minuten — Labels sind in dem Fall wertlos).
 
 **Partner-Modus (bindend, zentralisiert):**
 

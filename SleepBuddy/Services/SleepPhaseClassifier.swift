@@ -106,6 +106,35 @@ final class SleepPhaseClassifier {
 
     private var sleepAmplitudeMax: Float { PersonalCalibrationService.shared.sleepAmplitudeMax }
 
+    // Adaptiver Geräuschboden (kritisch, gerätebelegt): die fixe Amplitude-Schwelle
+    // (0.035 ≈ ~61 dB) versagt auf Geräten mit heißerem Mikrofon-Gain oder in lauten
+    // Räumen — real beobachtet: Dauerboden 60–67 dB → JEDE Messung wurde „wach",
+    // ganze Nacht 100 % Wach. Deshalb rollender Median der Amplitude; die effektive
+    // Wach-Schwelle liegt IMMER klar über dem gemessenen Boden dieser Nacht.
+    private var ambientAmpBuf: [Float] = []
+    private var ambientAmpMedian: Float = 0
+    private var ambientAmpCounter = 0
+
+    private func updateAmbientFloor(_ amp: Float) {
+        ambientAmpBuf.append(amp)
+        if ambientAmpBuf.count > 4800 { ambientAmpBuf.removeFirst(ambientAmpBuf.count - 4800) }
+        ambientAmpCounter += 1
+        if ambientAmpMedian == 0 || ambientAmpCounter >= 64 {
+            ambientAmpCounter = 0
+            let s = ambientAmpBuf.sorted()
+            ambientAmpMedian = s[s.count / 2]
+        }
+    }
+
+    /// Wach-Schwelle: fixer Basiswert ODER 2.2× Nacht-Boden — was höher ist.
+    private var effectiveAwakeAmplitude: Float {
+        max(awakeAmplitudeThreshold, ambientAmpMedian * 2.2)
+    }
+    /// Schlaf-kompatible Maximal-Amplitude, ebenfalls boden-relativ.
+    private var effectiveSleepAmplitudeMax: Float {
+        max(sleepAmplitudeMax, ambientAmpMedian * 1.8)
+    }
+
     // MARK: - Heart rate input (Apple Watch via HealthKit, updated every 5 min)
 
     var currentHRBPM: Double = 0
@@ -198,6 +227,9 @@ final class SleepPhaseClassifier {
         breathREMStreak  = 0
         sleepOnsetDate   = nil
         lastCommittedPhase = .awake
+        ambientAmpBuf.removeAll()
+        ambientAmpMedian = 0
+        ambientAmpCounter = 0
     }
 
     func classify(audio: AudioFeatures, motion: MotionFeatures) -> (phase: SleepPhaseType, confidence: Double) {
@@ -318,9 +350,10 @@ final class SleepPhaseClassifier {
         let effectiveAwakeMotion: Float = isMorning ? awakeMotionThreshold * 0.65 : awakeMotionThreshold
 
         // ── Step 1: Detect wakefulness ──────────────────────────────────────────
-        if mov > effectiveAwakeMotion || amp > awakeAmplitudeThreshold {
+        updateAmbientFloor(amp)
+        if mov > effectiveAwakeMotion || amp > effectiveAwakeAmplitude {
             let motConf  = min(Double(mov / awakeMotionThreshold) * 0.4 + 0.55, 0.95)
-            let ampConf  = min(Double(amp / awakeAmplitudeThreshold) * 0.4 + 0.55, 0.95)
+            let ampConf  = min(Double(amp / effectiveAwakeAmplitude) * 0.4 + 0.55, 0.95)
             return (.awake, max(motConf, ampConf))
         }
 
@@ -389,7 +422,7 @@ final class SleepPhaseClassifier {
         // Fallback when no HR available or HR is in an ambiguous range.
         // Without onset date we have no cycle reference → default to light sleep.
         guard let cyclePos = cyclePosition() else {
-            return amp <= sleepAmplitudeMax ? (.light, 0.50) : (.awake, 0.55)
+            return amp <= effectiveSleepAmplitudeMax ? (.light, 0.50) : (.awake, 0.55)
         }
 
         let elapsed = elapsedSleepMinutes()

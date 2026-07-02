@@ -549,33 +549,59 @@ final class SleepTrackingViewModel {
         // real deep/REM in their labels) are left completely untouched.
         let sleepMin = minuteLabel.reduce(0) { $0 + (($1 == .awake || $1 == nil) ? 0 : 1) }
         let deepRemMin = minuteLabel.reduce(0) { $0 + (($1 == .deep || $1 == .rem) ? 1 : 0) }
-        if sleepMin >= 20 && Double(deepRemMin) / Double(max(1, sleepMin)) < 0.05 {
-            // Per-minute mean movement (forward-filled) to find the quiet onset.
+        // Strukturlos = (a) Schlafminuten ohne Tief/REM (Onset-Bug) ODER (b) praktisch
+        // die GANZE Nacht als „wach" gelabelt (lauter Raum / heißes Mikrofon → die alte
+        // fixe Amplitude-Schwelle feuerte durchgehend; real beobachtet: Nachttisch-Gerät
+        // mit 60–67-dB-Boden, 100 % Wach, Neuberechnung half nicht).
+        let allAwake = sleepMin < 20 && totalMin >= 60
+        if allAwake || (sleepMin >= 20 && Double(deepRemMin) / Double(max(1, sleepMin)) < 0.05) {
+            // Per-minute mean movement + amplitude (forward-filled).
             var moveSum = [Float](repeating: 0, count: totalMin)
-            var moveCnt = [Int](repeating: 0, count: totalMin)
+            var ampSum = [Float](repeating: 0, count: totalMin)
+            var cnt = [Int](repeating: 0, count: totalMin)
             for s in samples {
                 let m = Int(s.timestamp.timeIntervalSince(start) / 60)
-                if m >= 0 && m < totalMin { moveSum[m] += s.movementIntensity; moveCnt[m] += 1 }
+                if m >= 0 && m < totalMin {
+                    moveSum[m] += s.movementIntensity
+                    ampSum[m] += s.averageAmplitude
+                    cnt[m] += 1
+                }
             }
             var minuteMove = [Float](repeating: 0, count: totalMin)
-            var lastMove: Float = 0
+            var minuteAmp = [Float](repeating: 0, count: totalMin)
+            var lastMove: Float = 0, lastAmp: Float = 0
             for m in 0..<totalMin {
-                if moveCnt[m] > 0 { lastMove = moveSum[m] / Float(moveCnt[m]) }
+                if cnt[m] > 0 { lastMove = moveSum[m] / Float(cnt[m]); lastAmp = ampSum[m] / Float(cnt[m]) }
                 minuteMove[m] = lastMove
+                minuteAmp[m] = lastAmp
             }
-            // Onset = start of the first ≥5-min run that is not-awake AND low-movement.
+            // Boden-relative Ruhe-Schwelle für die Amplitude (Median × 1.5) — die
+            // absolute Skala ist geräteabhängig und hier unbrauchbar.
+            let ampSorted = minuteAmp.sorted()
+            let ampQuiet = ampSorted[ampSorted.count / 2] * 1.5
+
+            // „Schlaf-kompatible" Minute: bei (a) das Live-Label, bei (b) sind die Labels
+            // wertlos → rein sensorisch (ruhig UND nicht klar lauter als der Boden).
             let quiet: Float = 0.30
+            func canSleep(_ m: Int) -> Bool {
+                if allAwake { return minuteMove[m] < quiet && minuteAmp[m] <= ampQuiet }
+                return minuteLabel[m] != .awake
+            }
+
+            // Onset = Beginn des ersten ruhigen Blocks (≥ 5 min mit Label-Stütze,
+            // ≥ 10 min im rein sensorischen All-Awake-Fall — konservativer).
+            let needRun = allAwake ? 10 : 5
             var onsetMin = 0, run = 0
             for m in 0..<totalMin {
-                if minuteLabel[m] != .awake && minuteMove[m] < quiet {
+                if canSleep(m) && minuteMove[m] < quiet {
                     run += 1
-                    if run >= 5 { onsetMin = m - 4; break }
+                    if run >= needRun { onsetMin = m - (needRun - 1); break }
                 } else { run = 0 }
             }
             let cycleLen = Double(detectCycleLength(session))   // HR-empty → 100 min fallback
             for m in 0..<totalMin {
                 if m < onsetMin { minuteLabel[m] = .awake; continue }
-                if minuteLabel[m] == .awake { continue }        // keep real sensor-based wake
+                if !canSleep(m) { minuteLabel[m] = .awake; continue }   // echtes Sensor-Wach behalten
                 let frac = (Double(m - onsetMin).truncatingRemainder(dividingBy: cycleLen)) / cycleLen
                 // Zones scaled from the 90-min model: A(light) B(deep) C(rem).
                 if frac < 0.22 { minuteLabel[m] = .light }
