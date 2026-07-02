@@ -1225,8 +1225,35 @@ struct DatenschutzView: View {
 struct SonarTestView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var sonar = SonarService()
+    // Identischer Pfad wie in der realen Nacht (bindend): der Test läuft über die
+    // GETEILTE AudioAnalysisService-Engine (Ton-Player, Format-Handling, Notch+Lowpass,
+    // feedExternal) — nicht über die frühere Sonar-eigene Test-Engine. So testet man
+    // vorab exakt das, was nachts passiert (der Nacht-Bug „Pegel 0" war nur im
+    // geteilten Pfad und im alten Test unsichtbar).
+    @State private var audio = AudioAnalysisService()
+    @State private var laeuft = false
     @State private var feat = SonarFeatures.neutral
     @State private var kopiert = false
+
+    private func startTest() {
+        audio.sonar = sonar
+        audio.sonarForced = true
+        do {
+            try audio.start()
+            laeuft = true
+            UIApplication.shared.isIdleTimerDisabled = true
+        } catch {
+            audio.sonar = nil
+        }
+    }
+
+    private func stopTest() {
+        guard laeuft else { return }
+        audio.stop()
+        audio.sonar = nil
+        laeuft = false
+        UIApplication.shared.isIdleTimerDisabled = false
+    }
 
     var body: some View {
         NavigationStack {
@@ -1282,22 +1309,15 @@ struct SonarTestView: View {
                     }
 
                     Button {
-                        if sonar.isRunning {
-                            sonar.stop()
-                            UIApplication.shared.isIdleTimerDisabled = false
-                        } else {
-                            sonar.start()
-                            // Bildschirm während des Tests wachhalten — sonst sperrt iOS und
-                            // suspendiert die Test-Engine (nur der Test; nachts läuft es via
-                            // Background-Audio weiter).
-                            UIApplication.shared.isIdleTimerDisabled = true
-                        }
+                        // Bildschirm wachhalten — sonst sperrt iOS und suspendiert den Test
+                        // (nur der Test; nachts läuft es via Background-Audio weiter).
+                        if laeuft { stopTest() } else { startTest() }
                     } label: {
-                        Label(sonar.isRunning ? "Stoppen" : "Sonar starten",
-                              systemImage: sonar.isRunning ? "stop.fill" : "play.fill")
+                        Label(laeuft ? "Stoppen" : "Sonar starten (realer Nacht-Pfad)",
+                              systemImage: laeuft ? "stop.fill" : "play.fill")
                             .font(.headline).foregroundStyle(.white)
                             .frame(maxWidth: .infinity).padding()
-                            .background(sonar.isRunning ? Color.red : Color.indigo, in: RoundedRectangle(cornerRadius: 14))
+                            .background(laeuft ? Color.red : Color.indigo, in: RoundedRectangle(cornerRadius: 14))
                     }
                     .buttonStyle(.plain)
 
@@ -1324,16 +1344,12 @@ struct SonarTestView: View {
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Fertig") {
-                        sonar.stop()
-                        UIApplication.shared.isIdleTimerDisabled = false
+                        stopTest()
                         dismiss()
                     }
                 }
             }
-            .onDisappear {
-                sonar.stop()
-                UIApplication.shared.isIdleTimerDisabled = false
-            }
+            .onDisappear { stopTest() }
             .onReceive(Timer.publish(every: 0.5, on: .main, in: .common).autoconnect()) { _ in
                 feat = sonar.latest
             }

@@ -1112,7 +1112,7 @@ Aktives Sonar (Sleep-Cycle-Stil): sendet einen fast unhörbaren **~19 kHz-Ton** 
 >
 > **Klassifikator-Einspeisung (voller Fallback):** In `SleepTrackingViewModel.handleFeatures` wird bei `latestSonar.signalPresent` das `MotionFeatures` überschrieben (Atemrate/-regularität + `isOnMattress=true`, `movementIntensity` gemerged) → Sonar ist die **bevorzugte** Atem-/Bewegungsquelle. Ohne Signal bleibt alles beim Accelerometer/Mikro (kein Regressionsrisiko).
 >
-> **Standard AUS (bindend):** `sonar_enabled` default `false` (Toggle in EinstellungenView → Aufzeichnung, iCloud-synced). Ist es aus, ist die Audio-Pipeline **exakt wie zuvor** (`.record`, kein Ton, kein Notch). Nach der ersten Nacht feintunen; bei Problemen einfach ausschalten. Live-Test weiterhin über „Sonar testen".
+> **Standard AUS (bindend):** `sonar_enabled` default `false` (Toggle in EinstellungenView → Aufzeichnung, iCloud-synced). Ist es aus, ist die Audio-Pipeline **exakt wie zuvor** (`.record`, kein Ton, kein Notch). Nach der ersten Nacht feintunen; bei Problemen einfach ausschalten. **Live-Test = realer Nacht-Pfad (bindend):** `SonarTestView` treibt die **geteilte `AudioAnalysisService`-Engine** (`sonarForced = true`, Ton-Player, Notch+Lowpass, `feedExternal`) — nicht mehr die Sonar-eigene Test-Engine. Der frühere getrennte Test-Pfad verdeckte den Nacht-Bug „Pegel 0" (Format-Mismatch nur im geteilten Pfad); mit dem Test lässt sich der Nachtbetrieb jetzt vorab verifizieren.
 
 ---
 

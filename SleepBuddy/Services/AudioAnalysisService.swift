@@ -26,6 +26,9 @@ final class AudioAnalysisService {
     /// leitet jeden Roh-Buffer an das Sonar weiter. Der Ton wird für die restliche Analyse per
     /// Notch-Filter entfernt (sonst würde er Lautstärke-/Geräuschmessung verfälschen).
     weak var sonar: SonarService?
+    // Test-Modus (SonarTestView): Sonar-Pfad unabhängig vom "sonar_enabled"-Toggle erzwingen,
+    // damit der Test EXAKT den realen Nacht-Pfad fährt (geteilte Engine, Notch+Lowpass).
+    var sonarForced = false
     private var sonarActive = false
     private let sonarTonePlayer = AVAudioPlayerNode()
     private let sonarCarrier: Double = 19_000
@@ -80,7 +83,7 @@ final class AudioAnalysisService {
     private let envelopeFftSize = 256
 
     func start() throws {
-        sonarActive = (sonar != nil) && UserDefaults.standard.bool(forKey: "sonar_enabled")
+        sonarActive = (sonar != nil) && (sonarForced || UserDefaults.standard.bool(forKey: "sonar_enabled"))
 
         let session = AVAudioSession.sharedInstance()
         if sonarActive {
