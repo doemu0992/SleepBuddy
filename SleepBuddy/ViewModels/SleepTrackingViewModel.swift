@@ -555,36 +555,55 @@ final class SleepTrackingViewModel {
         // mit 60–67-dB-Boden, 100 % Wach, Neuberechnung half nicht).
         let allAwake = sleepMin < 20 && totalMin >= 60
         if allAwake || (sleepMin >= 20 && Double(deepRemMin) / Double(max(1, sleepMin)) < 0.05) {
-            // Per-minute mean movement + amplitude (forward-filled).
+            // Per-minute mean movement + amplitude + MAX movement (forward-filled).
             var moveSum = [Float](repeating: 0, count: totalMin)
+            var moveMax = [Float](repeating: 0, count: totalMin)
             var ampSum = [Float](repeating: 0, count: totalMin)
             var cnt = [Int](repeating: 0, count: totalMin)
             for s in samples {
                 let m = Int(s.timestamp.timeIntervalSince(start) / 60)
                 if m >= 0 && m < totalMin {
                     moveSum[m] += s.movementIntensity
+                    moveMax[m] = max(moveMax[m], s.movementIntensity)
                     ampSum[m] += s.averageAmplitude
                     cnt[m] += 1
                 }
             }
             var minuteMove = [Float](repeating: 0, count: totalMin)
+            var minuteMoveMax = [Float](repeating: 0, count: totalMin)
             var minuteAmp = [Float](repeating: 0, count: totalMin)
-            var lastMove: Float = 0, lastAmp: Float = 0
+            var lastMove: Float = 0, lastMoveMax: Float = 0, lastAmp: Float = 0
             for m in 0..<totalMin {
-                if cnt[m] > 0 { lastMove = moveSum[m] / Float(cnt[m]); lastAmp = ampSum[m] / Float(cnt[m]) }
+                if cnt[m] > 0 {
+                    lastMove = moveSum[m] / Float(cnt[m])
+                    lastMoveMax = moveMax[m]
+                    lastAmp = ampSum[m] / Float(cnt[m])
+                }
                 minuteMove[m] = lastMove
+                minuteMoveMax[m] = lastMoveMax
                 minuteAmp[m] = lastAmp
             }
             // Boden-relative Ruhe-Schwelle für die Amplitude (Median × 1.5) — die
             // absolute Skala ist geräteabhängig und hier unbrauchbar.
             let ampSorted = minuteAmp.sorted()
             let ampQuiet = ampSorted[ampSorted.count / 2] * 1.5
+            // Relative Unruhe-Schwelle auf der MAX-Bewegung — dieselbe Logik wie
+            // applyMovementWake (Median × 2.5). Die Minuten-DURCHSCHNITTS-Bewegung
+            // verwässert kurze Handling-/Umdreh-Spitzen und übersieht Unruhe, die
+            // applyMovementWake später als Wach markiert → der Onset-Check muss auf
+            // derselben Skala rechnen, sonst hält er unruhige Minuten für Schlaf.
+            let moveMaxSorted = minuteMoveMax.sorted()
+            let elevatedRel = max(moveMaxSorted[moveMaxSorted.count / 2] * 2.5, 0.12)
 
             // „Schlaf-kompatible" Minute: bei (a) das Live-Label, bei (b) sind die Labels
-            // wertlos → rein sensorisch (ruhig UND nicht klar lauter als der Boden).
+            // wertlos → rein sensorisch (ruhig, nicht klar lauter als der Boden, und
+            // ohne Unruhe-Spitze auf der Max-Skala).
             let quiet: Float = 0.30
             func canSleep(_ m: Int) -> Bool {
-                if allAwake { return minuteMove[m] < quiet && minuteAmp[m] <= ampQuiet }
+                if allAwake {
+                    return minuteMove[m] < quiet && minuteAmp[m] <= ampQuiet
+                        && minuteMoveMax[m] <= elevatedRel
+                }
                 return minuteLabel[m] != .awake
             }
 
