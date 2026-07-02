@@ -69,6 +69,7 @@ final class MotionAnalysisService {
         breathingSamples.removeAll()
         bcgZ.removeAll()
         plmBuffer.removeAll()
+        recentBCG.removeAll()
         downsampleCounter = 0
         plmDownsampleCounter = 0
         emitCounter = 0
@@ -80,6 +81,7 @@ final class MotionAnalysisService {
         breathingSamples.removeAll()
         bcgZ.removeAll()
         plmBuffer.removeAll()
+        recentBCG.removeAll()
         downsampleCounter = 0
         plmDownsampleCounter = 0
         emitCounter = 0
@@ -294,13 +296,57 @@ final class MotionAnalysisService {
         // from ~44% to ~67% with NO loss of accuracy (MAE stayed 0.8 BPM). 0.28 was too strict.
         guard strength > 0.22 else { return 0 }
 
-        let periodSamples = Float(Int(peakIdx) + lagMin)
-        let bpm = Float(sampleRate * 60.0) / periodSamples
+        var chosenLag = Int(peakIdx) + lagMin
+
+        // Continuity prior (fixes minutes-long HR spike plateaus): the BCG beat has
+        // intra-beat structure (I/J/K waves) that can make a HALF-period ACF peak
+        // temporarily the strongest → the rate locks onto ~1.5–2× the true pulse and
+        // holds there (observed: rectangular 60→100 BPM plateaus at night). The true
+        // peak is still present, just slightly weaker. If the winning candidate jumps
+        // > 20 BPM away from the recent stable pulse while a nearly-as-strong local
+        // peak (≥ 65 %) sits within ±12 BPM of it, prefer the continuous one. A real
+        // sustained HR change still wins: once the near peak fades, the jump is accepted
+        // and the history follows.
+        if let med = recentBCGMedian {
+            let candBPM = Float(sampleRate * 60.0) / Float(chosenLag)
+            if abs(candBPM - med) > 20 {
+                let nearLag = Int((Float(sampleRate) * 60.0 / med).rounded())
+                let lo = max(lagMin, nearLag - 6), hi = min(lagMax, nearLag + 6)
+                if lo < hi {
+                    var bestNearVal: Float = 0
+                    var bestNearLag = 0
+                    for l in lo...hi where l > lagMin && l < lagMax {
+                        // local maximum only (not a slope point)
+                        if acf[l] >= acf[l - 1] && acf[l] >= acf[l + 1] && acf[l] > bestNearVal {
+                            bestNearVal = acf[l]; bestNearLag = l
+                        }
+                    }
+                    let nearBPM = bestNearLag > 0 ? Float(sampleRate * 60.0) / Float(bestNearLag) : 0
+                    if bestNearLag > 0, bestNearVal >= peakVal * 0.65, abs(nearBPM - med) <= 12 {
+                        chosenLag = bestNearLag
+                    }
+                }
+            }
+        }
+
+        let bpm = Float(sampleRate * 60.0) / Float(chosenLag)
 
         // Sanity: must be in physiological range
         guard bpm >= 40 && bpm <= 150 else { return 0 }
 
+        // Track recent accepted values for the continuity prior.
+        recentBCG.append(bpm)
+        if recentBCG.count > 8 { recentBCG.removeFirst() }
+
         return bpm
+    }
+
+    // Recent accepted BCG values (median = stable pulse reference for the continuity prior).
+    private var recentBCG: [Float] = []
+    private var recentBCGMedian: Float? {
+        guard recentBCG.count >= 4 else { return nil }
+        let s = recentBCG.sorted()
+        return s[s.count / 2]
     }
 
     // MARK: - Filter helpers
