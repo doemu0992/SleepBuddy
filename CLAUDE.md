@@ -622,6 +622,8 @@ private func recalibrateRolling() {
 
 > **`thresholdOverMedian`:** In `finishCalibration` als `threshold / median` der 60-s-Kalibrierung gemessen (geklemmt 2…12, Fallback 4.0). So nutzt die rollende Phase den robusten Median, reproduziert aber die ×1.8-Schwellenskala der Erstkalibrierung.
 
+> **Spam-Brecher bei angehobenem Geräuschboden (bindend, nutzerbelegt):** Steigt der Boden **schnell** über die Schwelle (Heizung springt an), greift die rollende Nachkalibrierung zu langsam — während der Endlos-Kette „30-s-Event → 4 s Cooldown → sofort neues Event" fallen fast alle Samples **in** Events und sind von der Rekalibrierung ausgeschlossen (real beobachtet: minutenweise „Geräusch"-Clips à 46 dB). Daher in `finaliseEvent`: **Volle 30-s-`.other`-Events** (Amplitude-getriggert, `duration ≥ maxEventDuration − 1`) zählen `consecutiveContinuousOther`. Ab dem **2.** in Folge: `calibratedThreshold × 1.5` (selbstkorrigierend, wiederholt sich bis der Boden unter der Schwelle liegt; der Median-Recal senkt sie später wieder). Ab dem **3.**: Event wird **verworfen** (kein Insert, kein Clip — es ist Boden-Rauschen, kein Ereignis). Jedes natürlich endende oder ML-typisierte Event setzt den Zähler zurück — echte benannte Geräusche (Schnarchen, Hund) sind nie betroffen.
+
 > **`reset()` muss Kalibrierung UND Rolling-State zurücksetzen** (`calibrationSamples`, `calibrationDeadline`, `calibratedThreshold`, `thresholdOverMedian`, `rollingAmbient`, `lastRecal`) — jede Nacht neu kalibrieren.
 
 > **ML bleibt primärer Trigger** (amplitudenunabhängig, gain-verstärkt). Die kalibrierte Amplitude ist das Gate für nicht-ML-Sounds.

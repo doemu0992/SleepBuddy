@@ -77,6 +77,9 @@ final class SoundEventService {
     // the robust MEDIAN of non-event samples (adapts up AND down) while reproducing the same
     // threshold scale. Median is robust to occasional loud bumps, so events can't ratchet it.
     private var thresholdOverMedian: Float = 4.0
+    // Spam breaker: counts back-to-back FULL-LENGTH amplitude-triggered .other events
+    // (the signature of a raised ambient floor, not discrete sounds). See finaliseEvent().
+    private var consecutiveContinuousOther = 0
 
     private var amplitudeThreshold: Float {
         // Once calibrated, the measured ambient ceiling drives detection (layered with the
@@ -271,6 +274,7 @@ final class SoundEventService {
         thresholdOverMedian = 4.0
         rollingAmbient.removeAll()
         lastRecal = .distantPast
+        consecutiveContinuousOther = 0
     }
 
     /// Finalises calibration: threshold = 95th-percentile ambient ceiling × margin,
@@ -380,6 +384,33 @@ final class SoundEventService {
 
         let type = pendingEventType
         guard duration >= minDuration(for: type) else { return }
+
+        // ── Spam breaker (raised ambient floor) ────────────────────────────────
+        // A chain of FULL-LENGTH amplitude-triggered .other events (30 s slice →
+        // 4 s cooldown → immediate re-trigger) means the ambient FLOOR itself rose
+        // above the threshold (heating, rain, traffic) — not discrete events. The
+        // rolling recalibration can't catch up because during the chain almost all
+        // samples fall inside events and are excluded. Real observed failure:
+        // minute-by-minute "Geräusch" clips at 46 dB for many minutes. Bump the
+        // threshold directly (self-correcting: repeats until the noise is below it;
+        // the median-based recal brings it back down once the room quietens), and
+        // stop recording the spam events after the second bump.
+        let wasContinuousOther = (type == .other) && duration >= maxEventDuration - 1.0
+        if wasContinuousOther {
+            consecutiveContinuousOther += 1
+            if consecutiveContinuousOther >= 2, let cur = calibratedThreshold {
+                calibratedThreshold = cur * 1.5
+            }
+            if consecutiveContinuousOther >= 3 {
+                mlHintType = nil; mlHintConfidence = 0; mlHintDate = nil
+                pendingMLLabel = nil
+                lastEventWasAmbient = currentEventIsAmbient
+                currentEventIsAmbient = false
+                return   // drop the event: it's floor noise, not a real occurrence
+            }
+        } else {
+            consecutiveContinuousOther = 0
+        }
 
         let samples = Array(circularBuffer)
         let sr = sampleRate
