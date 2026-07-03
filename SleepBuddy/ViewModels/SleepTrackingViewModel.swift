@@ -497,6 +497,7 @@ final class SleepTrackingViewModel {
         modelContext = context
         var count = 0
         for session in sessions where !session.isActive {
+            cleanHeartRateFlatlines(session)
             guard rebuildPhasesFromSamples(session, context: context) else { continue }
             applyHeartRatePhaseCorrection(to: session)
             applyCycleRemRefinement(to: session)
@@ -509,6 +510,39 @@ final class SleepTrackingViewModel {
         }
         try? context.save()
         return count
+    }
+
+    /// Removes physiologically impossible FLATLINES from the stored heart-rate
+    /// series: a real pulse varies minute to minute, but two artifact sources
+    /// wrote hour-long constant values — the early stale-BCG bug (exactly 70) and
+    /// the sonar filter artifact (~96 via the fusion gap-filler). Runs of >= 15
+    /// consecutive minutes within a +-2 BPM band are set to 0 (= no measurement);
+    /// the display filter then bridges them honestly as "geschätzt".
+    private func cleanHeartRateFlatlines(_ session: SleepSession) {
+        var hr = session.heartRateSamples
+        guard hr.count >= 15 else { return }
+        var changed = false
+        var i = 0
+        while i < hr.count {
+            guard hr[i] > 0 else { i += 1; continue }
+            var j = i
+            var lo = hr[i], hi = hr[i]
+            while j < hr.count, hr[j] > 0 {
+                let nlo = min(lo, hr[j]), nhi = max(hi, hr[j])
+                if nhi - nlo > 2 { break }
+                lo = nlo; hi = nhi
+                j += 1
+            }
+            if j - i >= 15 {
+                for k in i..<j { hr[k] = 0 }
+                changed = true
+            }
+            i = max(j, i + 1)
+        }
+        if changed {
+            session.heartRateSamples = hr
+            try? modelContext?.save()
+        }
     }
 
     /// Rebuilds a session's SleepPhase list from its TrainingSamples (raw live
