@@ -1425,6 +1425,9 @@ final class SonarService {
     private var newSinceEmit = 0
     private let emitEverySamples = 250           // ~5 s @ 50 Hz (schnelles Test-Feedback)
 
+    // Stabilitäts-Historie des Sonar-Pulses (Gate für die Fusion).
+    private var recentSonarHR: [Float] = []
+
     // Halten des letzten guten Atemwerts über kurze Lücken (bei Ruhe).
     private var lastGoodBpm: Float = 0
     private var lastGoodReg: Float = 0
@@ -1523,6 +1526,7 @@ final class SonarService {
 
     private func reset() {
         carrierPhase = 0
+        recentSonarHR.removeAll()
         lastGoodBpm = 0; lastGoodReg = 0; lastGoodAt = .distantPast
         log.removeAll()
         logStart = Date()
@@ -1638,10 +1642,19 @@ final class SonarService {
         detrend(&phase)
         let movement = movementLevel(phase: phase, rate: basebandRate)
 
-        // EXPERIMENTELL: Puls aus der Sonar-Reflexion — geht NUR in die Nacht-CSV
-        // (Validierung gegen BCG/Watch), fließt in kein anderes System ein. Nur bei
-        // ruhigem Liegen versucht (Bewegung zerstört das winzige Herz-Signal).
+        // EXPERIMENTELL: Puls aus der Sonar-Reflexion. Nur bei ruhigem Liegen versucht
+        // (Bewegung zerstört das winzige Herz-Signal). Die CSV loggt den ROHWERT
+        // (Diagnose); in die Fusion (SonarFeatures.heartRateBPM) geht nur ein
+        // STABILER Wert: mindestens 2 der letzten 3 Messungen innerhalb ±8 BPM —
+        // einzelne Flacker-Locks (94 → 42 → 0) erreichen die Puls-Reihe so nie.
         let sonarHR: Float = (present && movement < 0.3) ? heartRate(from: heartSrc, rate: basebandRate) : 0
+        var gatedHR: Float = 0
+        if sonarHR > 0 {
+            let near = recentSonarHR.suffix(3).filter { abs($0 - sonarHR) <= 8 }
+            if near.count >= 2 { gatedHR = sonarHR }
+        }
+        recentSonarHR.append(sonarHR)
+        if recentSonarHR.count > 6 { recentSonarHR.removeFirst() }
 
         // Kontinuität: letzten guten Atemwert über kurze Lücken halten, solange ruhig
         // (kein starkes Wälzen) und der letzte Lock < 25 s her ist. Regularität wird dabei
@@ -1659,7 +1672,7 @@ final class SonarService {
             breathingRegularity: present ? reg : 0,
             movementIntensity: movement,
             signalPresent: present,
-            heartRateBPM: sonarHR
+            heartRateBPM: gatedHR
         )
         // Letzte ~6 s der Atem-Bewegungskomponente als Wellenform fürs UI
         let tail = Array(motionSig.suffix(Int(basebandRate * 6)))
@@ -1772,18 +1785,24 @@ final class SonarService {
         let win = min(n, Int(rate * 20))                 // letzte ~20 s
         guard win > Int(rate * 10) else { return 0 }
         let src = Array(signal.suffix(win))
-        // Hochpass: gleitenden 1,2-s-Mittelwert abziehen (Atmung raus, Herz bleibt)
-        let w = max(2, Int(rate * 1.2))
-        var hp = [Float](repeating: 0, count: win)
-        var runSum: Float = 0
+        // Bandpass 0,5–2,5 Hz aus zwei EIN-POL-Filtern (kein Moving Average!):
+        // Der frühere MA-Hochpass (1,2-s-Fenster) erzeugte selbst ein ACF-Artefakt
+        // bei der HALBEN Fensterlänge (~30 Samples ≙ ~96 BPM) — real beobachtet:
+        // 2034/2165 Nacht-Locks klebten bei 93–100 BPM, stundenlang konstant ~96,
+        // während der echte Puls (BCG) bei 55–70 lag. Ein-Pol-IIR-Filter haben
+        // keine solche Lag-Signatur.
+        var lpSlow = [Float](repeating: 0, count: win)   // ~0.5 Hz (Atmung/Drift)
+        var acc: Float = src.first ?? 0
+        let aSlow: Float = 0.059                          // dt/(RC+dt), fc≈0.5 Hz @ 50 Hz
+        for i in 0..<win { acc += aSlow * (src[i] - acc); lpSlow[i] = acc }
+        var seg = [Float](repeating: 0, count: win)
+        var smooth: Float = 0
+        let aFast: Float = 0.24                           // fc≈2.5 Hz @ 50 Hz
         for i in 0..<win {
-            runSum += src[i]
-            if i >= w { runSum -= src[i - w] }
-            hp[i] = src[i] - runSum / Float(min(i + 1, w))
+            let hp = src[i] - lpSlow[i]                   // Atemband raus
+            smooth += aFast * (hp - smooth)               // Rauschen > 2.5 Hz raus
+            seg[i] = smooth
         }
-        // leichte Glättung gegen Demod-Rauschen (3er-MA)
-        var seg = hp
-        for i in 2..<win { seg[i] = (hp[i] + hp[i-1] + hp[i-2]) / 3 }
         var energy: Float = 0
         vDSP_measqv(seg, 1, &energy, vDSP_Length(win))
         guard energy > 1e-14 else { return 0 }
