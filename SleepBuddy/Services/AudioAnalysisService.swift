@@ -136,6 +136,11 @@ final class AudioAnalysisService {
 
         try engine.start()
         if sonarActive, let toneFormat = sonarToneFormat {
+            // Software-Kette explizit auf voller Lautstärke (Stummschalter/Fokus können
+            // Medien-Audio ohnehin nicht stummschalten — nur die Medienlautstärke konnte,
+            // siehe ensureSonarVolume).
+            sonarTonePlayer.volume = 1.0
+            engine.mainMixerNode.outputVolume = 1.0
             sonarTonePlayer.scheduleBuffer(makeSonarTone(format: toneFormat), at: nil, options: .loops)
             sonarTonePlayer.play()
             // Lautstärke-Floor (bindend, gerätebelegt): Der Sonar-Ton läuft über die
