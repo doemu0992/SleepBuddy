@@ -38,6 +38,8 @@ final class SleepTrackingViewModel {
     private var modelContext: ModelContext?
     private var currentPhaseStartDate = Date()
     private var latestMotionFeatures = MotionFeatures.neutral
+    // Zeitpunkt des letzten Wecker-Klingelns (für die Geräusch-Unterdrückung + Nachlauf).
+    private var lastAlarmRinging = Date.distantPast
 
     // Phase smoothing state: candidate phase before it's committed
     private var pendingPhase: SleepPhaseType = .awake
@@ -151,12 +153,16 @@ final class SleepTrackingViewModel {
         }
 
         audioService.onFeaturesUpdated = { [weak self] audio in
-            self?.soundEventService.tick(
+            guard let self else { return }
+            // Eigenen Weckerton nie als Geräusch-Event erfassen (+5 s Nachlauf für Hall/Ausklang).
+            if self.smartAlarm.alarmFired { self.lastAlarmRinging = Date() }
+            self.soundEventService.suppressed = Date().timeIntervalSince(self.lastAlarmRinging) < 5
+            self.soundEventService.tick(
                 instantAmplitude: audio.instantAmplitude,
                 snoringScore: audio.snoringIntensity,
                 speechLikelihood: audio.speechLikelihood
             )
-            self?.handleFeatures(audio: audio, motion: self?.latestMotionFeatures ?? .neutral)
+            self.handleFeatures(audio: audio, motion: self.latestMotionFeatures)
         }
 
         audioService.onRawChunk = { [weak self] samples, sampleRate, _ in
@@ -270,6 +276,10 @@ final class SleepTrackingViewModel {
 
         // Post-hoc: phone was unlocked / in use → that time was clearly awake.
         applyUsageAwake(to: session)
+
+        // Harter Fakt: ab dem Wecker-Klingeln ist der Nutzer wach (geweckt) —
+        // unabhängig davon, ob HR/Bewegung das Morgen-Wach erkannt haben.
+        applyAlarmWake(to: session)
 
         // Post-hoc plausibility correction: remove/merge implausibly short isolated phases
         applyPlausibilityCorrection(to: session)
@@ -505,11 +515,25 @@ final class SleepTrackingViewModel {
             applyDeepRedistribution(to: session)
             applyEdgeWakeCorrection(to: session)
             applyMovementWake(to: session, context: context)
+            applyAlarmWake(to: session)
             applyPlausibilityCorrection(to: session)
             count += 1
         }
         try? context.save()
         return count
+    }
+
+    /// Ab dem Wecker-Klingeln ist der Nutzer wach — deterministisch, kein Sensor nötig.
+    /// (Real beobachtet: Wecker 6:11, aber das Hypnogramm endete mit Tiefschlaf, weil
+    /// weder HR noch Bewegung das Morgen-Wach belegten.)
+    private func applyAlarmWake(to session: SleepSession) {
+        guard let fired = session.alarmFiredDate else { return }
+        let end = session.endDate ?? Date()
+        guard end > fired else { return }
+        let totalMin = max(1, Int(end.timeIntervalSince(session.startDate) / 60))
+        let fromMin = max(0, Int(fired.timeIntervalSince(session.startDate) / 60))
+        guard fromMin < totalMin else { return }
+        markAwake(in: session, fromMinute: fromMin, toMinute: totalMin)
     }
 
     /// Removes physiologically impossible FLATLINES from the stored heart-rate

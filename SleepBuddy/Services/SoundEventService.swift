@@ -136,6 +136,7 @@ final class SoundEventService {
     /// a higher floor on top — that previously suppressed quiet/distant external
     /// sounds (e.g. dog barking never registered). Only a tiny sanity floor remains.
     func hintMLDetection(type: SoundEventType, confidence: Double, label: String? = nil) {
+        if suppressed { return }
         mlHintType = type
         mlHintConfidence = confidence
         mlHintDate = Date()
@@ -191,7 +192,22 @@ final class SoundEventService {
 
     /// Feed instantaneous 125 ms RMS amplitude + classification scores (8 Hz tick).
     /// Uses instantAmplitude (NOT the 30 s average) so single snoring bursts are detected.
+    /// Während der eigene Wecker klingelt, keine Events erfassen — sonst wird der
+    /// Alarmton als „Schlafgeräusch" aufgezeichnet (real beobachtet: „Geräusch 6:11").
+    /// Ein laufendes Event wird verworfen (es enthielte den Alarmton).
+    var suppressed = false {
+        didSet {
+            if suppressed && eventStartDate != nil {
+                eventStartDate = nil
+                consecutiveLoudTicks = 0
+                consecutiveQuietTicks = 0
+                currentEventIsAmbient = false
+            }
+        }
+    }
+
     func tick(instantAmplitude: Float, snoringScore: Float, speechLikelihood: Float) {
+        if suppressed { return }
         // ── Calibration window: first 60 s measure the ambient floor ───────────
         if calibratedThreshold == nil {
             if calibrationDeadline == nil {
