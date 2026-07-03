@@ -21,8 +21,12 @@ final class TrainingSample {
         self.timestamp = timestamp
         self.averageAmplitude = audio.averageAmplitude
         self.amplitudeVariance = audio.amplitudeVariance
-        self.breathingRateBPM = audio.breathingRateBPM
-        self.breathingRegularity = audio.breathingRegularity
+        // Beste verfügbare Atemquelle speichern: Sensor/Sonar (via MotionFeatures,
+        // bei aktivem Sonar bereits eingeblendet) vor Audio-Fallback — die Audio-
+        // Atemrate ist auf dem Nachttisch oft 0/verrauscht, während die Sonar-Atmung
+        // ~96 % der Nacht abdeckt. Grundlage für applyBreathingEdgeWake.
+        self.breathingRateBPM = motion.breathingRateBPM > 0 ? motion.breathingRateBPM : audio.breathingRateBPM
+        self.breathingRegularity = motion.breathingRateBPM > 0 ? motion.breathingRegularity : audio.breathingRegularity
         self.movementIntensity = motion.movementIntensity
         self.snoringIntensity = audio.snoringIntensity
         self.elapsedMinutesSinceOnset = elapsedMinutes

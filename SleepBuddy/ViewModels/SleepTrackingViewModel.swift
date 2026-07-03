@@ -271,6 +271,10 @@ final class SleepTrackingViewModel {
         // user was lying awake (falling asleep / morning wake) — mark as awake.
         applyEdgeWakeCorrection(to: session)
 
+        // Atem-basiertes Rand-Wach: erhöhte Atemrate am Anfang/Ende = wachliegen
+        // (funktioniert auch, wenn HR fehlt/verschmutzt und Bewegung still ist).
+        if let ctx = modelContext { applyBreathingEdgeWake(to: session, context: ctx) }
+
         // Post-hoc mid-night wake from sustained body movement (turning, getting up).
         if let ctx = modelContext { applyMovementWake(to: session, context: ctx) }
 
@@ -514,6 +518,7 @@ final class SleepTrackingViewModel {
             applyBreathingRefinement(to: session, context: context)
             applyDeepRedistribution(to: session)
             applyEdgeWakeCorrection(to: session)
+            applyBreathingEdgeWake(to: session, context: context)
             applyMovementWake(to: session, context: context)
             applyAlarmWake(to: session)
             applyPlausibilityCorrection(to: session)
@@ -521,6 +526,55 @@ final class SleepTrackingViewModel {
         }
         try? context.save()
         return count
+    }
+
+    /// Atem-basiertes Rand-Wach (so machen es Sleep Cycle & Co.): Wachliegen hat eine
+    /// klare Atem-Signatur — schneller als der Schlaf-Median der Nacht (real belegt:
+    /// 23-Uhr-Stunde 20/min vs. Nacht-Median 15/min). Ruhiges Wachliegen ist für
+    /// Bewegung/Audio unsichtbar, für die Atemrate nicht. Konservativ: nur die RÄNDER
+    /// (erste 75 / letzte 45 min), nur bei genug Messabdeckung, nur ≥ +3 BPM über dem
+    /// Kern-Median. Erweitert Wach nur (markAwake), löscht nie Schlaf in der Nachtmitte.
+    private func applyBreathingEdgeWake(to session: SleepSession, context: ModelContext) {
+        let start = session.startDate
+        let end = session.endDate ?? Date()
+        let desc = FetchDescriptor<TrainingSample>(
+            predicate: #Predicate { $0.timestamp >= start && $0.timestamp <= end },
+            sortBy: [SortDescriptor(\.timestamp)]
+        )
+        guard let samples = try? context.fetch(desc), samples.count >= 60 else { return }
+        let totalMin = max(1, Int(end.timeIntervalSince(start) / 60))
+        guard totalMin >= 120 else { return }
+
+        // Pro-Minute-Atemrate (nur plausible Messwerte 6–30 BPM).
+        var sum = [Float](repeating: 0, count: totalMin)
+        var cnt = [Int](repeating: 0, count: totalMin)
+        for s in samples where s.breathingRateBPM > 6 && s.breathingRateBPM < 30 {
+            let m = Int(s.timestamp.timeIntervalSince(start) / 60)
+            if m >= 0 && m < totalMin { sum[m] += s.breathingRateBPM; cnt[m] += 1 }
+        }
+        func br(_ m: Int) -> Float { cnt[m] > 0 ? sum[m] / Float(cnt[m]) : 0 }
+
+        // Schlaf-Kern-Median (Ränder ausgeschlossen) als persönliche Nacht-Baseline.
+        let coreLo = min(75, totalMin / 3), coreHi = max(coreLo + 1, totalMin - 45)
+        let core = (coreLo..<coreHi).compactMap { cnt[$0] > 0 ? br($0) : nil }
+        guard core.count >= 45 else { return }   // genug Abdeckung im Kern nötig
+        let med = core.sorted()[core.count / 2]
+        guard med > 8 && med < 22 else { return }
+        let thresh = med + 3
+
+        // Abend: letzte "schnelle" Minute in den ersten 75 min (mind. 3 solcher Minuten).
+        let evEnd = min(75, totalMin)
+        let evFast = (0..<evEnd).filter { cnt[$0] > 0 && br($0) >= thresh }
+        if evFast.count >= 3, let lastFast = evFast.max() {
+            markAwake(in: session, fromMinute: 0, toMinute: lastFast + 1)
+        }
+        // Morgen: erste "schnelle" Minute in den letzten 45 min (mind. 2 solcher Minuten).
+        let moStart = max(0, totalMin - 45)
+        let moFast = (moStart..<totalMin).filter { cnt[$0] > 0 && br($0) >= thresh }
+        if moFast.count >= 2, let firstFast = moFast.min() {
+            markAwake(in: session, fromMinute: firstFast, toMinute: totalMin)
+        }
+        try? context.save()
     }
 
     /// Ab dem Wecker-Klingeln ist der Nutzer wach — deterministisch, kein Sensor nötig.
