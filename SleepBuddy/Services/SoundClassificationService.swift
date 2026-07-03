@@ -234,12 +234,34 @@ final class SoundClassificationService: NSObject {
         // mattress muffles it further. Without a gain boost the ML classifier
         // never reaches confidence, so NO sounds (incl. external) are detected.
         // Boost a copy fed to the ML analyzer only; raw signal stays for breathing.
-        let boosted = Self.applyGain(buffer, gain: 8.0) ?? buffer
+        //
+        // ADAPTIV statt fix ×8 (bindend, nachtbelegt): Spielt der Sonar-Ton, senkt
+        // die Mikrofon-Hardware ihre Eingangsempfindlichkeit um ~10–12 dB (Boden real
+        // 15–25 dB statt 27–45 dB) — mit fixem Gain brachen alle ML-Konfidenzen ein
+        // und eine Nacht mit ECHTEM Schnarchen lieferte null benannte Erkennungen.
+        // Der Gain richtet sich nach dem RUHEBODEN (Decay-Min-Tracker: fällt sofort
+        // auf leise Buffer, steigt nur ~2 %/s) — Events ziehen ihn NICHT runter
+        // (keine AGC-Wirkung auf das Schnarchen selbst). gain = 0.008 / floor,
+        // geklemmt 4…48: bei ~30-dB-Boden ergibt das ×8 (= alter Fixwert, kein
+        // Verhalten-Bruch ohne Sonar), bei ~20-dB-Sonar-Boden ×25.
+        if let ch = buffer.floatChannelData?[0] {
+            var rms: Float = 0
+            vDSP_rmsqv(ch, 1, &rms, vDSP_Length(buffer.frameLength))
+            if rms > 1e-7 {
+                floorRMS = min(floorRMS * 1.0005, max(rms, 1e-6))
+                adaptiveGain = min(max(0.008 / floorRMS, 4.0), 48.0)
+            }
+        }
+        let boosted = Self.applyGain(buffer, gain: adaptiveGain) ?? buffer
         let sampleTime = time.sampleTime
         analysisQueue.async {
             analyzer.analyze(boosted, atAudioFramePosition: sampleTime)
         }
     }
+
+    // Ruheboden-Schätzung (Decay-Min) + daraus abgeleiteter ML-Verstärkungsfaktor.
+    private var floorRMS: Float = 0.001
+    private var adaptiveGain: Float = 8.0
 
     /// Returns a gain-scaled copy, **soft-clipped** via tanh to [-1, 1].
     /// Hard clipping (vDSP_vclip) erzeugte bei lauten Transienten (z. B. Hundegebell) harsche
@@ -264,6 +286,8 @@ final class SoundClassificationService: NSObject {
     func stop() {
         analyzer = nil
         bufferCounter = 0
+        floorRMS = 0.001
+        adaptiveGain = 8.0
     }
 
     // MARK: - Taxonomy audit
