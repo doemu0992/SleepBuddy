@@ -551,13 +551,22 @@ final class SleepTrackingViewModel {
             guard hr[i] > 0 else { i += 1; continue }
             var j = i
             var lo = hr[i], hi = hr[i]
+            var distinct = Set<Int>()
             while j < hr.count, hr[j] > 0 {
                 let nlo = min(lo, hr[j]), nhi = max(hi, hr[j])
-                if nhi - nlo > 2 { break }
+                // Band ±8: das Sonar-Artefakt pendelt zwischen 93/96/100 (benachbarte
+                // Lag-Quantisierungsstufen, Spannweite 7) — mit dem früheren ±2-Band
+                // brach der Lauf ständig ab und die Bereinigung fand NIE 15 Minuten.
+                if nhi - nlo > 8 { break }
                 lo = nlo; hi = nhi
+                distinct.insert(Int(hr[j].rounded()))
                 j += 1
             }
-            if j - i >= 15 {
+            // Artefakt-Signatur: langer Lauf aus höchstens 3 diskreten Werten.
+            // Echter Puls streut in 15+ Minuten über deutlich mehr Stufen; ein
+            // fälschlich entfernter, wirklich stabiler Abschnitt würde vom
+            // Anzeige-Filter ohnehin auf gleichem Niveau „geschätzt" überbrückt.
+            if j - i >= 15 && distinct.count <= 3 {
                 for k in i..<j { hr[k] = 0 }
                 changed = true
             }
