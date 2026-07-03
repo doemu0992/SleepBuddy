@@ -568,11 +568,25 @@ final class SleepTrackingViewModel {
         if evFast.count >= 3, let lastFast = evFast.max() {
             markAwake(in: session, fromMinute: 0, toMinute: lastFast + 1)
         }
-        // Morgen: erste "schnelle" Minute in den letzten 45 min (mind. 2 solcher Minuten).
+        // Morgen: NUR ein zusammenhängender schneller Block, der bis zum Tracking-Ende
+        // reicht (wer morgens wach ist, schläft nicht wieder ein). Die frühere Regel
+        // „erste schnelle Minute im letzten Fenster" las REM-Atmung als Wach (REM atmet
+        // ebenfalls schnell/unregelmäßig — real beobachtet: 50 min Falsch-Wach ab der
+        // 5-Uhr-REM-Phase). Rückwärts vom Ende scannen; die erste klar LANGSAME
+        // gemessene Minute beendet den Block. Mindestens 5 gemessene schnelle Minuten.
         let moStart = max(0, totalMin - 45)
-        let moFast = (moStart..<totalMin).filter { cnt[$0] > 0 && br($0) >= thresh }
-        if moFast.count >= 2, let firstFast = moFast.min() {
-            markAwake(in: session, fromMinute: firstFast, toMinute: totalMin)
+        var m = totalMin - 1
+        var fastCnt = 0
+        var wakeStart = totalMin
+        while m >= moStart {
+            if cnt[m] > 0 {
+                if br(m) >= thresh { fastCnt += 1; wakeStart = m }
+                else { break }
+            }
+            m -= 1
+        }
+        if fastCnt >= 5 && wakeStart < totalMin {
+            markAwake(in: session, fromMinute: wakeStart, toMinute: totalMin)
         }
         try? context.save()
     }
