@@ -138,6 +138,7 @@ final class SmartAlarmService {
         guard isEnabled else { return }
         alarmFired = false
         alarmFiredDate = nil
+        lightStreakStart = nil
         // Weckfenster auf das NÄCHSTE Vorkommen ab jetzt ankern (immer in der Zukunft).
         let now = Date()
         let e = nextOccurrence(of: earliestWakeTime, after: now)
@@ -156,6 +157,7 @@ final class SmartAlarmService {
         UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: failsafeIDs)
         armedEarliest = nil
         armedLatest = nil
+        lightStreakStart = nil
         snoozeTask?.cancel()
         snoozeTask = nil
         stopAlarm()
@@ -203,13 +205,26 @@ final class SmartAlarmService {
             return true
         }
 
-        // Smart wake: inside the window, fire at the first light/awake moment.
-        guard isInsideWindow(now) else { return false }
-        guard phase == .light || phase == .awake else { return false }
+        // Smart wake: innerhalb des Fensters bei STABILER Leicht-/Wachphase wecken.
+        // Nicht beim ersten Tick (nutzerbelegt): der Live-Klassifikator liefert am
+        // Morgen fast immer binnen einer Minute einen kurzen Licht/Wach-Moment
+        // (Rühren, Amplitude-Blip) → der Wecker klingelte JEDEN Tag direkt am
+        // Fensterbeginn (6:11 bei Fenster 6:10–6:25) und das Fenster war witzlos.
+        // Jetzt: Wach ≥ 60 s bzw. Leichtschlaf ≥ 120 s am Stück, sonst weiter warten
+        // (die harte Deadline oben garantiert das Klingeln spätestens am Fensterende).
+        guard isInsideWindow(now) else { lightStreakStart = nil; return false }
+        guard phase == .light || phase == .awake else { lightStreakStart = nil; return false }
+
+        if lightStreakStart == nil { lightStreakStart = now }
+        let needed: TimeInterval = phase == .awake ? 60 : 120
+        guard now.timeIntervalSince(lightStreakStart!) >= needed else { return false }
 
         triggerAlarm(at: now)
         return true
     }
+
+    // Beginn der aktuellen zusammenhängenden Leicht/Wach-Strecke im Weckfenster.
+    private var lightStreakStart: Date?
 
     // MARK: - Trigger
 
