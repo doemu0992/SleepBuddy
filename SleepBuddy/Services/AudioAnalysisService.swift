@@ -34,7 +34,9 @@ final class AudioAnalysisService {
     private var sonarActive = false
     private let sonarTonePlayer = AVAudioPlayerNode()
     private let sonarCarrier: Double = 19_000
-    private let sonarToneAmp: Float = 0.35
+    // 0.50 (war 0.35): auf einem Zweitgerät kam der Träger 10–20× schwächer an
+    // (Pegel ~0.0002 vs. 0.0014–0.0040) — die Atem-Modulation versank im Rauschen.
+    private let sonarToneAmp: Float = 0.50
     @ObservationIgnored private var sonarToneFormat: AVAudioFormat?
     // Notch-Biquad-Koeffizienten (bei start berechnet) + Zustand (Direct Form 1).
     // Je eine Zeile: @Observable verträgt keine Mehrfach-Deklaration pro Zeile.
@@ -234,14 +236,17 @@ final class AudioAnalysisService {
     /// praktisch unhörbar — aber ohne Lautstärke ist das Sonar blind.
     private func ensureSonarVolume() {
         let session = AVAudioSession.sharedInstance()
-        guard session.outputVolume < 0.55 else { return }
+        // Volle Medienlautstärke fürs Sonar (der ~19-kHz-Ton ist praktisch unhörbar,
+        // aber jede Stufe weniger kostet direkt Reflexions-SNR — auf schwächeren
+        // Lautsprechern entscheidet das über Lock oder kein Lock).
+        guard session.outputVolume < 0.95 else { return }
         DispatchQueue.main.async {
             let volumeView = MPVolumeView(frame: .zero)
             if let slider = volumeView.subviews.compactMap({ $0 as? UISlider }).first {
                 // Kurze Verzögerung: der Slider braucht einen Runloop-Tick, bis er
                 // mit der System-Lautstärke verbunden ist.
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                    slider.value = 0.6
+                    slider.value = 1.0
                     slider.sendActions(for: .valueChanged)
                 }
             }
