@@ -1,6 +1,8 @@
 import AVFoundation
 import Observation
 import Accelerate
+import MediaPlayer
+import UIKit
 
 /// Captures audio and extracts breathing + snoring features.
 /// Raw audio buffers are never stored for analysis. Opt-in audio clip saving
@@ -136,6 +138,11 @@ final class AudioAnalysisService {
         if sonarActive, let toneFormat = sonarToneFormat {
             sonarTonePlayer.scheduleBuffer(makeSonarTone(format: toneFormat), at: nil, options: .loops)
             sonarTonePlayer.play()
+            // Lautstärke-Floor (bindend, gerätebelegt): Der Sonar-Ton läuft über die
+            // Medien-Wiedergabe. Steht die Medienlautstärke auf 0/leise (real beobachtet:
+            // ganze Nacht Pegel 0.0000 auf einem Zweitgerät), ist der Ton stumm und das
+            // Sonar blind. Nur ANHEBEN auf mindestens 0.6 — nie absenken.
+            ensureSonarVolume()
         }
         isRunning = true
     }
@@ -215,6 +222,25 @@ final class AudioAnalysisService {
             for c in 1..<ch { for i in 0..<n { oc[c][i] = ic[c][i] } }
         }
         return out
+    }
+
+    /// Hebt die System-Medienlautstärke auf mindestens 0.6 an (MPVolumeView-Slider,
+    /// gleiche Technik wie der Wecker). Der ~19-kHz-Ton ist dabei für Menschen
+    /// praktisch unhörbar — aber ohne Lautstärke ist das Sonar blind.
+    private func ensureSonarVolume() {
+        let session = AVAudioSession.sharedInstance()
+        guard session.outputVolume < 0.55 else { return }
+        DispatchQueue.main.async {
+            let volumeView = MPVolumeView(frame: .zero)
+            if let slider = volumeView.subviews.compactMap({ $0 as? UISlider }).first {
+                // Kurze Verzögerung: der Slider braucht einen Runloop-Tick, bis er
+                // mit der System-Lautstärke verbunden ist.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    slider.value = 0.6
+                    slider.sendActions(for: .valueChanged)
+                }
+            }
+        }
     }
 
     /// 1-Sekunden-Sonar-Trägerbuffer (klickfrei loopbar).
