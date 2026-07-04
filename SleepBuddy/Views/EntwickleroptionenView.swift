@@ -1,0 +1,293 @@
+import SwiftUI
+import SwiftData
+
+// MARK: - Sound taxonomy audit report
+
+/// Shows the Apple sound-taxonomy audit (dead identifiers + full class list) with a
+/// copy button so the report can be shared for correcting the mappings.
+struct SoundAuditView: View {
+    // Optional übergebener Text; wird sonst selbst berechnet (verhindert leere Seite durch
+    // SwiftUI-State-Timing beim gleichzeitigen Setzen von Text + Sheet-Flag).
+    var report: String = ""
+    @Environment(\.dismiss) private var dismiss
+    @State private var kopiert = false
+    @State private var text = ""
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                Text(text.isEmpty ? "Lade Klassen…" : text)
+                    .font(.system(.caption, design: .monospaced))
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding()
+            }
+            .onAppear {
+                if !report.isEmpty { text = report; return }
+                if #available(iOS 15, *) { text = SoundClassificationService.auditText() }
+                else { text = "Erfordert iOS 15 oder neuer." }
+            }
+            .navigationTitle("Geräusch-Klassen")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Fertig") { dismiss() }
+                }
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        UIPasteboard.general.string = text
+                        kopiert = true
+                    } label: {
+                        Label(kopiert ? "Kopiert ✓" : "Kopieren",
+                              systemImage: kopiert ? "checkmark" : "doc.on.doc")
+                    }
+                }
+            }
+        }
+    }
+}
+
+
+// MARK: - Entwickleroptionen (Test-/Debug-Werkzeuge, aus den Einstellungen ausgelagert)
+// Bewusst in dieser Datei (kein eigenes File) — neue Swift-Dateien müssten manuell
+// zum Xcode-Build-Target hinzugefügt werden.
+
+struct EntwickleroptionenView: View {
+    @Environment(\.modelContext) private var modelContext
+
+    @State private var zeigeMikrofonTest = false
+    @State private var zeigeICloudTest = false
+    @State private var zeigeSoundAudit = false
+    @State private var zeigeSonarTest = false
+    @State private var zeigeSonarNacht = false
+    @State private var normalisiereLaeuft = false
+    @State private var normalisiereErgebnis: String?
+    @State private var phasenLaeuft = false
+    @State private var phasenErgebnis: String?
+    @State private var zeigeTestdatenLoeschen = false
+    @AppStorage("hmm_enabled") private var hmmAktiv = false
+    @State private var zeigeFeatureLogs = false
+    @State private var watchVergleichLaeuft = false
+    @State private var watchVergleichErgebnis: String?
+
+    var body: some View {
+        List {
+            Section {
+                Button { zeigeMikrofonTest = true } label: {
+                    Label("Mikrofon testen", systemImage: "mic.fill").foregroundStyle(.indigo)
+                }
+                .sheet(isPresented: $zeigeMikrofonTest) { MikrofonTestView() }
+
+                Button { zeigeICloudTest = true } label: {
+                    Label("iCloud-Speicher testen", systemImage: "icloud.and.arrow.up").foregroundStyle(.indigo)
+                }
+                .sheet(isPresented: $zeigeICloudTest) { ICloudAudioTestView() }
+
+                Button {
+                    zeigeSoundAudit = true
+                } label: {
+                    Label("Geräusch-Klassen prüfen", systemImage: "checklist").foregroundStyle(.indigo)
+                }
+                .sheet(isPresented: $zeigeSoundAudit) { SoundAuditView() }
+
+                Button { zeigeSonarTest = true } label: {
+                    Label("Sonar testen (Atmung/Bewegung)", systemImage: "dot.radiowaves.left.and.right").foregroundStyle(.indigo)
+                }
+                .sheet(isPresented: $zeigeSonarTest) { SonarTestView() }
+
+                Button { zeigeSonarNacht = true } label: {
+                    Label("Sonar-Nachtlog (letzte Nacht)", systemImage: "moon.zzz.fill").foregroundStyle(.indigo)
+                }
+                .sheet(isPresented: $zeigeSonarNacht) { SonarNightLogView() }
+            } header: {
+                Text("Tests")
+            }
+
+            Section {
+                Button { normalisiereAufnahmen() } label: {
+                    HStack {
+                        Label("Aufnahmen lauter machen", systemImage: "speaker.wave.3.fill").foregroundStyle(.indigo)
+                        if normalisiereLaeuft { Spacer(); ProgressView() }
+                    }
+                }
+                .disabled(normalisiereLaeuft)
+
+                Button { korrigierePhasen() } label: {
+                    HStack {
+                        Label("Schlafphasen neu berechnen", systemImage: "wand.and.stars").foregroundStyle(.indigo)
+                        if phasenLaeuft { Spacer(); ProgressView() }
+                    }
+                }
+                .disabled(phasenLaeuft)
+            } header: {
+                Text("Wartung")
+            }
+
+            Section {
+                Toggle(isOn: $hmmAktiv) {
+                    Label { VStack(alignment: .leading, spacing: 2) {
+                        Text("HMM-Glätter (Beta)")
+                        Text("Probabilistisches Gesamtnacht-Modell als letzter Pass — wirkt beim nächsten Tracking/Neuberechnen")
+                            .font(.caption2).foregroundStyle(.secondary)
+                    } } icon: { Image(systemName: "waveform.path.badge.plus").foregroundStyle(.indigo) }
+                }
+
+                Button { zeigeFeatureLogs = true } label: {
+                    Label("Feature-Logs teilen (\(FeatureNightLog.allLogs().count) Nächte)", systemImage: "square.and.arrow.up")
+                        .foregroundStyle(.indigo)
+                }
+                .disabled(FeatureNightLog.allLogs().isEmpty)
+                .sheet(isPresented: $zeigeFeatureLogs) { ShareSheet(items: FeatureNightLog.allLogs()) }
+
+                Button { watchVergleichStarten() } label: {
+                    HStack {
+                        Label("Mit Apple-Watch-Schlaf vergleichen", systemImage: "applewatch")
+                            .foregroundStyle(.indigo)
+                        if watchVergleichLaeuft { Spacer(); ProgressView() }
+                    }
+                }
+                .disabled(watchVergleichLaeuft)
+            } header: {
+                Text("Analyse-Labor")
+            } footer: {
+                Text("Feature-Logs enthalten pro Minute alle Sensorwerte (kein Audio) — Grundlage, um Algorithmus-Änderungen offline gegen echte Nächte zu testen. Der Watch-Vergleich misst die Übereinstimmung der letzten Nacht mit Apples Schlafphasen.")
+            }
+
+            Section {
+                Button {
+                    SampleDataService.insertSampleNight(into: modelContext)
+                } label: {
+                    Label("Beispielnacht hinzufügen", systemImage: "moon.stars.fill").foregroundStyle(.indigo)
+                }
+                Button {
+                    for _ in 0..<3 { SampleDataService.insertSampleNight(into: modelContext) }
+                } label: {
+                    Label("Alle 3 Beispielnächte hinzufügen", systemImage: "moon.stars.fill").foregroundStyle(.indigo)
+                }
+                Button {
+                    SampleDataService.insertSampleHistory(into: modelContext)
+                } label: {
+                    Label("Langzeitverlauf-Testdaten (6 Monate)", systemImage: "calendar").foregroundStyle(.indigo)
+                }
+                Button(role: .destructive) {
+                    zeigeTestdatenLoeschen = true
+                } label: {
+                    Label("Alle Testdaten löschen", systemImage: "trash.slash")
+                }
+                .confirmationDialog("Alle Testdaten löschen?", isPresented: $zeigeTestdatenLoeschen, titleVisibility: .visible) {
+                    Button("Löschen", role: .destructive) { testdatenLoeschen() }
+                    Button("Abbrechen", role: .cancel) {}
+                } message: {
+                    Text("Alle Schlafnächte werden gelöscht. Dieser Vorgang kann nicht rückgängig gemacht werden.")
+                }
+            } header: {
+                Text("Testdaten")
+            } footer: {
+                Text("Diese Werkzeuge sind für Entwicklung & Diagnose gedacht.")
+            }
+        }
+        .navigationTitle("Entwickleroptionen")
+        .navigationBarTitleDisplayMode(.large)
+        .alert("Aufnahmen", isPresented: Binding(
+            get: { normalisiereErgebnis != nil }, set: { if !$0 { normalisiereErgebnis = nil } }
+        )) { Button("OK", role: .cancel) { normalisiereErgebnis = nil } } message: { Text(normalisiereErgebnis ?? "") }
+        .alert("Schlafphasen", isPresented: Binding(
+            get: { phasenErgebnis != nil }, set: { if !$0 { phasenErgebnis = nil } }
+        )) { Button("OK", role: .cancel) { phasenErgebnis = nil } } message: { Text(phasenErgebnis ?? "") }
+        .alert("Watch-Vergleich", isPresented: Binding(
+            get: { watchVergleichErgebnis != nil }, set: { if !$0 { watchVergleichErgebnis = nil } }
+        )) {
+            Button("Kopieren") { UIPasteboard.general.string = watchVergleichErgebnis; watchVergleichErgebnis = nil }
+            Button("OK", role: .cancel) { watchVergleichErgebnis = nil }
+        } message: { Text(watchVergleichErgebnis ?? "") }
+    }
+
+    /// Ground-Truth-Vergleich: unsere Phasen der letzten Nacht vs. Apples (Watch-)Staging.
+    private func watchVergleichStarten() {
+        watchVergleichLaeuft = true
+        Task { @MainActor in
+            defer { watchVergleichLaeuft = false }
+            var desc = FetchDescriptor<SleepSession>(
+                predicate: #Predicate { $0.endDate != nil },
+                sortBy: [SortDescriptor(\.startDate, order: .reverse)]
+            )
+            desc.fetchLimit = 1
+            guard let session = try? modelContext.fetch(desc).first, let sEnd = session.endDate else {
+                watchVergleichErgebnis = "Keine abgeschlossene Nacht gefunden."
+                return
+            }
+            let hk = HealthKitService()
+            await hk.requestAuthorization()
+            let segments = await hk.readAppleWatchSleepPhases(from: session.startDate, to: sEnd)
+            guard !segments.isEmpty else {
+                watchVergleichErgebnis = "Keine Apple-Schlafphasen im Zeitraum gefunden. Wurde die Watch getragen und ist Schlaf-Tracking (Apple) aktiv? HealthKit-Leserecht erteilt?"
+                return
+            }
+            let ours = session.phasesArray.sorted { $0.startDate < $1.startDate }
+            func ourPhase(_ t: Date) -> SleepPhaseType? {
+                ours.first(where: { $0.startDate <= t && t < $0.endDate })?.phaseType
+            }
+            func watchPhase(_ t: Date) -> SleepPhaseType? {
+                segments.first(where: { $0.start <= t && t < $0.end })?.phase
+            }
+            var total = 0, both = 0, stageAgree = 0, wsAgree = 0
+            var confusion: [String: Int] = [:]
+            var t = session.startDate
+            while t < sEnd {
+                total += 1
+                if let o = ourPhase(t), let w = watchPhase(t) {
+                    both += 1
+                    if o == w { stageAgree += 1 }
+                    if (o == .awake) == (w == .awake) { wsAgree += 1 }
+                    if o != w { confusion["\(w.rawValue)→\(o.rawValue)", default: 0] += 1 }
+                }
+                t = t.addingTimeInterval(60)
+            }
+            guard both > 0 else {
+                watchVergleichErgebnis = "Keine überlappenden Minuten gefunden."
+                return
+            }
+            let topConf = confusion.sorted { $0.value > $1.value }.prefix(3)
+                .map { "\($0.key): \($0.value)m" }.joined(separator: ", ")
+            watchVergleichErgebnis = """
+            Überlappung: \(both)/\(total) Minuten
+            Wach/Schlaf-Übereinstimmung: \(100 * wsAgree / both) %
+            Phasen-Übereinstimmung: \(100 * stageAgree / both) %
+            Häufigste Abweichungen (Watch→App): \(topConf)
+            """
+        }
+    }
+
+    private func normalisiereAufnahmen() {
+        normalisiereLaeuft = true
+        Task.detached {
+            let count = SoundEventService().normalizeExistingClips()
+            await MainActor.run {
+                normalisiereLaeuft = false
+                normalisiereErgebnis = count > 0
+                    ? "\(count) Aufnahme(n) wurden lauter gemacht."
+                    : "Keine leisen Aufnahmen gefunden (bereits laut genug oder noch nicht aus iCloud geladen)."
+            }
+        }
+    }
+
+    private func korrigierePhasen() {
+        phasenLaeuft = true
+        let descriptor = FetchDescriptor<SleepSession>()
+        let sessions = (try? modelContext.fetch(descriptor)) ?? []
+        let vm = SleepTrackingViewModel()
+        let n = vm.reapplyPhaseCorrections(to: sessions, context: modelContext)
+        phasenLaeuft = false
+        phasenErgebnis = n > 0
+            ? "\(n) Nacht/Nächte wurden aus den Rohdaten neu berechnet."
+            : "Keine Nächte mit gespeicherten Messdaten gefunden (Testnächte haben keine)."
+    }
+
+    private func testdatenLoeschen() {
+        let descriptor = FetchDescriptor<SleepSession>()
+        let sessions = (try? modelContext.fetch(descriptor)) ?? []
+        for s in sessions { modelContext.delete(s) }
+        try? modelContext.save()
+    }
+}
+

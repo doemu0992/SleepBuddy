@@ -247,7 +247,7 @@ private func applySoundCorrection(event: SleepSoundEvent, confirmed: Bool, newTy
 }
 ```
 
-> **Kein `SoundFeedbackService` als separater Service** — Feedback-Logik ist inline in `SleepDetailView` und `SoundClassificationService` um Xcode-Target-Abhängigkeiten zu vermeiden (neue Swift-Dateien müssen manuell zum Build-Target hinzugefügt werden).
+> **Kein `SoundFeedbackService` als separater Service** — Feedback-Logik ist inline in `SleepDetailView` und `SoundClassificationService` (bewusst schlank gehalten).
 
 **Wichtige Funktionen:**
 
@@ -1103,7 +1103,7 @@ Mikrofon → AVAudioEngine.inputNode
 
 ## Sonar-System (aktives Ultraschall-Sensing, experimentell)
 
-**Datei:** `Services/SonarService.swift` — **neue Datei, muss manuell zum Xcode-Build-Target hinzugefügt werden.**
+**Datei:** `Services/SonarService.swift`
 
 Aktives Sonar (Sleep-Cycle-Stil): sendet einen fast unhörbaren **~19 kHz-Ton** über den Lautsprecher und analysiert die vom Körper reflektierte, atem-/bewegungsmodulierte Welle im Mikrofon → **Atemfrequenz, Atem-Regularität, Bewegungsintensität** — robust auch vom **Nachttisch** und weitgehend unabhängig von Umgebungslärm (Nutzsignal im Ultraschallband).
 
@@ -1485,7 +1485,7 @@ List
 ```
 
 > **Analyse-Labor (Entwickleroptionen, bindend):** Drei Werkzeuge für datengetriebenes Tuning:
-> 1. **`FeatureNightLog`** (in EinstellungenView.swift): schreibt pro Nacht `FeatureLog-<Datum>.csv` (Documents) mit **allen** Sensorwerten pro Minute (Amplitude, Atem best/Audio/Accel, Bewegung, Sonar-Werte, BCG/Watch-HR, Live-Label — **kein Audio**). Rotation: letzte 14 Nächte. Export via „Feature-Logs teilen". Zweck: Algorithmus-Änderungen **offline** gegen echte Nächte durchrechnen statt pro Änderung eine Schlafnacht zu verbrauchen. Start/Ende in `startTracking`/`stopTracking`, Zeile pro Minute aus `handleFeatures`.
+> 1. **`FeatureNightLog`** (`Services/FeatureNightLog.swift`): schreibt pro Nacht `FeatureLog-<Datum>.csv` (Documents) mit **allen** Sensorwerten pro Minute (Amplitude, Atem best/Audio/Accel, Bewegung, Sonar-Werte, BCG/Watch-HR, Live-Label — **kein Audio**). Rotation: letzte 14 Nächte. Export via „Feature-Logs teilen". Zweck: Algorithmus-Änderungen **offline** gegen echte Nächte durchrechnen statt pro Änderung eine Schlafnacht zu verbrauchen. Start/Ende in `startTracking`/`stopTracking`, Zeile pro Minute aus `handleFeatures`.
 > 2. **HMM-Glätter (Beta, `hmm_enabled`, Standard AUS):** `applyHMMSmoothing` — Viterbi über 4 Zustände, Emissionen aus relativen Pro-Minute-Features + bisherigem Ergebnis als weichem Prior, physiologische Übergangsmatrix. Läuft als LETZTER Pass in `stopTracking` und im Neuberechnen-Batch; Toggle aus = exakt bisheriges Verhalten (A/B-Vergleich per Neuberechnen).
 > 3. **Watch-Vergleich:** „Mit Apple-Watch-Schlaf vergleichen" liest Apples Staging (`readAppleWatchSleepPhases`, eigene Exporte ausgeschlossen) für die letzte Nacht und zeigt Wach/Schlaf- + Phasen-Übereinstimmung und die häufigsten Abweichungen — Ground Truth für die Kalibrierung.
 >
@@ -2002,3 +2002,10 @@ Testdaten erzeugen echte WAV-Dateien mit typ-spezifischen Frequenzen/Harmonics f
 - [ ] Neuer iCloud-Sync-Key → in `ICloudSettingsSync.standardKeys` eintragen
 - [ ] Neues AppStorage-Key → in Key-Tabelle oben dokumentieren
 - [ ] Git: `git push origin main-local:main` UND `main-local:claude/zealous-goldberg-fnhmsu`
+
+
+---
+
+## Xcode-Projekt: Synchronisierter Ordner (bindend)
+
+Das Projekt nutzt `objectVersion 77` mit `PBXFileSystemSynchronizedRootGroup`: Der komplette `SleepBuddy/`-Ordner gehört **automatisch** zum App-Target. **Neue Swift-Dateien einfach im passenden Unterordner anlegen** (`Services/`, `Views/`, `Models/`, …) — keine manuelle Target-Registrierung mehr nötig. Die frühere Regel „neuer Code in bestehende in-Target-Dateien" ist damit obsolet; Komponenten bekommen eigene Dateien (aufgeteilt: `SonarService.swift`, `FeatureNightLog.swift`, `SonarTestView.swift` [+ SonarNightLogView], `MikrofonTestView.swift` [+ Test-Klassifikator], `EntwickleroptionenView.swift` [+ SoundAuditView], `DatenschutzView.swift`). `Info.plist` ist per Membership-Exception ausgenommen.

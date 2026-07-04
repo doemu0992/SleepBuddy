@@ -1,0 +1,574 @@
+import SwiftUI
+import AVFoundation
+import SoundAnalysis
+import CoreMedia
+import Observation
+
+// MARK: - MikrofonTest Classifier (kein Schwellenwert-Filter, jeden Buffer analysieren)
+
+import SoundAnalysis
+import CoreMedia
+import Observation
+
+@available(iOS 15, *)
+private final class MikrofonTestKlassifikator: NSObject, SNResultsObserving {
+    var onResults: (([TestErkennung]) -> Void)?
+    private var analyzer: SNAudioStreamAnalyzer?
+    private let queue = DispatchQueue(label: "com.sleepbuddy.miktest", qos: .userInitiated)
+
+    // Alle relevanten Apple-ML-Identifier → Anzeigename + Icon + Farbe
+    static let mappings: [(id: String, name: String, icon: String, farbe: Color)] = [
+        ("snoring",            "Schnarchen",     "waveform",                    .orange),
+        ("speech",             "Sprechen",        "bubble.left.fill",            .blue),
+        ("cough",              "Husten",          "lungs.fill",                  .teal),
+        ("coughing",           "Husten",          "lungs.fill",                  .teal),
+        ("teeth_chattering",   "Zähneknirschen",  "mouth.fill",                  .pink),
+        ("teeth_grinding",     "Zähneknirschen",  "mouth.fill",                  .pink),
+        ("clapping",           "Klatschen",       "hands.clap.fill",             .indigo),
+        ("whistling",          "Pfeifen",         "mouth.fill",                  .cyan),
+        ("laughing",           "Lachen",          "face.smiling.fill",           .yellow),
+        ("crying",             "Weinen",          "drop.fill",                   .blue),
+        ("baby_cry",           "Babyweinen",      "figure.and.child.holdinghands", .mint),
+        ("infant_cry",         "Babyweinen",      "figure.and.child.holdinghands", .mint),
+        ("dog",                "Hundebellen",     "pawprint.fill",               .brown),
+        ("dog_barking",        "Hundebellen",     "pawprint.fill",               .brown),
+        ("music",              "Musik",           "music.note",                  .indigo),
+        ("alarm_clock",        "Alarm/Wecker",    "bell.fill",                   .red),
+        ("siren",              "Sirene",          "light.beacon.max.fill",       .red),
+        ("car_horn",           "Hupen",           "car.fill",                    .gray),
+        ("vehicle",            "Fahrzeug",        "car.fill",                    .gray),
+        ("glass_breaking",     "Glasbruch",       "sparkles",                    .red),
+        ("door_knock",         "Klopfen",         "hand.raised.fill",            .secondary),
+        ("knock",              "Klopfen",         "hand.raised.fill",            .secondary),
+        ("sneezing",           "Niesen",          "wind",                        .teal),
+        ("breathing",          "Atmen",           "lungs",                       .green),
+        ("snoring_breathing",  "Schnarchen/Atmen","waveform",                    .orange),
+    ]
+
+    func start(format: AVAudioFormat) {
+        do {
+            analyzer = SNAudioStreamAnalyzer(format: format)
+            let request = try SNClassifySoundRequest(classifierIdentifier: .version1)
+            // Kurzes Fenster für schnellere Reaktion im Test
+            request.windowDuration = CMTimeMakeWithSeconds(1.0, preferredTimescale: 44100)
+            request.overlapFactor = 0.75
+            try analyzer?.add(request, withObserver: self)
+        } catch {
+            analyzer = nil
+        }
+    }
+
+    func analyze(buffer: AVAudioPCMBuffer, time: AVAudioTime) {
+        // Jeden Buffer analysieren — kein Skip wie im Nacht-Modus
+        queue.async { [weak self] in
+            self?.analyzer?.analyze(buffer, atAudioFramePosition: time.sampleTime)
+        }
+    }
+
+    func stop() {
+        analyzer = nil
+    }
+
+    func request(_ request: SNRequest, didProduce result: SNResult) {
+        guard let res = result as? SNClassificationResult else { return }
+        // Top-5 Erkennungen ab 5% Konfidenz zeigen
+        let top = Self.mappings.compactMap { m -> TestErkennung? in
+            guard let c = res.classification(forIdentifier: m.id), c.confidence >= 0.05 else { return nil }
+            return TestErkennung(id: m.id, name: m.name, icon: m.icon, farbe: m.farbe, konfidenz: c.confidence)
+        }
+        .sorted { $0.konfidenz > $1.konfidenz }
+        // Deduplizieren nach Name (z.B. "cough" + "coughing" → einmal)
+        var seen = Set<String>()
+        let dedup = top.filter { seen.insert($0.name).inserted }
+        let result5 = Array(dedup.prefix(5))
+        DispatchQueue.main.async { [weak self] in
+            self?.onResults?(result5)
+        }
+    }
+
+    func request(_ request: SNRequest, didFailWithError error: Error) {}
+}
+
+struct TestErkennung: Identifiable {
+    let id: String
+    let name: String
+    let icon: String
+    let farbe: Color
+    let konfidenz: Double
+}
+
+// MARK: - MikrofonTestView
+
+struct MikrofonTestView: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var db: Double = 0
+    @State private var isRunning = false
+    @State private var keineBerechtigung = false
+    @State private var barHeights: [CGFloat] = Array(repeating: 0.05, count: 30)
+    @State private var topErkennungen: [TestErkennung] = []
+    @State private var letzteErkennungen: [(name: String, icon: String, farbe: Color, konfidenz: Double, zeit: Date)] = []
+
+    private let engine = AVAudioEngine()
+    private let barCount = 30
+
+    @State private var klassifikator: AnyObject? = nil
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(spacing: 20) {
+
+                    // Visualizer
+                    VStack(spacing: 10) {
+                        HStack(alignment: .bottom, spacing: 4) {
+                            ForEach(0..<barCount, id: \.self) { i in
+                                RoundedRectangle(cornerRadius: 3)
+                                    .fill(barColor)
+                                    .frame(width: 7, height: max(4, barHeights[i] * 130))
+                                    .animation(.easeOut(duration: 0.08), value: barHeights[i])
+                            }
+                        }
+                        .frame(height: 130)
+
+                        HStack {
+                            Text(isRunning ? "\(Int(db)) dB" : "–")
+                                .font(.system(size: 40, weight: .thin, design: .rounded))
+                                .foregroundStyle(barColor)
+                                .contentTransition(.numericText())
+                                .animation(.easeOut(duration: 0.1), value: db)
+                            Spacer()
+                            VStack(alignment: .trailing, spacing: 2) {
+                                Text(pegelLabel).font(.subheadline.weight(.semibold)).foregroundStyle(barColor)
+                                Text("Lautstärke").font(.caption2).foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                    .padding()
+                    .background(Color(.secondarySystemGroupedBackground))
+                    .clipShape(RoundedRectangle(cornerRadius: 16))
+                    .shadow(color: Color.primary.opacity(0.06), radius: 10, x: 0, y: 2)
+
+                    // Live ML-Erkennungen: Top 5 mit Konfidenz-Balken
+                    VStack(alignment: .leading, spacing: 12) {
+                        Label("Live-Erkennung (Apple ML)", systemImage: "waveform.badge.magnifyingglass")
+                            .font(.headline)
+
+                        if topErkennungen.isEmpty {
+                            HStack {
+                                Image(systemName: "mic.fill").foregroundStyle(.secondary)
+                                Text(isRunning ? "Mach ein Geräusch — schnarche, huste, klatsche…"
+                                              : "Test starten")
+                                    .font(.subheadline).foregroundStyle(.secondary)
+                            }
+                            .padding(.vertical, 4)
+                        } else {
+                            ForEach(topErkennungen) { e in
+                                VStack(spacing: 4) {
+                                    HStack(spacing: 10) {
+                                        Image(systemName: e.icon)
+                                            .foregroundStyle(e.farbe)
+                                            .frame(width: 22)
+                                        Text(e.name)
+                                            .font(.subheadline)
+                                        Spacer()
+                                        Text("\(Int(e.konfidenz * 100))%")
+                                            .font(.caption.monospacedDigit().weight(.semibold))
+                                            .foregroundStyle(e.konfidenz >= 0.4 ? e.farbe : .secondary)
+                                    }
+                                    GeometryReader { geo in
+                                        ZStack(alignment: .leading) {
+                                            RoundedRectangle(cornerRadius: 3)
+                                                .fill(e.farbe.opacity(0.12))
+                                                .frame(height: 6)
+                                            RoundedRectangle(cornerRadius: 3)
+                                                .fill(e.farbe.opacity(e.konfidenz >= 0.4 ? 0.85 : 0.35))
+                                                .frame(width: geo.size.width * e.konfidenz, height: 6)
+                                                .animation(.easeOut(duration: 0.15), value: e.konfidenz)
+                                        }
+                                    }
+                                    .frame(height: 6)
+                                }
+                            }
+                        }
+
+                        if !letzteErkennungen.isEmpty {
+                            Divider()
+                            Text("Zuletzt sicher erkannt (≥ 40%)")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                            ForEach(letzteErkennungen.suffix(6).reversed(), id: \.zeit) { e in
+                                HStack(spacing: 10) {
+                                    Image(systemName: e.icon).foregroundStyle(e.farbe).frame(width: 18)
+                                    Text(e.name).font(.caption)
+                                    Spacer()
+                                    Text("\(Int(e.konfidenz * 100))%")
+                                        .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                                    Text(e.zeit, style: .time)
+                                        .font(.caption2).foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+                    }
+                    .padding()
+                    .background(Color(.secondarySystemGroupedBackground))
+                    .clipShape(RoundedRectangle(cornerRadius: 16))
+                    .shadow(color: Color.primary.opacity(0.06), radius: 10, x: 0, y: 2)
+                    .animation(.spring(response: 0.35, dampingFraction: 0.75), value: topErkennungen.map(\.id).joined())
+
+                    if keineBerechtigung {
+                        Label("Kein Mikrofonzugriff — Bitte in den iOS-Einstellungen erlauben.",
+                              systemImage: "mic.slash.fill")
+                            .font(.caption).foregroundStyle(.red).multilineTextAlignment(.center)
+                    }
+
+                    Button {
+                        if isRunning { stoppen() } else { starten() }
+                    } label: {
+                        Label(isRunning ? "Stoppen" : "Test starten",
+                              systemImage: isRunning ? "stop.circle.fill" : "mic.fill")
+                            .font(.headline).foregroundStyle(.white)
+                            .frame(maxWidth: .infinity).padding(.vertical, 16)
+                            .background(isRunning ? Color.red : Color.indigo,
+                                        in: RoundedRectangle(cornerRadius: 16))
+                    }
+
+                    Text("Schnarche, huste, pfeife oder klatsche — alle Geräusche die SleepBuddy in der Nacht erkennt werden hier mit Konfidenz angezeigt. Balken grau = unter Erkennungsschwelle, farbig = wird nachts erfasst.")
+                        .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                }
+                .padding()
+            }
+            .background(Color(.systemGroupedBackground))
+            .navigationTitle("Mikrofon & Erkennung testen")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Fertig") { stoppen(); dismiss() }
+                }
+            }
+            .onDisappear { stoppen() }
+        }
+        .presentationDetents([.large])
+    }
+
+    private var barColor: Color {
+        if db < 35 { return .green }
+        if db < 55 { return .orange }
+        return .red
+    }
+
+    private var pegelLabel: String {
+        guard isRunning else { return "Gestoppt" }
+        if db < 35 { return "Still" }
+        if db < 55 { return "Normal" }
+        if db < 70 { return "Laut" }
+        return "Sehr laut"
+    }
+
+    private func starten() {
+        AVAudioApplication.requestRecordPermission { granted in
+            DispatchQueue.main.async {
+                guard granted else { keineBerechtigung = true; return }
+                keineBerechtigung = false
+                guard #available(iOS 15, *) else { return }
+                let klass = MikrofonTestKlassifikator()
+                klass.onResults = { erkennungen in
+                    topErkennungen = erkennungen
+                    // Nur Erkennungen ≥ 40% in die Historie
+                    if let beste = erkennungen.first, beste.konfidenz >= 0.4 {
+                        let neu = (name: beste.name, icon: beste.icon,
+                                   farbe: beste.farbe, konfidenz: beste.konfidenz, zeit: Date())
+                        // Kein Duplikat innerhalb 2s
+                        if let letzter = letzteErkennungen.last,
+                           letzter.name == neu.name,
+                           Date().timeIntervalSince(letzter.zeit) < 2 { return }
+                        letzteErkennungen.append(neu)
+                    }
+                }
+                klassifikator = klass
+                do {
+                    let session = AVAudioSession.sharedInstance()
+                    try session.setCategory(.record, mode: .measurement,
+                                           options: [.mixWithOthers, .allowBluetoothHFP])
+                    try session.setActive(true)
+                    let input = engine.inputNode
+                    let format = input.outputFormat(forBus: 0)
+                    klass.start(format: format)
+                    input.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, time in
+                        if let data = buffer.floatChannelData?[0] {
+                            var rms: Float = 0
+                            vDSP_rmsqv(data, 1, &rms, vDSP_Length(Int(buffer.frameLength)))
+                            let dbVal = max(0, min(120, Double(20 * log10(max(rms, 1e-6))) + 90))
+                            let norm = CGFloat(max(0.05, min(1.0, (dbVal - 20) / 80)))
+                            DispatchQueue.main.async {
+                                db = dbVal
+                                var bars = barHeights; bars.removeFirst(); bars.append(norm)
+                                barHeights = bars
+                            }
+                        }
+                        klass.analyze(buffer: buffer, time: time)
+                    }
+                    try engine.start()
+                    isRunning = true
+                } catch {
+                    keineBerechtigung = true
+                }
+            }
+        }
+    }
+
+    private func stoppen() {
+        guard isRunning else { return }
+        engine.inputNode.removeTap(onBus: 0)
+        engine.stop()
+        if #available(iOS 15, *) { (klassifikator as? MikrofonTestKlassifikator)?.stop() }
+        klassifikator = nil
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        isRunning = false
+        barHeights = Array(repeating: 0.05, count: barCount)
+        db = 0
+        topErkennungen = []
+    }
+}
+
+// MARK: - ICloudAudioTestView
+
+struct ICloudAudioTestView: View {
+    @Environment(\.dismiss) private var dismiss
+
+    enum TestStatus {
+        case bereit, aufnahme, speichern, erfolg(String), fehler(String)
+
+        var beschreibung: String {
+            switch self {
+            case .bereit:           return "Bereit zum Testen"
+            case .aufnahme:         return "Nimmt 3 Sekunden auf…"
+            case .speichern:        return "Speichert in iCloud…"
+            case .erfolg(let pfad): return "✅ Gespeichert:\n\(pfad)"
+            case .fehler(let msg):  return "❌ Fehler:\n\(msg)"
+            }
+        }
+
+        var farbe: Color {
+            switch self {
+            case .erfolg: return .green
+            case .fehler: return .red
+            default:      return .secondary
+            }
+        }
+    }
+
+    @State private var status: TestStatus = .bereit
+    @State private var countdown = 3
+    @State private var laeuft = false
+    private let engine = AVAudioEngine()
+    private static let iCloudID = "iCloud.DG-Software-Solution.PainDiary"
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 32) {
+                Spacer()
+
+                Image(systemName: iconName)
+                    .font(.system(size: 56))
+                    .foregroundStyle(status.farbe)
+                    .symbolEffect(.pulse, isActive: laeuft)
+
+                VStack(spacing: 8) {
+                    if case .aufnahme = status {
+                        Text("\(countdown)")
+                            .font(.system(size: 48, weight: .bold, design: .rounded))
+                            .foregroundStyle(.indigo)
+                    }
+                    Text(status.beschreibung)
+                        .font(.subheadline)
+                        .foregroundStyle(status.farbe)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal)
+                }
+
+                iCloudStatusRow
+
+                Button {
+                    startTest()
+                } label: {
+                    Label("Test starten", systemImage: "play.fill")
+                        .font(.headline)
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(laeuft ? Color.secondary : Color.indigo,
+                                    in: RoundedRectangle(cornerRadius: 14))
+                }
+                .padding(.horizontal, 32)
+                .disabled(laeuft)
+
+                Spacer()
+            }
+            .navigationTitle("iCloud-Test")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Fertig") { dismiss() }
+                }
+            }
+        }
+    }
+
+    private var iconName: String {
+        switch status {
+        case .bereit:    return "icloud.and.arrow.up"
+        case .aufnahme:  return "mic.fill"
+        case .speichern: return "arrow.up.to.line.circle"
+        case .erfolg:    return "checkmark.icloud.fill"
+        case .fehler:    return "exclamationmark.icloud.fill"
+        }
+    }
+
+    @ViewBuilder
+    private var iCloudStatusRow: some View {
+        let url = FileManager.default.url(
+            forUbiquityContainerIdentifier: Self.iCloudID)
+        VStack(spacing: 4) {
+            if let url {
+                Label("iCloud verfügbar", systemImage: "icloud.fill")
+                    .font(.caption).foregroundStyle(.green)
+                Text(url.path)
+                    .font(.caption2).foregroundStyle(.secondary)
+                    .lineLimit(2).multilineTextAlignment(.center)
+                    .padding(.horizontal)
+            } else {
+                Label("iCloud nicht erreichbar", systemImage: "icloud.slash")
+                    .font(.caption).foregroundStyle(.orange)
+                Text("Lokal gespeichert (Documents/SleepSounds/)")
+                    .font(.caption2).foregroundStyle(.secondary)
+            }
+        }
+        .padding()
+        .background(Color(.secondarySystemGroupedBackground),
+                    in: RoundedRectangle(cornerRadius: 12))
+        .padding(.horizontal, 24)
+    }
+
+    private func startTest() {
+        AVAudioApplication.requestRecordPermission { granted in
+            DispatchQueue.main.async {
+                guard granted else {
+                    status = .fehler("Mikrofon-Berechtigung fehlt")
+                    return
+                }
+                aufnehmenUndSpeichern()
+            }
+        }
+    }
+
+    private func aufnehmenUndSpeichern() {
+        laeuft = true
+        status = .aufnahme
+        countdown = 3
+
+        let session = AVAudioSession.sharedInstance()
+        try? session.setCategory(.record, mode: .measurement,
+                                  options: [.mixWithOthers, .allowBluetoothHFP])
+        try? session.setActive(true)
+
+        let input = engine.inputNode
+        let format = input.inputFormat(forBus: 0)
+        let sampleRate = format.sampleRate
+        var samples: [Float] = []
+
+        input.installTap(onBus: 0, bufferSize: 4096, format: format) { buf, _ in
+            guard let data = buf.floatChannelData?[0] else { return }
+            samples.append(contentsOf: Array(UnsafeBufferPointer(start: data, count: Int(buf.frameLength))))
+        }
+
+        try? engine.start()
+
+        // Countdown
+        var tick = 0
+        Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { timer in
+            tick += 1
+            countdown = 3 - tick
+            if tick >= 3 {
+                timer.invalidate()
+                engine.inputNode.removeTap(onBus: 0)
+                engine.stop()
+                DispatchQueue.main.async {
+                    status = .speichern
+                    speichern(samples: samples, sampleRate: sampleRate)
+                }
+            }
+        }
+    }
+
+    private func speichern(samples: [Float], sampleRate: Double) {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd_HH-mm-ss"
+        let fileName = "icloudtest_\(formatter.string(from: Date())).m4a"
+
+        guard let pcmFormat = AVAudioFormat(commonFormat: .pcmFormatFloat32,
+                                             sampleRate: sampleRate,
+                                             channels: 1, interleaved: false) else {
+            status = .fehler("Audio-Format konnte nicht erstellt werden")
+            laeuft = false
+            return
+        }
+
+        let tmpURL = FileManager.default.temporaryDirectory.appendingPathComponent(fileName)
+        do {
+            let settings: [String: Any] = [
+                AVFormatIDKey: kAudioFormatMPEG4AAC,
+                AVSampleRateKey: sampleRate,
+                AVNumberOfChannelsKey: 1,
+                AVEncoderAudioQualityKey: AVAudioQuality.medium.rawValue
+            ]
+            let file = try AVAudioFile(forWriting: tmpURL, settings: settings)
+            let count = AVAudioFrameCount(samples.count)
+            guard let buf = AVAudioPCMBuffer(pcmFormat: pcmFormat, frameCapacity: count) else {
+                throw NSError(domain: "ICloudTest", code: 1)
+            }
+            buf.frameLength = count
+            samples.withUnsafeBufferPointer { ptr in
+                buf.floatChannelData?[0].update(from: ptr.baseAddress!, count: samples.count)
+            }
+            try file.write(from: buf)
+        } catch {
+            DispatchQueue.main.async {
+                status = .fehler("Aufnahme fehlgeschlagen: \(error.localizedDescription)")
+                laeuft = false
+            }
+            return
+        }
+
+        // iCloud versuchen, lokal als Fallback
+        let destURL: URL
+        var ziel = "iCloud"
+
+        if let icloudBase = FileManager.default.url(
+            forUbiquityContainerIdentifier: Self.iCloudID)?
+            .appendingPathComponent("Documents/SleepSounds/") {
+            try? FileManager.default.createDirectory(at: icloudBase, withIntermediateDirectories: true)
+            destURL = icloudBase.appendingPathComponent(fileName)
+        } else {
+            let local = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+                .appendingPathComponent("SleepSounds/")
+            try? FileManager.default.createDirectory(at: local, withIntermediateDirectories: true)
+            destURL = local.appendingPathComponent(fileName)
+            ziel = "Lokal (kein iCloud)"
+        }
+
+        do {
+            try FileManager.default.copyItem(at: tmpURL, to: destURL)
+            try? FileManager.default.removeItem(at: tmpURL)
+            DispatchQueue.main.async {
+                status = .erfolg("\(ziel)\n\(destURL.lastPathComponent)\n\(Int(samples.count / Int(sampleRate)))s · \(Int(sampleRate/1000))kHz")
+                laeuft = false
+            }
+        } catch {
+            DispatchQueue.main.async {
+                status = .fehler("Speichern fehlgeschlagen: \(error.localizedDescription)")
+                laeuft = false
+            }
+        }
+    }
+}
+
