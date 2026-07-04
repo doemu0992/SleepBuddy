@@ -214,10 +214,25 @@ final class SoundEventService {
                 calibrationDeadline = Date().addingTimeInterval(calibrationDuration)
             }
             calibrationSamples.append(instantAmplitude)
+            // ML-gestartete Events auch WÄHREND der Kalibrierung deckeln und beenden
+            // (bindend, belegt): der frühe Return übersprang Cap + Ruhe-Ende → ein
+            // Sprechen-Event in der Startminute lief 88 s ungedeckelt und belegte die
+            // Ein-Event-Pipeline — das parallel erkannte Hundebellen (dog 0.44) wurde
+            // verschluckt. Nur das STARTEN neuer Amplitude-Events bleibt deaktiviert.
+            if let start = eventStartDate {
+                if Date().timeIntervalSince(start) >= maxEventDuration {
+                    finaliseEvent()
+                } else if instantAmplitude <= amplitudeThreshold {
+                    consecutiveQuietTicks += 1
+                    if consecutiveQuietTicks >= quietTicksToEnd { finaliseEvent() }
+                } else {
+                    consecutiveQuietTicks = 0
+                }
+            }
             if let dl = calibrationDeadline, Date() >= dl {
                 finishCalibration()
             }
-            return  // no event detection while calibrating
+            return  // no NEW amplitude-event detection while calibrating
         }
 
         // ── Rolling re-calibration: feed ALL non-event samples (not only those below the
