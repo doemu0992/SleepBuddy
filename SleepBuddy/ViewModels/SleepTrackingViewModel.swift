@@ -439,7 +439,7 @@ final class SleepTrackingViewModel {
         // Feature-Nachtlog (1 Zeile/min, intern gedrosselt): alle Sensorwerte + Live-Label.
         FeatureNightLog.shared.append(audio: audio, motion: motionIn, sonar: latestSonar,
                                       sonarLevel: sonar.signalLevel,
-                                      bcgHR: liveBCGHeartRateBPM, watchHR: liveHeartRateBPM,
+                                      bcgHR: Int(liveBCGHeartRateBPM), watchHR: liveHeartRateBPM,
                                       phase: result.phase)
 
         // Ambient noise: accumulate amplitude and store one dB sample per minute
