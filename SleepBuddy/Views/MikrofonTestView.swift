@@ -1,4 +1,5 @@
 import SwiftUI
+import Accelerate
 import AVFoundation
 import SoundAnalysis
 import CoreMedia
