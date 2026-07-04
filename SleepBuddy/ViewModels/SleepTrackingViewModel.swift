@@ -138,6 +138,9 @@ final class SleepTrackingViewModel {
             audioService.sonar = nil
         }
 
+        // Feature-Nachtlog: kompletter Sensor-Strom pro Minute (Replay-Grundlage).
+        FeatureNightLog.shared.begin()
+
         motionService.onFeaturesUpdated = { [weak self] motion in
             self?.latestMotionFeatures = motion
             // Lower the sound-event threshold while the phone rests on the mattress.
@@ -224,6 +227,7 @@ final class SleepTrackingViewModel {
         soundEventService.reset()
         healthKit.stopHeartRatePolling()
         sonar.endNightLog()
+        FeatureNightLog.shared.end()
         audioService.sonar = nil
         endUsageMonitoring()
 
@@ -287,6 +291,9 @@ final class SleepTrackingViewModel {
 
         // Post-hoc plausibility correction: remove/merge implausibly short isolated phases
         applyPlausibilityCorrection(to: session)
+
+        // Optional (Beta-Toggle): probabilistischer Gesamtnacht-Glätter als letzter Pass.
+        if let ctx = modelContext { applyHMMSmoothing(to: session, context: ctx) }
 
         classifier.reset()
         try? modelContext?.save()
@@ -429,6 +436,12 @@ final class SleepTrackingViewModel {
 
         currentConfidence = result.confidence
 
+        // Feature-Nachtlog (1 Zeile/min, intern gedrosselt): alle Sensorwerte + Live-Label.
+        FeatureNightLog.shared.append(audio: audio, motion: motionIn, sonar: latestSonar,
+                                      sonarLevel: sonar.signalLevel,
+                                      bcgHR: liveBCGHeartRateBPM, watchHR: liveHeartRateBPM,
+                                      phase: result.phase)
+
         // Ambient noise: accumulate amplitude and store one dB sample per minute
         noiseAccumulator.append(audio.averageAmplitude)
         if Date().timeIntervalSince(lastNoiseSampleDate) >= 60, let session = currentSession {
@@ -526,10 +539,136 @@ final class SleepTrackingViewModel {
             applyMovementWake(to: session, context: context)
             applyAlarmWake(to: session)
             applyPlausibilityCorrection(to: session)
+            applyHMMSmoothing(to: session, context: context)
             count += 1
         }
         try? context.save()
         return count
+    }
+
+    // MARK: - HMM-Glätter (Beta, Toggle "hmm_enabled" in Entwickleroptionen)
+    //
+    // Probabilistisches Gesamtnacht-Modell statt Regel-Kette: pro Minute liefern die
+    // Sensoren Log-Likelihoods für [Wach, Leicht, Tief, REM] (relative, boden-adaptive
+    // Maße + das bisherige Phasen-Ergebnis als weicher Prior), die Schlafphysiologie
+    // steckt in der Übergangsmatrix (Verweildauer, plausible Wechsel). Viterbi liefert
+    // den wahrscheinlichsten Phasenpfad der GANZEN Nacht in einem Schritt.
+    // Läuft als LETZTER Pass — mit Toggle aus = exakt bisheriges Verhalten (A/B-Test).
+    private func applyHMMSmoothing(to session: SleepSession, context: ModelContext) {
+        guard UserDefaults.standard.bool(forKey: "hmm_enabled") else { return }
+        let start = session.startDate
+        let end = session.endDate ?? Date()
+        let totalMin = Int(end.timeIntervalSince(start) / 60)
+        guard totalMin >= 60 else { return }
+        let desc = FetchDescriptor<TrainingSample>(
+            predicate: #Predicate { $0.timestamp >= start && $0.timestamp <= end },
+            sortBy: [SortDescriptor(\.timestamp)]
+        )
+        guard let samples = try? context.fetch(desc), samples.count >= 30 else { return }
+
+        // Pro-Minute-Features (forward-filled)
+        var brS = [Float](repeating: 0, count: totalMin), brC = [Int](repeating: 0, count: totalMin)
+        var rgS = [Float](repeating: 0, count: totalMin)
+        var mvMax = [Float](repeating: 0, count: totalMin)
+        var ampS = [Float](repeating: 0, count: totalMin)
+        for s in samples {
+            let m = Int(s.timestamp.timeIntervalSince(start) / 60)
+            guard m >= 0 && m < totalMin else { continue }
+            if s.breathingRateBPM > 6 && s.breathingRateBPM < 30 {
+                brS[m] += s.breathingRateBPM; rgS[m] += s.breathingRegularity; brC[m] += 1
+            }
+            mvMax[m] = max(mvMax[m], s.movementIntensity)
+            ampS[m] += s.averageAmplitude
+        }
+        func med(_ a: [Float]) -> Float { let s = a.sorted(); return s.isEmpty ? 0 : s[s.count / 2] }
+        let brVals = (0..<totalMin).compactMap { brC[$0] > 0 ? brS[$0] / Float(brC[$0]) : nil }
+        let brMed = med(brVals)
+        let mvMed = max(med(mvMax.filter { $0 > 0 }), 0.02)
+        let ampMed = max(med(ampS.filter { $0 > 0 }), 1e-5)
+
+        // Bisheriges Ergebnis als weicher Prior (Zyklus-Wissen bleibt erhalten)
+        let phases = session.phasesArray.sorted { $0.startDate < $1.startDate }
+        func priorPhase(_ m: Int) -> SleepPhaseType? {
+            let t = start.addingTimeInterval(Double(m) * 60 + 30)
+            return phases.first(where: { $0.startDate <= t && t < $0.endDate })?.phaseType
+        }
+
+        // Zustände: 0=wach 1=leicht 2=tief 3=rem
+        let states: [SleepPhaseType] = [.awake, .light, .deep, .rem]
+        func emission(_ m: Int) -> [Double] {
+            var ll = [0.0, 0.0, 0.0, 0.0]
+            let br = brC[m] > 0 ? brS[m] / Float(brC[m]) : 0
+            let rg = brC[m] > 0 ? rgS[m] / Float(brC[m]) : 0
+            let mv = mvMax[m] / mvMed          // 1 = typisch, >2.5 = unruhig
+            let am = (ampS[m]) / ampMed
+            // Bewegung: stärkstes Wach-Signal
+            if mv > 2.5 { ll[0] += 2.0; ll[1] -= 0.5; ll[2] -= 2.0; ll[3] -= 1.0 }
+            else if mv > 1.6 { ll[0] += 0.8; ll[2] -= 0.8 }
+            else { ll[2] += 0.3 }
+            // Lautstärke deutlich über Boden → eher wach
+            if am > 2.0 { ll[0] += 0.6; ll[2] -= 0.4 }
+            // Atmung (nur gemessene Minuten): schnell → wach/REM, langsam+regelmäßig → tief
+            if br > 0, brMed > 0 {
+                let rel = br - brMed
+                if rel >= 3 { ll[0] += 1.0; ll[3] += 0.4; ll[2] -= 1.2 }
+                else if rel <= -1.5 && rg > 0.5 { ll[2] += 1.2; ll[0] -= 0.6 }
+                if rg < 0.35 && rel > 0 { ll[3] += 0.5 }
+                if rg > 0.6 { ll[3] -= 0.4 }
+            }
+            // Weicher Prior aus dem bisherigen Ergebnis (Gewicht bewusst moderat)
+            if let p = priorPhase(m), let idx = states.firstIndex(of: p) { ll[idx] += 0.9 }
+            return ll
+        }
+        // Übergänge (log): hohe Verweildauer, nur physiologische Wechsel günstig
+        let stay = log(0.90), toNb = log(0.045)
+        let trans: [[Double]] = [
+            // von wach      leicht        tief          rem
+            [stay,          log(0.09),    log(0.005),   log(0.005)],   // wach →
+            [log(0.03),     stay,         log(0.035),   log(0.035)],   // leicht →
+            [log(0.005),    log(0.09),    stay,         log(0.005)],   // tief →
+            [log(0.01),     log(0.085),   log(0.005),   stay]          // rem →
+        ]
+        _ = toNb
+
+        // Viterbi
+        var vit = [[Double]](repeating: [Double](repeating: -1e12, count: 4), count: totalMin)
+        var back = [[Int]](repeating: [Int](repeating: 0, count: 4), count: totalMin)
+        let e0 = emission(0)
+        for s in 0..<4 { vit[0][s] = e0[s] + (s == 0 ? log(0.7) : log(0.1)) }  // Nacht beginnt meist wach
+        for m in 1..<totalMin {
+            let em = emission(m)
+            for s in 0..<4 {
+                var best = -1e12; var bi = 0
+                for p in 0..<4 {
+                    let v = vit[m-1][p] + trans[p][s]
+                    if v > best { best = v; bi = p }
+                }
+                vit[m][s] = best + em[s]
+                back[m][s] = bi
+            }
+        }
+        var path = [Int](repeating: 0, count: totalMin)
+        path[totalMin-1] = (0..<4).max(by: { vit[totalMin-1][$0] < vit[totalMin-1][$1] })!
+        for m in stride(from: totalMin - 2, through: 0, by: -1) { path[m] = back[m+1][path[m+1]] }
+
+        // Pfad → Phasen (bestehende ersetzen)
+        for p in session.phasesArray { context.delete(p) }
+        session.phases = []
+        var gStart = 0
+        for m in 1...totalMin {
+            if m == totalMin || path[m] != path[gStart] {
+                let ps = start.addingTimeInterval(Double(gStart) * 60)
+                let pe = (m == totalMin) ? end : start.addingTimeInterval(Double(m) * 60)
+                if pe > ps {
+                    let phase = SleepPhase(startDate: ps, endDate: pe, phaseType: states[path[gStart]], confidence: 0.75)
+                    phase.session = session
+                    context.insert(phase)
+                    session.phases?.append(phase)
+                }
+                gStart = m
+            }
+        }
+        try? context.save()
     }
 
     /// Atem-basiertes Rand-Wach (so machen es Sleep Cycle & Co.): Wachliegen hat eine

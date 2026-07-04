@@ -1484,6 +1484,13 @@ List
 └── Section "App"           → Versionsverlauf, Datenschutz, Entwickleroptionen, Onboarding-Reset (.orange), Version
 ```
 
+> **Analyse-Labor (Entwickleroptionen, bindend):** Drei Werkzeuge für datengetriebenes Tuning:
+> 1. **`FeatureNightLog`** (in EinstellungenView.swift): schreibt pro Nacht `FeatureLog-<Datum>.csv` (Documents) mit **allen** Sensorwerten pro Minute (Amplitude, Atem best/Audio/Accel, Bewegung, Sonar-Werte, BCG/Watch-HR, Live-Label — **kein Audio**). Rotation: letzte 14 Nächte. Export via „Feature-Logs teilen". Zweck: Algorithmus-Änderungen **offline** gegen echte Nächte durchrechnen statt pro Änderung eine Schlafnacht zu verbrauchen. Start/Ende in `startTracking`/`stopTracking`, Zeile pro Minute aus `handleFeatures`.
+> 2. **HMM-Glätter (Beta, `hmm_enabled`, Standard AUS):** `applyHMMSmoothing` — Viterbi über 4 Zustände, Emissionen aus relativen Pro-Minute-Features + bisherigem Ergebnis als weichem Prior, physiologische Übergangsmatrix. Läuft als LETZTER Pass in `stopTracking` und im Neuberechnen-Batch; Toggle aus = exakt bisheriges Verhalten (A/B-Vergleich per Neuberechnen).
+> 3. **Watch-Vergleich:** „Mit Apple-Watch-Schlaf vergleichen" liest Apples Staging (`readAppleWatchSleepPhases`, eigene Exporte ausgeschlossen) für die letzte Nacht und zeigt Wach/Schlaf- + Phasen-Übereinstimmung und die häufigsten Abweichungen — Ground Truth für die Kalibrierung.
+>
+> **Geräteprofil (bindend):** `device.sonarGoodAmp` (UserDefaults) — nach einer Sonar-Nacht mit ≥ 30 min und ≥ 60 % Atem-Lock wird die aktuelle Ton-Stärke als Sweet-Spot **dieses Geräts** gespeichert; der nächste Start beginnt direkt dort (statt jede Nacht neu zu rampen). Schlechte Nächte überschreiben nichts.
+
 > **Entwickleroptionen ausgelagert (bindend):** Alle Test-/Debug-Werkzeuge liegen in **`EntwickleroptionenView`** (`Views/EntwickleroptionenView.swift`), erreichbar über Einstellungen → App → „Entwickleroptionen". Inhalt: Mikrofon testen, iCloud-Speicher testen, „Geräusch-Klassen prüfen" (`SoundClassificationService.auditText`), „Aufnahmen lauter machen" (`normalizeExistingClips`), „Schlafphasen neu berechnen" (`reapplyPhaseCorrections`), Beispielnacht/Alle 3/Langzeit-Testdaten (`SampleDataService`), „Alle Testdaten löschen". Die normalen Einstellungen bleiben nutzerfrei von Debug-Funktionen.
 
 > **Kein Duplikat:** Jede Einstellung erscheint an genau einem Ort.

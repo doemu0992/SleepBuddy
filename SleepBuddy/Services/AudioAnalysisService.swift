@@ -148,7 +148,11 @@ final class AudioAnalysisService {
             // siehe ensureSonarVolume).
             sonarTonePlayer.volume = 1.0
             engine.mainMixerNode.outputVolume = 1.0
-            sonarAmpCurrent = sonarToneAmp
+            // GERÄTEPROFIL: Sweet-Spot aus früheren erfolgreichen Nächten wiederverwenden
+            // (auf schwachen Geräten rampte sich der Ton hoch — beim nächsten Start direkt
+            // dort beginnen statt jede Nacht neu zu suchen). 0 = noch nie gelernt.
+            let learned = Float(UserDefaults.standard.double(forKey: "device.sonarGoodAmp"))
+            sonarAmpCurrent = learned >= sonarToneAmp && learned <= 0.8 ? learned : sonarToneAmp
             sonarTonePlayer.scheduleBuffer(makeSonarTone(format: toneFormat, amp: sonarAmpCurrent), at: nil, options: .loops)
             sonarTonePlayer.play()
             // Lautstärke-Floor (bindend, gerätebelegt): Der Sonar-Ton läuft über die
@@ -178,6 +182,12 @@ final class AudioAnalysisService {
         if sonarActive {
             sonarRampTimer?.invalidate()
             sonarRampTimer = nil
+            // GERÄTEPROFIL lernen: Lief die Nacht lang genug (≥ 60 Emits ≈ 30 min) mit
+            // gutem Atem-Lock (≥ 60 %), war die aktuelle Ton-Stärke der Sweet-Spot für
+            // DIESES Gerät → persistieren. Schlechte Nächte überschreiben nichts.
+            if let s = sonar, s.emitCount >= 60, s.nightLockRate >= 0.6 {
+                UserDefaults.standard.set(Double(sonarAmpCurrent), forKey: "device.sonarGoodAmp")
+            }
             sonarTonePlayer.stop()
             sonarActive = false
         }

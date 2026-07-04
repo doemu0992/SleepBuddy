@@ -964,6 +964,10 @@ struct EntwickleroptionenView: View {
     @State private var phasenLaeuft = false
     @State private var phasenErgebnis: String?
     @State private var zeigeTestdatenLoeschen = false
+    @AppStorage("hmm_enabled") private var hmmAktiv = false
+    @State private var zeigeFeatureLogs = false
+    @State private var watchVergleichLaeuft = false
+    @State private var watchVergleichErgebnis: String?
 
     var body: some View {
         List {
@@ -1019,6 +1023,36 @@ struct EntwickleroptionenView: View {
             }
 
             Section {
+                Toggle(isOn: $hmmAktiv) {
+                    Label { VStack(alignment: .leading, spacing: 2) {
+                        Text("HMM-Glätter (Beta)")
+                        Text("Probabilistisches Gesamtnacht-Modell als letzter Pass — wirkt beim nächsten Tracking/Neuberechnen")
+                            .font(.caption2).foregroundStyle(.secondary)
+                    } } icon: { Image(systemName: "waveform.path.badge.plus").foregroundStyle(.indigo) }
+                }
+
+                Button { zeigeFeatureLogs = true } label: {
+                    Label("Feature-Logs teilen (\(FeatureNightLog.allLogs().count) Nächte)", systemImage: "square.and.arrow.up")
+                        .foregroundStyle(.indigo)
+                }
+                .disabled(FeatureNightLog.allLogs().isEmpty)
+                .sheet(isPresented: $zeigeFeatureLogs) { ShareSheet(items: FeatureNightLog.allLogs()) }
+
+                Button { watchVergleichStarten() } label: {
+                    HStack {
+                        Label("Mit Apple-Watch-Schlaf vergleichen", systemImage: "applewatch")
+                            .foregroundStyle(.indigo)
+                        if watchVergleichLaeuft { Spacer(); ProgressView() }
+                    }
+                }
+                .disabled(watchVergleichLaeuft)
+            } header: {
+                Text("Analyse-Labor")
+            } footer: {
+                Text("Feature-Logs enthalten pro Minute alle Sensorwerte (kein Audio) — Grundlage, um Algorithmus-Änderungen offline gegen echte Nächte zu testen. Der Watch-Vergleich misst die Übereinstimmung der letzten Nacht mit Apples Schlafphasen.")
+            }
+
+            Section {
                 Button {
                     SampleDataService.insertSampleNight(into: modelContext)
                 } label: {
@@ -1059,6 +1093,68 @@ struct EntwickleroptionenView: View {
         .alert("Schlafphasen", isPresented: Binding(
             get: { phasenErgebnis != nil }, set: { if !$0 { phasenErgebnis = nil } }
         )) { Button("OK", role: .cancel) { phasenErgebnis = nil } } message: { Text(phasenErgebnis ?? "") }
+        .alert("Watch-Vergleich", isPresented: Binding(
+            get: { watchVergleichErgebnis != nil }, set: { if !$0 { watchVergleichErgebnis = nil } }
+        )) {
+            Button("Kopieren") { UIPasteboard.general.string = watchVergleichErgebnis; watchVergleichErgebnis = nil }
+            Button("OK", role: .cancel) { watchVergleichErgebnis = nil }
+        } message: { Text(watchVergleichErgebnis ?? "") }
+    }
+
+    /// Ground-Truth-Vergleich: unsere Phasen der letzten Nacht vs. Apples (Watch-)Staging.
+    private func watchVergleichStarten() {
+        watchVergleichLaeuft = true
+        Task { @MainActor in
+            defer { watchVergleichLaeuft = false }
+            var desc = FetchDescriptor<SleepSession>(
+                predicate: #Predicate { $0.endDate != nil },
+                sortBy: [SortDescriptor(\.startDate, order: .reverse)]
+            )
+            desc.fetchLimit = 1
+            guard let session = try? modelContext.fetch(desc).first, let sEnd = session.endDate else {
+                watchVergleichErgebnis = "Keine abgeschlossene Nacht gefunden."
+                return
+            }
+            let hk = HealthKitService()
+            await hk.requestAuthorization()
+            let segments = await hk.readAppleWatchSleepPhases(from: session.startDate, to: sEnd)
+            guard !segments.isEmpty else {
+                watchVergleichErgebnis = "Keine Apple-Schlafphasen im Zeitraum gefunden. Wurde die Watch getragen und ist Schlaf-Tracking (Apple) aktiv? HealthKit-Leserecht erteilt?"
+                return
+            }
+            let ours = session.phasesArray.sorted { $0.startDate < $1.startDate }
+            func ourPhase(_ t: Date) -> SleepPhaseType? {
+                ours.first(where: { $0.startDate <= t && t < $0.endDate })?.phaseType
+            }
+            func watchPhase(_ t: Date) -> SleepPhaseType? {
+                segments.first(where: { $0.start <= t && t < $0.end })?.phase
+            }
+            var total = 0, both = 0, stageAgree = 0, wsAgree = 0
+            var confusion: [String: Int] = [:]
+            var t = session.startDate
+            while t < sEnd {
+                total += 1
+                if let o = ourPhase(t), let w = watchPhase(t) {
+                    both += 1
+                    if o == w { stageAgree += 1 }
+                    if (o == .awake) == (w == .awake) { wsAgree += 1 }
+                    if o != w { confusion["\(w.rawValue)→\(o.rawValue)", default: 0] += 1 }
+                }
+                t = t.addingTimeInterval(60)
+            }
+            guard both > 0 else {
+                watchVergleichErgebnis = "Keine überlappenden Minuten gefunden."
+                return
+            }
+            let topConf = confusion.sorted { $0.value > $1.value }.prefix(3)
+                .map { "\($0.key): \($0.value)m" }.joined(separator: ", ")
+            watchVergleichErgebnis = """
+            Überlappung: \(both)/\(total) Minuten
+            Wach/Schlaf-Übereinstimmung: \(100 * wsAgree / both) %
+            Phasen-Übereinstimmung: \(100 * stageAgree / both) %
+            Häufigste Abweichungen (Watch→App): \(topConf)
+            """
+        }
     }
 
     private func normalisiereAufnahmen() {
@@ -1365,6 +1461,71 @@ struct SonarTestView: View {
     }
 }
 
+// MARK: - Feature-Nachtlog (Replay-Grundlage, bewusst in dieser in-Target-Datei)
+
+/// Schreibt pro Nacht eine CSV mit ALLEN Sensor-Features pro Minute (kein Audio).
+/// Zweck: Algorithmus-Änderungen offline gegen echte Nächte durchrechnen (Replay),
+/// statt jede Änderung mit einer Schlafnacht zu bezahlen. Behält die letzten 14 Nächte.
+final class FeatureNightLog {
+    static let shared = FeatureNightLog()
+    private var active = false
+    private var url: URL?
+    private var lastRow = Date.distantPast
+    private init() {}
+
+    static var logDirectory: URL {
+        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
+            ?? URL(fileURLWithPath: NSTemporaryDirectory())
+    }
+
+    static func allLogs() -> [URL] {
+        (try? FileManager.default.contentsOfDirectory(at: logDirectory, includingPropertiesForKeys: nil))?
+            .filter { $0.lastPathComponent.hasPrefix("FeatureLog-") }
+            .sorted { $0.lastPathComponent > $1.lastPathComponent } ?? []
+    }
+
+    func begin() {
+        let f = DateFormatter(); f.dateFormat = "yyyyMMdd-HHmm"
+        let file = FeatureNightLog.logDirectory.appendingPathComponent("FeatureLog-\(f.string(from: Date())).csv")
+        let header = "# SLEEPBUDDY FEATURELOG — Start \(Date())\n"
+            + "zeit,amp,ampVar,atem_best,reg_best,atem_audio,atem_accel,reg_accel,bewegung,onMattress,"
+            + "sonar_atem,sonar_reg,sonar_bew,sonar_pegel,sonar_signal,sonar_puls,bcg_hr,watch_hr,phase\n"
+        try? header.write(to: file, atomically: true, encoding: .utf8)
+        url = file
+        active = true
+        lastRow = .distantPast
+        // Rotation: nur die letzten 14 Nächte behalten.
+        let logs = FeatureNightLog.allLogs()
+        if logs.count > 14 { for old in logs.dropFirst(14) { try? FileManager.default.removeItem(at: old) } }
+    }
+
+    func end() { active = false; url = nil }
+
+    /// Eine Zeile pro Minute (intern gedrosselt) — Aufruf aus handleFeatures ist billig.
+    func append(audio: AudioFeatures, motion: MotionFeatures, sonar: SonarFeatures,
+                sonarLevel: Float, bcgHR: Int, watchHR: Double, phase: SleepPhaseType) {
+        guard active, let url, Date().timeIntervalSince(lastRow) >= 60 else { return }
+        lastRow = Date()
+        let f = DateFormatter(); f.dateFormat = "HH:mm:ss"
+        let bestBreath = motion.breathingRateBPM > 0 ? motion.breathingRateBPM : audio.breathingRateBPM
+        let bestReg = motion.breathingRateBPM > 0 ? motion.breathingRegularity : audio.breathingRegularity
+        let line = String(format: "%@,%.5f,%.6f,%.1f,%.2f,%.1f,%.1f,%.2f,%.3f,%d,%.1f,%.2f,%.2f,%.5f,%d,%d,%d,%.0f,%@\n",
+                          f.string(from: Date()),
+                          audio.averageAmplitude, audio.amplitudeVariance,
+                          bestBreath, bestReg,
+                          audio.breathingRateBPM, motion.breathingRateBPM, motion.breathingRegularity,
+                          motion.movementIntensity, motion.isOnMattress ? 1 : 0,
+                          sonar.breathingRateBPM, sonar.breathingRegularity, sonar.movementIntensity,
+                          sonarLevel, sonar.signalPresent ? 1 : 0, Int(sonar.heartRateBPM),
+                          bcgHR, watchHR, phase.rawValue)
+        if let h = try? FileHandle(forWritingTo: url) {
+            h.seekToEndOfFile()
+            if let d = line.data(using: .utf8) { h.write(d) }
+            try? h.close()
+        }
+    }
+}
+
 // MARK: - SonarService & SonarFeatures (bewusst in dieser in-Target-Datei — neue Swift-Dateien
 // müssten sonst manuell zum Xcode-Build-Target hinzugefügt werden)
 
@@ -1427,6 +1588,11 @@ final class SonarService {
 
     // Stabilitäts-Historie des Sonar-Pulses (Gate für die Fusion).
     private var recentSonarHR: [Float] = []
+
+    // Nacht-Statistik: Anteil der Fenster mit Atem-Lock (Geräteprofil-Grundlage).
+    private(set) var emitCount = 0
+    private(set) var lockCount = 0
+    var nightLockRate: Double { emitCount > 0 ? Double(lockCount) / Double(emitCount) : 0 }
 
     // Halten des letzten guten Atemwerts über kurze Lücken (bei Ruhe).
     private var lastGoodBpm: Float = 0
@@ -1526,6 +1692,8 @@ final class SonarService {
 
     private func reset() {
         carrierPhase = 0
+        emitCount = 0
+        lockCount = 0
         recentSonarHR.removeAll()
         lastGoodBpm = 0; lastGoodReg = 0; lastGoodAt = .distantPast
         log.removeAll()
@@ -1667,6 +1835,8 @@ final class SonarService {
             reg = lastGoodReg * 0.6
         }
 
+        emitCount += 1
+        if present && bpm > 0 { lockCount += 1 }
         let feat = SonarFeatures(
             breathingRateBPM: present ? bpm : 0,
             breathingRegularity: present ? reg : 0,
