@@ -3,109 +3,25 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 56;
+	objectVersion = 77;
 	objects = {
 
 /* Begin PBXBuildFile section */
-		AA000001 /* SleepBuddyApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100001 /* SleepBuddyApp.swift */; };
-		AA000002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100002 /* ContentView.swift */; };
-		AA000003 /* SleepSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100003 /* SleepSession.swift */; };
-		AA000004 /* SleepPhase.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100004 /* SleepPhase.swift */; };
-		AA000005 /* SleepPhaseType.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100005 /* SleepPhaseType.swift */; };
-		AA000006 /* AudioAnalysisService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100006 /* AudioAnalysisService.swift */; };
-		AA000007 /* SleepPhaseClassifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100007 /* SleepPhaseClassifier.swift */; };
-		AA000008 /* HealthKitService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100008 /* HealthKitService.swift */; };
-		AA000009 /* HomeViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100009 /* HomeViewModel.swift */; };
-		AA000010 /* SleepTrackingViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100010 /* SleepTrackingViewModel.swift */; };
-		AA000011 /* HomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100011 /* HomeView.swift */; };
-		AA000012 /* SleepTrackingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100012 /* SleepTrackingView.swift */; };
-		AA000013 /* SleepHistoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100013 /* SleepHistoryView.swift */; };
-		AA000014 /* SleepDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100014 /* SleepDetailView.swift */; };
-		AA000015 /* SleepPhaseBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100015 /* SleepPhaseBarView.swift */; };
-		AA000016 /* TimeInterval+Formatted.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100016 /* TimeInterval+Formatted.swift */; };
-		AA000017 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = AA100017 /* Assets.xcassets */; };
 		AA000018 /* HealthKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = AA100018 /* HealthKit.framework */; };
 		AA000019 /* AVFoundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = AA100019 /* AVFoundation.framework */; };
-		AA000020 /* TrainingSample.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100022 /* TrainingSample.swift */; };
-		AA000021 /* MotionAnalysisService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100023 /* MotionAnalysisService.swift */; };
-		AA000022 /* SmartAlarmService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100024 /* SmartAlarmService.swift */; };
-		AA000023 /* SleepOnsetDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100025 /* SleepOnsetDetector.swift */; };
-		AA000024 /* OnlineSleepClassifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100026 /* OnlineSleepClassifier.swift */; };
-		AA000025 /* MLSleepClassifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100027 /* MLSleepClassifier.swift */; };
-		AA000026 /* SleepInsightService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100028 /* SleepInsightService.swift */; };
 		AA000027 /* CoreMotion.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = AA100029 /* CoreMotion.framework */; };
 		AA000028 /* CoreML.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = AA100030 /* CoreML.framework */; };
 		AA000049 /* CreateML.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = AA100049 /* CreateML.framework */; };
 		AA000029 /* UserNotifications.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = AA100031 /* UserNotifications.framework */; };
-		AA000030 /* ProfilView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100032 /* ProfilView.swift */; };
-		AA000031 /* EinstellungenView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100033 /* EinstellungenView.swift */; };
-		AA000032 /* NotificationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100034 /* NotificationManager.swift */; };
-		AA000033 /* SharedProfil.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100035 /* SharedProfil.swift */; };
-		AA000034 /* SleepNightSummary.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100036 /* SleepNightSummary.swift */; };
-		AA000035 /* SleepSoundEvent.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100037 /* SleepSoundEvent.swift */; };
-		AA000036 /* SoundEventService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100038 /* SoundEventService.swift */; };
-		AA000039 /* SampleDataService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100039 /* SampleDataService.swift */; };
-		AA000040 /* SoundClassificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100040 /* SoundClassificationService.swift */; };
-		AA000041 /* MorgenBerichtView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100041 /* MorgenBerichtView.swift */; };
-		AA000042 /* SchlafindexView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100042 /* SchlafindexView.swift */; };
-		AA000043 /* MorgenBewertungCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100043 /* MorgenBewertungCard.swift */; };
-		AA000044 /* ICloudSettingsSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100044 /* ICloudSettingsSync.swift */; };
-		AA000045 /* StatistikView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100045 /* StatistikView.swift */; };
-		AA000046 /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100046 /* OnboardingView.swift */; };
-		AA000047 /* SchlafapnoeRisikoView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100047 /* SchlafapnoeRisikoView.swift */; };
-		AA000048 /* SleepModelTrainingService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100048 /* SleepModelTrainingService.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		AA100001 /* SleepBuddyApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepBuddyApp.swift; sourceTree = "<group>"; };
-		AA100002 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
-		AA100003 /* SleepSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepSession.swift; sourceTree = "<group>"; };
-		AA100004 /* SleepPhase.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepPhase.swift; sourceTree = "<group>"; };
-		AA100005 /* SleepPhaseType.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepPhaseType.swift; sourceTree = "<group>"; };
-		AA100006 /* AudioAnalysisService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioAnalysisService.swift; sourceTree = "<group>"; };
-		AA100007 /* SleepPhaseClassifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepPhaseClassifier.swift; sourceTree = "<group>"; };
-		AA100008 /* HealthKitService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthKitService.swift; sourceTree = "<group>"; };
-		AA100009 /* HomeViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeViewModel.swift; sourceTree = "<group>"; };
-		AA100010 /* SleepTrackingViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepTrackingViewModel.swift; sourceTree = "<group>"; };
-		AA100011 /* HomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeView.swift; sourceTree = "<group>"; };
-		AA100012 /* SleepTrackingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepTrackingView.swift; sourceTree = "<group>"; };
-		AA100013 /* SleepHistoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepHistoryView.swift; sourceTree = "<group>"; };
-		AA100014 /* SleepDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepDetailView.swift; sourceTree = "<group>"; };
-		AA100015 /* SleepPhaseBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepPhaseBarView.swift; sourceTree = "<group>"; };
-		AA100016 /* TimeInterval+Formatted.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TimeInterval+Formatted.swift"; sourceTree = "<group>"; };
-		AA100017 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		AA100018 /* HealthKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = HealthKit.framework; path = System/Library/Frameworks/HealthKit.framework; sourceTree = SDKROOT; };
 		AA100019 /* AVFoundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AVFoundation.framework; path = System/Library/Frameworks/AVFoundation.framework; sourceTree = SDKROOT; };
-		AA100020 /* SleepBuddy.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = SleepBuddy.entitlements; sourceTree = "<group>"; };
-		AA100021 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
-		AA100022 /* TrainingSample.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrainingSample.swift; sourceTree = "<group>"; };
-		AA100023 /* MotionAnalysisService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MotionAnalysisService.swift; sourceTree = "<group>"; };
-		AA100024 /* SmartAlarmService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SmartAlarmService.swift; sourceTree = "<group>"; };
-		AA100025 /* SleepOnsetDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepOnsetDetector.swift; sourceTree = "<group>"; };
-		AA100026 /* OnlineSleepClassifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnlineSleepClassifier.swift; sourceTree = "<group>"; };
-		AA100027 /* MLSleepClassifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MLSleepClassifier.swift; sourceTree = "<group>"; };
-		AA100028 /* SleepInsightService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepInsightService.swift; sourceTree = "<group>"; };
 		AA100029 /* CoreMotion.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreMotion.framework; path = System/Library/Frameworks/CoreMotion.framework; sourceTree = SDKROOT; };
 		AA100030 /* CoreML.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreML.framework; path = System/Library/Frameworks/CoreML.framework; sourceTree = SDKROOT; };
 		AA100049 /* CreateML.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CreateML.framework; path = System/Library/Frameworks/CreateML.framework; sourceTree = SDKROOT; };
 		AA100031 /* UserNotifications.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UserNotifications.framework; path = System/Library/Frameworks/UserNotifications.framework; sourceTree = SDKROOT; };
-		AA100032 /* ProfilView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfilView.swift; sourceTree = "<group>"; };
-		AA100033 /* EinstellungenView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EinstellungenView.swift; sourceTree = "<group>"; };
-		AA100034 /* NotificationManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationManager.swift; sourceTree = "<group>"; };
-		AA100035 /* SharedProfil.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedProfil.swift; sourceTree = "<group>"; };
-		AA100036 /* SleepNightSummary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepNightSummary.swift; sourceTree = "<group>"; };
-		AA100037 /* SleepSoundEvent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepSoundEvent.swift; sourceTree = "<group>"; };
-		AA100038 /* SoundEventService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoundEventService.swift; sourceTree = "<group>"; };
-		AA100039 /* SampleDataService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SampleDataService.swift; sourceTree = "<group>"; };
-		AA100044 /* ICloudSettingsSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ICloudSettingsSync.swift; sourceTree = "<group>"; };
-		AA100040 /* SoundClassificationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoundClassificationService.swift; sourceTree = "<group>"; };
-		AA100041 /* MorgenBerichtView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MorgenBerichtView.swift; sourceTree = "<group>"; };
-		AA100042 /* SchlafindexView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SchlafindexView.swift; sourceTree = "<group>"; };
-		AA100043 /* MorgenBewertungCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MorgenBewertungCard.swift; sourceTree = "<group>"; };
-		AA100045 /* StatistikView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatistikView.swift; sourceTree = "<group>"; };
-		AA100046 /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
-		AA100047 /* SchlafapnoeRisikoView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SchlafapnoeRisikoView.swift; sourceTree = "<group>"; };
-		AA100048 /* SleepModelTrainingService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepModelTrainingService.swift; sourceTree = "<group>"; };
 		AA200001 /* SleepBuddy.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SleepBuddy.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -125,97 +41,32 @@
 		};
 /* End PBXFrameworksBuildPhase section */
 
-/* Begin PBXGroup section */
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		AA900001 /* Exceptions for "SleepBuddy" folder in "SleepBuddy" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = AA500001 /* SleepBuddy */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
 		AA400001 /* SleepBuddy */ = {
-			isa = PBXGroup;
-			children = (
-				AA100001 /* SleepBuddyApp.swift */,
-				AA100002 /* ContentView.swift */,
-				AA100020 /* SleepBuddy.entitlements */,
-				AA100021 /* Info.plist */,
-				AA100017 /* Assets.xcassets */,
-				AA400002 /* Models */,
-				AA400003 /* Views */,
-				AA400004 /* ViewModels */,
-				AA400005 /* Services */,
-				AA400006 /* Extensions */,
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				AA900001 /* Exceptions for "SleepBuddy" folder in "SleepBuddy" target */,
+			);
+			explicitFileTypes = {
+			};
+			explicitFolders = (
 			);
 			path = SleepBuddy;
 			sourceTree = "<group>";
 		};
-		AA400002 /* Models */ = {
-			isa = PBXGroup;
-			children = (
-				AA100003 /* SleepSession.swift */,
-				AA100004 /* SleepPhase.swift */,
-				AA100005 /* SleepPhaseType.swift */,
-				AA100022 /* TrainingSample.swift */,
-				AA100036 /* SleepNightSummary.swift */,
-				AA100037 /* SleepSoundEvent.swift */,
-			);
-			path = Models;
-			sourceTree = "<group>";
-		};
-		AA400003 /* Views */ = {
-			isa = PBXGroup;
-			children = (
-				AA100011 /* HomeView.swift */,
-				AA100012 /* SleepTrackingView.swift */,
-				AA100013 /* SleepHistoryView.swift */,
-				AA100014 /* SleepDetailView.swift */,
-				AA100015 /* SleepPhaseBarView.swift */,
-				AA100032 /* ProfilView.swift */,
-				AA100033 /* EinstellungenView.swift */,
-				AA100041 /* MorgenBerichtView.swift */,
-				AA100042 /* SchlafindexView.swift */,
-				AA100043 /* MorgenBewertungCard.swift */,
-				AA100045 /* StatistikView.swift */,
-				AA100046 /* OnboardingView.swift */,
-				AA100047 /* SchlafapnoeRisikoView.swift */,
-			);
-			path = Views;
-			sourceTree = "<group>";
-		};
-		AA400004 /* ViewModels */ = {
-			isa = PBXGroup;
-			children = (
-				AA100009 /* HomeViewModel.swift */,
-				AA100010 /* SleepTrackingViewModel.swift */,
-			);
-			path = ViewModels;
-			sourceTree = "<group>";
-		};
-		AA400005 /* Services */ = {
-			isa = PBXGroup;
-			children = (
-				AA100006 /* AudioAnalysisService.swift */,
-				AA100034 /* NotificationManager.swift */,
-				AA100035 /* SharedProfil.swift */,
-				AA100007 /* SleepPhaseClassifier.swift */,
-				AA100008 /* HealthKitService.swift */,
-				AA100023 /* MotionAnalysisService.swift */,
-				AA100024 /* SmartAlarmService.swift */,
-				AA100025 /* SleepOnsetDetector.swift */,
-				AA100026 /* OnlineSleepClassifier.swift */,
-				AA100027 /* MLSleepClassifier.swift */,
-				AA100048 /* SleepModelTrainingService.swift */,
-				AA100028 /* SleepInsightService.swift */,
-				AA100038 /* SoundEventService.swift */,
-				AA100039 /* SampleDataService.swift */,
-				AA100044 /* ICloudSettingsSync.swift */,
-				AA100040 /* SoundClassificationService.swift */,
-			);
-			path = Services;
-			sourceTree = "<group>";
-		};
-		AA400006 /* Extensions */ = {
-			isa = PBXGroup;
-			children = (
-				AA100016 /* TimeInterval+Formatted.swift */,
-			);
-			path = Extensions;
-			sourceTree = "<group>";
-		};
+/* End PBXFileSystemSynchronizedRootGroup section */
+
+/* Begin PBXGroup section */
 		AA400007 /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
@@ -261,6 +112,9 @@
 			);
 			dependencies = (
 			);
+			fileSystemSynchronizedGroups = (
+				AA400001 /* SleepBuddy */,
+			);
 			name = SleepBuddy;
 			productName = SleepBuddy;
 			productReference = AA200001 /* SleepBuddy.app */;
@@ -275,6 +129,7 @@
 				BuildIndependentTargetsInParallel = 1;
 				LastSwiftUpdateCheck = 2650;
 				LastUpgradeCheck = 2650;
+				preferredProjectObjectVersion = 77;
 				TargetAttributes = {
 					AA500001 = {
 						CreatedOnToolsVersion = 15.0;
@@ -282,7 +137,6 @@
 				};
 			};
 			buildConfigurationList = AA600001 /* Build configuration list for PBXProject "SleepBuddy" */;
-			compatibilityVersion = "Xcode 14.0";
 			developmentRegion = de;
 			hasScannedForEncodings = 0;
 			knownRegions = (
@@ -305,7 +159,6 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				AA000017 /* Assets.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -316,46 +169,6 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				AA000001 /* SleepBuddyApp.swift in Sources */,
-				AA000002 /* ContentView.swift in Sources */,
-				AA000003 /* SleepSession.swift in Sources */,
-				AA000004 /* SleepPhase.swift in Sources */,
-				AA000005 /* SleepPhaseType.swift in Sources */,
-				AA000006 /* AudioAnalysisService.swift in Sources */,
-				AA000007 /* SleepPhaseClassifier.swift in Sources */,
-				AA000008 /* HealthKitService.swift in Sources */,
-				AA000009 /* HomeViewModel.swift in Sources */,
-				AA000010 /* SleepTrackingViewModel.swift in Sources */,
-				AA000011 /* HomeView.swift in Sources */,
-				AA000012 /* SleepTrackingView.swift in Sources */,
-				AA000013 /* SleepHistoryView.swift in Sources */,
-				AA000014 /* SleepDetailView.swift in Sources */,
-				AA000015 /* SleepPhaseBarView.swift in Sources */,
-				AA000030 /* ProfilView.swift in Sources */,
-				AA000031 /* EinstellungenView.swift in Sources */,
-				AA000032 /* NotificationManager.swift in Sources */,
-				AA000033 /* SharedProfil.swift in Sources */,
-				AA000016 /* TimeInterval+Formatted.swift in Sources */,
-				AA000020 /* TrainingSample.swift in Sources */,
-				AA000021 /* MotionAnalysisService.swift in Sources */,
-				AA000022 /* SmartAlarmService.swift in Sources */,
-				AA000023 /* SleepOnsetDetector.swift in Sources */,
-				AA000024 /* OnlineSleepClassifier.swift in Sources */,
-				AA000025 /* MLSleepClassifier.swift in Sources */,
-				AA000026 /* SleepInsightService.swift in Sources */,
-				AA000034 /* SleepNightSummary.swift in Sources */,
-				AA000035 /* SleepSoundEvent.swift in Sources */,
-				AA000036 /* SoundEventService.swift in Sources */,
-				AA000039 /* SampleDataService.swift in Sources */,
-				AA000040 /* SoundClassificationService.swift in Sources */,
-				AA000041 /* MorgenBerichtView.swift in Sources */,
-				AA000042 /* SchlafindexView.swift in Sources */,
-				AA000043 /* MorgenBewertungCard.swift in Sources */,
-				AA000044 /* ICloudSettingsSync.swift in Sources */,
-				AA000045 /* StatistikView.swift in Sources */,
-				AA000046 /* OnboardingView.swift in Sources */,
-				AA000047 /* SchlafapnoeRisikoView.swift in Sources */,
-				AA000048 /* SleepModelTrainingService.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
