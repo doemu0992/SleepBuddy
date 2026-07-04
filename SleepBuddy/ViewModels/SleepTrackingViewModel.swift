@@ -358,7 +358,11 @@ final class SleepTrackingViewModel {
         var motion = motionIn
         if sonarEnabled, latestSonar.signalPresent {
             let s = latestSonar
-            let hasBreath = s.breathingRateBPM > 0
+            // Qualitäts-Gate (nachtbelegt): verrauschte Sonar-Atmung (Regularität < 0.3,
+            // z.B. bei übersteuertem Ton) fütterte den Klassifikator mit Pseudo-REM-
+            // Signalen (unregelmäßig + schnell) → Tiefschlaf wurde nachtweit zu Leicht
+            // degradiert. Lieber Accelerometer-Fallback als schlechte Sonar-Daten.
+            let hasBreath = s.breathingRateBPM > 0 && s.breathingRegularity >= 0.3
             motion = MotionFeatures(
                 movementIntensity: max(motionIn.movementIntensity, s.movementIntensity),
                 breathingRateBPM: hasBreath ? s.breathingRateBPM : motionIn.breathingRateBPM,
@@ -558,6 +562,11 @@ final class SleepTrackingViewModel {
         let coreLo = min(75, totalMin / 3), coreHi = max(coreLo + 1, totalMin - 45)
         let core = (coreLo..<coreHi).compactMap { cnt[$0] > 0 ? br($0) : nil }
         guard core.count >= 45 else { return }   // genug Abdeckung im Kern nötig
+        // Qualitäts-Gate (nachtbelegt): bei dünner Abdeckung (< 50 % der Kern-Minuten
+        // gemessen) ist die Reihe rausch-selektiert und der Median verzerrt — eine
+        // Nacht mit nur 27 % Atem-Lock erzeugte daraus 70 min falsches Abend-Wach.
+        // Dann lieber GAR NICHT eingreifen.
+        guard Double(core.count) >= 0.5 * Double(coreHi - coreLo) else { return }
         let med = core.sorted()[core.count / 2]
         guard med > 8 && med < 22 else { return }
         let thresh = med + 3

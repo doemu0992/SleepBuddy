@@ -34,9 +34,14 @@ final class AudioAnalysisService {
     private var sonarActive = false
     private let sonarTonePlayer = AVAudioPlayerNode()
     private let sonarCarrier: Double = 19_000
-    // 0.50 (war 0.35): auf einem Zweitgerät kam der Träger 10–20× schwächer an
-    // (Pegel ~0.0002 vs. 0.0014–0.0040) — die Atem-Modulation versank im Rauschen.
-    private let sonarToneAmp: Float = 0.50
+    // ZURÜCK auf 0.35 (bindend, nachtbelegt): Der globale Boost auf 0.50 hat die gute
+    // Referenz-Nacht ruiniert — der lautere Ton drückt die Mikrofon-Empfindlichkeit
+    // noch stärker (Boden 15 dB), Atem-Lock kollabierte 96 % → 27 %, ML wieder taub,
+    // Tiefschlaf zerstört. 0.35 ist der validierte Wert; schwache Geräte bekommen
+    // stattdessen die ADAPTIVE Stufen-Anhebung (sonarRampTimer) nur bei schwachem Pegel.
+    private let sonarToneAmp: Float = 0.35
+    @ObservationIgnored private var sonarAmpCurrent: Float = 0.35
+    @ObservationIgnored private var sonarRampTimer: Timer?
     @ObservationIgnored private var sonarToneFormat: AVAudioFormat?
     // Notch-Biquad-Koeffizienten (bei start berechnet) + Zustand (Direct Form 1).
     // Je eine Zeile: @Observable verträgt keine Mehrfach-Deklaration pro Zeile.
@@ -143,13 +148,27 @@ final class AudioAnalysisService {
             // siehe ensureSonarVolume).
             sonarTonePlayer.volume = 1.0
             engine.mainMixerNode.outputVolume = 1.0
-            sonarTonePlayer.scheduleBuffer(makeSonarTone(format: toneFormat), at: nil, options: .loops)
+            sonarAmpCurrent = sonarToneAmp
+            sonarTonePlayer.scheduleBuffer(makeSonarTone(format: toneFormat, amp: sonarAmpCurrent), at: nil, options: .loops)
             sonarTonePlayer.play()
             // Lautstärke-Floor (bindend, gerätebelegt): Der Sonar-Ton läuft über die
             // Medien-Wiedergabe. Steht die Medienlautstärke auf 0/leise (real beobachtet:
             // ganze Nacht Pegel 0.0000 auf einem Zweitgerät), ist der Ton stumm und das
-            // Sonar blind. Nur ANHEBEN auf mindestens 0.6 — nie absenken.
+            // Sonar blind. Nur ANHEBEN — nie absenken.
             ensureSonarVolume()
+            // Adaptive Stufen-Anhebung NUR bei schwachem Empfang (Zweitgerät-Fall,
+            // Pegel ~0.0002): alle 90 s prüfen; liegt der Reflexions-Pegel unter
+            // 0.0006, Ton um +0.15 anheben (max 0.8). Geräte mit gutem Empfang
+            // bleiben dauerhaft beim validierten 0.35.
+            sonarRampTimer = Timer.scheduledTimer(withTimeInterval: 90, repeats: true) { [weak self] _ in
+                guard let self, self.sonarActive, let sonar = self.sonar else { return }
+                guard sonar.signalLevel > 0, sonar.signalLevel < 0.0006, self.sonarAmpCurrent < 0.8,
+                      let fmt = self.sonarToneFormat else { return }
+                self.sonarAmpCurrent += 0.15
+                self.sonarTonePlayer.stop()
+                self.sonarTonePlayer.scheduleBuffer(self.makeSonarTone(format: fmt, amp: self.sonarAmpCurrent), at: nil, options: .loops)
+                self.sonarTonePlayer.play()
+            }
         }
         isRunning = true
     }
@@ -157,6 +176,8 @@ final class AudioAnalysisService {
     func stop() {
         guard isRunning else { return }
         if sonarActive {
+            sonarRampTimer?.invalidate()
+            sonarRampTimer = nil
             sonarTonePlayer.stop()
             sonarActive = false
         }
@@ -254,7 +275,7 @@ final class AudioAnalysisService {
     }
 
     /// 1-Sekunden-Sonar-Trägerbuffer (klickfrei loopbar).
-    private func makeSonarTone(format: AVAudioFormat) -> AVAudioPCMBuffer {
+    private func makeSonarTone(format: AVAudioFormat, amp: Float) -> AVAudioPCMBuffer {
         let fs = format.sampleRate
         let frames = AVAudioFrameCount(fs)
         let buf = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frames)!
@@ -262,7 +283,7 @@ final class AudioAnalysisService {
         for c in 0..<Int(format.channelCount) {
             guard let p = buf.floatChannelData?[c] else { continue }
             for i in 0..<Int(frames) {
-                p[i] = sonarToneAmp * Float(sin(2.0 * .pi * sonarCarrier * Double(i) / fs))
+                p[i] = amp * Float(sin(2.0 * .pi * sonarCarrier * Double(i) / fs))
             }
         }
         return buf
