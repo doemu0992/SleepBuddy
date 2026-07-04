@@ -215,6 +215,7 @@ final class SoundClassificationService: NSObject {
     func start(format: AVAudioFormat) {
         guard #available(iOS 15, *) else { return }
         do {
+            try? "# SLEEPBUDDY ML-LOG — Start \(Date())\n".write(to: Self.mlLogURL, atomically: true, encoding: .utf8)
             analyzer = SNAudioStreamAnalyzer(format: format)
             let request = try SNClassifySoundRequest(classifierIdentifier: .version1)
             request.windowDuration = CMTimeMakeWithSeconds(1.5, preferredTimescale: 44100)
@@ -262,6 +263,30 @@ final class SoundClassificationService: NSObject {
     // Ruheboden-Schätzung (Decay-Min) + daraus abgeleiteter ML-Verstärkungsfaktor.
     private var floorRMS: Float = 0.001
     private var adaptiveGain: Float = 8.0
+
+    // ML-Klassen-Log: Top-3 Apple-Klassen alle ~30 s (Debug: sieht das Modell z.B.
+    // "snoring" knapp unter der Schwelle oder gar nichts?). Datei wird bei start()
+    // neu begonnen, Teil des Debug-Pakets.
+    static var mlLogURL: URL {
+        (FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
+            ?? URL(fileURLWithPath: NSTemporaryDirectory())).appendingPathComponent("MLLog.csv")
+    }
+    private var lastMLLogDate = Date.distantPast
+
+    private func logTopClasses(_ result: SNClassificationResult) {
+        guard Date().timeIntervalSince(lastMLLogDate) >= 30 else { return }
+        lastMLLogDate = Date()
+        let top = result.classifications.prefix(3)
+            .map { String(format: "%@:%.2f", $0.identifier, $0.confidence) }
+            .joined(separator: " ")
+        let f = DateFormatter(); f.dateFormat = "HH:mm:ss"
+        let line = "\(f.string(from: Date())),gain=\(String(format: "%.0f", adaptiveGain)),\(top)\n"
+        if let h = try? FileHandle(forWritingTo: Self.mlLogURL) {
+            h.seekToEndOfFile()
+            if let d = line.data(using: .utf8) { h.write(d) }
+            try? h.close()
+        }
+    }
 
     /// Returns a gain-scaled copy, **soft-clipped** via tanh to [-1, 1].
     /// Hard clipping (vDSP_vclip) erzeugte bei lauten Transienten (z. B. Hundegebell) harsche
@@ -324,6 +349,7 @@ final class SoundClassificationService: NSObject {
 extension SoundClassificationService: SNResultsObserving {
     func request(_ request: SNRequest, didProduce result: SNResult) {
         guard let classifications = result as? SNClassificationResult else { return }
+        logTopClasses(classifications)
         let mappings = SoundClassificationService.mappings
 
         // Pick the highest-confidence match — threshold nudged by user feedback stored in UserDefaults.

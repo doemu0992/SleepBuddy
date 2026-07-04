@@ -153,6 +153,7 @@ final class AudioAnalysisService {
             // dort beginnen statt jede Nacht neu zu suchen). 0 = noch nie gelernt.
             let learned = Float(UserDefaults.standard.double(forKey: "device.sonarGoodAmp"))
             sonarAmpCurrent = learned >= sonarToneAmp && learned <= 0.8 ? learned : sonarToneAmp
+            UserDefaults.standard.set(Double(sonarAmpCurrent), forKey: "debug.sonarAmpCurrent")
             sonarTonePlayer.scheduleBuffer(makeSonarTone(format: toneFormat, amp: sonarAmpCurrent), at: nil, options: .loops)
             sonarTonePlayer.play()
             // Lautstärke-Floor (bindend, gerätebelegt): Der Sonar-Ton läuft über die
@@ -169,6 +170,8 @@ final class AudioAnalysisService {
                 guard sonar.signalLevel > 0, sonar.signalLevel < 0.0006, self.sonarAmpCurrent < 0.8,
                       let fmt = self.sonarToneFormat else { return }
                 self.sonarAmpCurrent += 0.15
+                UserDefaults.standard.set(Double(self.sonarAmpCurrent), forKey: "debug.sonarAmpCurrent")
+                PassAudit.note(String(format: "Sonar-Rampe: Pegel %.4f zu schwach → Ton auf %.2f", sonar.signalLevel, self.sonarAmpCurrent))
                 self.sonarTonePlayer.stop()
                 self.sonarTonePlayer.scheduleBuffer(self.makeSonarTone(format: fmt, amp: self.sonarAmpCurrent), at: nil, options: .loops)
                 self.sonarTonePlayer.play()

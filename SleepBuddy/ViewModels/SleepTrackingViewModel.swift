@@ -140,6 +140,8 @@ final class SleepTrackingViewModel {
 
         // Feature-Nachtlog: kompletter Sensor-Strom pro Minute (Replay-Grundlage).
         FeatureNightLog.shared.begin()
+        PassAudit.reset()
+        PassAudit.note("Tracking gestartet (sonar=\(sonarEnabled))")
 
         motionService.onFeaturesUpdated = { [weak self] motion in
             self?.latestMotionFeatures = motion
@@ -450,6 +452,8 @@ final class SleepTrackingViewModel {
             session.noiseSamples.append(db)
             noiseAccumulator.removeAll()
             lastNoiseSampleDate = Date()
+            // Tracking-Heartbeat: zeigt morgens, WANN iOS die App ggf. beendet hat.
+            UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: "tracking.heartbeat")
         }
 
         // BCG heart rate: store one sample per minute (0 = no data this minute).
@@ -705,7 +709,10 @@ final class SleepTrackingViewModel {
         // gemessen) ist die Reihe rausch-selektiert und der Median verzerrt — eine
         // Nacht mit nur 27 % Atem-Lock erzeugte daraus 70 min falsches Abend-Wach.
         // Dann lieber GAR NICHT eingreifen.
-        guard Double(core.count) >= 0.5 * Double(coreHi - coreLo) else { return }
+        guard Double(core.count) >= 0.5 * Double(coreHi - coreLo) else {
+            PassAudit.note("BreathingEdgeWake: übersprungen (Kern-Abdeckung \(core.count)/\(coreHi - coreLo) Minuten)")
+            return
+        }
         let med = core.sorted()[core.count / 2]
         guard med > 8 && med < 22 else { return }
         let thresh = med + 3
@@ -715,6 +722,7 @@ final class SleepTrackingViewModel {
         let evFast = (0..<evEnd).filter { cnt[$0] > 0 && br($0) >= thresh }
         if evFast.count >= 3, let lastFast = evFast.max() {
             markAwake(in: session, fromMinute: 0, toMinute: lastFast + 1)
+            PassAudit.note("BreathingEdgeWake: Abend-Wach 0–\(lastFast + 1) min (Median \(Int(med))/min)")
         }
         // Morgen: NUR ein zusammenhängender schneller Block, der bis zum Tracking-Ende
         // reicht (wer morgens wach ist, schläft nicht wieder ein). Die frühere Regel
@@ -735,6 +743,7 @@ final class SleepTrackingViewModel {
         }
         if fastCnt >= 5 && wakeStart < totalMin {
             markAwake(in: session, fromMinute: wakeStart, toMinute: totalMin)
+            PassAudit.note("BreathingEdgeWake: Morgen-Wach ab Minute \(wakeStart)")
         }
         try? context.save()
     }
@@ -750,6 +759,7 @@ final class SleepTrackingViewModel {
         let fromMin = max(0, Int(fired.timeIntervalSince(session.startDate) / 60))
         guard fromMin < totalMin else { return }
         markAwake(in: session, fromMinute: fromMin, toMinute: totalMin)
+        PassAudit.note("AlarmWake: Wach ab Wecker (Minute \(fromMin)–\(totalMin))")
     }
 
     /// Removes physiologically impossible FLATLINES from the stored heart-rate
@@ -785,6 +795,7 @@ final class SleepTrackingViewModel {
             if j - i >= 15 && distinct.count <= 3 {
                 for k in i..<j { hr[k] = 0 }
                 changed = true
+                PassAudit.note("HR-Flatline entfernt: Minute \(i)–\(j)")
             }
             i = max(j, i + 1)
         }

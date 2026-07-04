@@ -69,6 +69,8 @@ struct EntwickleroptionenView: View {
     @State private var zeigeFeatureLogs = false
     @State private var watchVergleichLaeuft = false
     @State private var watchVergleichErgebnis: String?
+    @State private var zeigeDebugPaket = false
+    @State private var debugPaketDateien: [URL] = []
 
     var body: some View {
         List {
@@ -147,6 +149,14 @@ struct EntwickleroptionenView: View {
                     }
                 }
                 .disabled(watchVergleichLaeuft)
+
+                Button { debugPaketErstellen() } label: {
+                    Label("Debug-Paket teilen (alles)", systemImage: "shippingbox.fill")
+                        .foregroundStyle(.indigo)
+                }
+                .sheet(isPresented: $zeigeDebugPaket) {
+                    ShareSheet(items: debugPaketDateien)
+                }
             } header: {
                 Text("Analyse-Labor")
             } footer: {
@@ -202,6 +212,56 @@ struct EntwickleroptionenView: View {
         } message: { Text(watchVergleichErgebnis ?? "") }
     }
 
+
+    /// Ein Button, alles drin: Einstellungen/Parameter, Korrektur-Protokoll, Phasen der
+    /// letzten Nacht (JSON), Feature-Log, Sonar-Log, ML-Log, Watch-Referenz.
+    private func debugPaketErstellen() {
+        let dir = FeatureNightLog.logDirectory
+        let ud = UserDefaults.standard
+        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
+        let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?"
+        let hb = ud.double(forKey: "tracking.heartbeat")
+        let hbText = hb > 0 ? "\(Date(timeIntervalSince1970: hb))" : "nie"
+
+        var info = """
+        SLEEPBUDDY DEBUG-PAKET — \(Date())
+        Version: \(version) (\(build))
+        Sonar: \(ud.bool(forKey: "sonar_enabled")) | Ton aktuell: \(ud.double(forKey: "debug.sonarAmpCurrent")) | Sweet-Spot: \(ud.double(forKey: "device.sonarGoodAmp"))
+        Partner: \(ud.bool(forKey: "partnerModus_aktiv")) Stufe \(ud.integer(forKey: "partnerModus_stufe")) | Sounds: \(ud.bool(forKey: "soundEvents_enabled")) | HMM: \(ud.bool(forKey: "hmm_enabled"))
+        Letzter Tracking-Heartbeat: \(hbText)
+
+        """
+        info += PassAudit.text
+
+        // Phasen der letzten Nacht als JSON
+        var desc = FetchDescriptor<SleepSession>(
+            predicate: #Predicate { $0.endDate != nil },
+            sortBy: [SortDescriptor(\.startDate, order: .reverse)]
+        )
+        desc.fetchLimit = 1
+        if let session = try? modelContext.fetch(desc).first {
+            var phasen = "[\n"
+            for ph in session.phasesArray.sorted(by: { $0.startDate < $1.startDate }) {
+                phasen += "  {\"phase\": \"\(ph.phaseType.rawValue)\", \"von\": \"\(ph.startDate)\", \"bis\": \"\(ph.endDate)\"},\n"
+            }
+            phasen += "]"
+            let phasenURL = dir.appendingPathComponent("Phasen.json")
+            try? phasen.write(to: phasenURL, atomically: true, encoding: .utf8)
+        }
+
+        let infoURL = dir.appendingPathComponent("DebugInfo.txt")
+        try? info.write(to: infoURL, atomically: true, encoding: .utf8)
+
+        var items: [URL] = [infoURL]
+        for name in ["Phasen.json", "SonarNightLog.csv", "MLLog.csv", "WatchRef.csv"] {
+            let u = dir.appendingPathComponent(name)
+            if FileManager.default.fileExists(atPath: u.path) { items.append(u) }
+        }
+        if let latestFeature = FeatureNightLog.allLogs().first { items.append(latestFeature) }
+        debugPaketDateien = items
+        zeigeDebugPaket = true
+    }
+
     /// Ground-Truth-Vergleich: unsere Phasen der letzten Nacht vs. Apples (Watch-)Staging.
     private func watchVergleichStarten() {
         watchVergleichLaeuft = true
@@ -247,6 +307,16 @@ struct EntwickleroptionenView: View {
                 watchVergleichErgebnis = "Keine überlappenden Minuten gefunden."
                 return
             }
+            // Ground-Truth-CSV für Replay/Tuning: Apples Phase pro Minute neben unserer.
+            var refCSV = "# WATCH-REFERENZ \(session.startDate)\nminute,watch,app\n"
+            var tt = session.startDate; var mi = 0
+            while tt < sEnd {
+                refCSV += "\(mi),\(watchPhase(tt)?.rawValue ?? "-"),\(ourPhase(tt)?.rawValue ?? "-")\n"
+                tt = tt.addingTimeInterval(60); mi += 1
+            }
+            let refURL = FeatureNightLog.logDirectory.appendingPathComponent("WatchRef.csv")
+            try? refCSV.write(to: refURL, atomically: true, encoding: .utf8)
+
             let topConf = confusion.sorted { $0.value > $1.value }.prefix(3)
                 .map { "\($0.key): \($0.value)m" }.joined(separator: ", ")
             watchVergleichErgebnis = """

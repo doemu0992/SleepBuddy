@@ -26,7 +26,15 @@ final class FeatureNightLog {
     func begin() {
         let f = DateFormatter(); f.dateFormat = "yyyyMMdd-HHmm"
         let file = FeatureNightLog.logDirectory.appendingPathComponent("FeatureLog-\(f.string(from: Date())).csv")
-        let header = "# SLEEPBUDDY FEATURELOG — Start \(Date())\n"
+        // Parameter-Header: macht jede CSV später eindeutig einem Build/Setup zuordenbar.
+        let ud = UserDefaults.standard
+        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
+        let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?"
+        let params = "# version=\(version)(\(build)) sonar=\(ud.bool(forKey: "sonar_enabled")) "
+            + "sonarGoodAmp=\(ud.double(forKey: "device.sonarGoodAmp")) "
+            + "partner=\(ud.bool(forKey: "partnerModus_aktiv"))/\(ud.integer(forKey: "partnerModus_stufe")) "
+            + "sounds=\(ud.bool(forKey: "soundEvents_enabled")) hmm=\(ud.bool(forKey: "hmm_enabled"))\n"
+        let header = "# SLEEPBUDDY FEATURELOG — Start \(Date())\n" + params
             + "zeit,amp,ampVar,atem_best,reg_best,atem_audio,atem_accel,reg_accel,bewegung,onMattress,"
             + "sonar_atem,sonar_reg,sonar_bew,sonar_pegel,sonar_signal,sonar_puls,bcg_hr,watch_hr,phase\n"
         try? header.write(to: file, atomically: true, encoding: .utf8)
@@ -65,3 +73,27 @@ final class FeatureNightLog {
     }
 }
 
+
+
+// MARK: - PassAudit (Korrektur-Protokoll)
+
+/// Protokolliert, was jeder Post-hoc-Korrektur-Pass an der Nacht verändert hat —
+/// eine Zeile pro Erkenntnis. Beantwortet sofort "welcher Pass hat das Bild geprägt?"
+/// statt es aus dem Ergebnis zurückzuraten. Persistiert in UserDefaults, Teil des
+/// Debug-Pakets.
+enum PassAudit {
+    private static let key = "passAudit.last"
+
+    static func reset() {
+        UserDefaults.standard.set("— Korrektur-Protokoll \(Date()) —", forKey: key)
+    }
+
+    static func note(_ line: String) {
+        let ud = UserDefaults.standard
+        let old = ud.string(forKey: key) ?? ""
+        let f = DateFormatter(); f.dateFormat = "HH:mm:ss"
+        ud.set(old + "\n[\(f.string(from: Date()))] " + line, forKey: key)
+    }
+
+    static var text: String { UserDefaults.standard.string(forKey: key) ?? "(leer)" }
+}
