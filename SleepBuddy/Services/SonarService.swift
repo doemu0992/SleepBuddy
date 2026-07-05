@@ -53,6 +53,10 @@ final class SonarService {
     // Demodulations-Zustand: laufende Trägerphase (mod 2π) über Buffergrenzen hinweg —
     // bounded, daher kein Präzisionsverlust über Stunden, aber phasenkontinuierlich.
     private var carrierPhase: Double = 0
+    // Demod-Blockmittelungs-Akku — MUSS über Buffergrenzen persistieren (siehe process()).
+    private var demodAccI: Float = 0
+    private var demodAccQ: Float = 0
+    private var demodCnt = 0
     private let processQueue = DispatchQueue(label: "sonar.dsp")
 
     // Basisband (dezimiert auf ~50 Hz): I/Q + abgeleitete Phase & Magnitude
@@ -170,6 +174,7 @@ final class SonarService {
 
     private func reset() {
         carrierPhase = 0
+        demodAccI = 0; demodAccQ = 0; demodCnt = 0
         emitCount = 0
         lockCount = 0
         recentSonarHR.removeAll()
@@ -212,20 +217,25 @@ final class SonarService {
         let w = 2.0 * .pi * carrier / fs
 
         // I/Q-Demodulation + Blockmittelung (grober Tiefpass) auf ~50 Hz.
-        var accI: Float = 0, accQ: Float = 0, cnt = 0
+        // KRITISCH: Der Mittelungs-Akku läuft ÜBER Buffergrenzen weiter (Instanz-State).
+        // Früher war er buffer-lokal und der unvollständige Restblock (1024 % 960 = 64
+        // Samples) wurde bei JEDEM Buffer verworfen — periodisch alle 15 Buffer (0,32 s)
+        // → künstliche Basisband-Schwingung bei 3,125 Hz mit Subharmonischer bei
+        // 1,5625 Hz ≙ 93,75 BPM. DARAUF lockte der Puls-Detektor (nachtbelegt auf zwei
+        // Geräten: 89 % der Locks bei konstant 93–96), unabhängig vom Filtertyp.
         var phase = carrierPhase
         let twoPi = 2.0 * Double.pi
         for k in 0..<n {
             let x = ch[k]
-            accI += x * Float(cos(phase))
-            accQ += x * Float(sin(phase))
+            demodAccI += x * Float(cos(phase))
+            demodAccQ += x * Float(sin(phase))
             phase += w
             if phase >= twoPi { phase -= twoPi }
-            cnt += 1
-            if cnt >= dec {
-                let inv = 1.0 / Float(cnt)
-                appendBaseband(i: accI * inv, q: accQ * inv)
-                accI = 0; accQ = 0; cnt = 0
+            demodCnt += 1
+            if demodCnt >= dec {
+                let inv = 1.0 / Float(demodCnt)
+                appendBaseband(i: demodAccI * inv, q: demodAccQ * inv)
+                demodAccI = 0; demodAccQ = 0; demodCnt = 0
             }
         }
         carrierPhase = phase
