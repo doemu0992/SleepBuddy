@@ -260,6 +260,25 @@ final class SleepTrackingViewModel {
             classifier.flushSessionBuffer(to: context)
         }
 
+        // Watch-HR nachladen (bindend): HealthKit ist bei gesperrtem Gerät nicht lesbar —
+        // live kam die Watch-HR nachts daher NIE an (FeatureLog: watch_hr 0 % trotz
+        // getragener Watch). Jetzt (Gerät entsperrt) die echte Serie holen und die
+        // Minuten-Reihe überschreiben, wo Watch-Messungen existieren: die Watch schlägt
+        // BCG/Sonar — alle nachgelagerten HR-Pässe rechnen dann mit Ground-Truth-Puls.
+        let watchSeries = await healthKit.readHeartRateSeries(from: session.startDate,
+                                                              to: session.endDate ?? Date())
+        if watchSeries.count >= 10 {
+            var filled = 0
+            for (d, bpm) in watchSeries where bpm >= 35 && bpm <= 140 {
+                let m = Int(d.timeIntervalSince(session.startDate) / 60)
+                if m >= 0 && m < session.heartRateSamples.count {
+                    session.heartRateSamples[m] = bpm
+                    filled += 1
+                }
+            }
+            PassAudit.note("Watch-HR nachgeladen: \(watchSeries.count) Messungen → \(filled) Minuten")
+        }
+
         // Post-hoc HR-based phase correction: re-type clear mislabels using the
         // cleaned full-night heart rate (only where real measured HR dominates).
         applyHeartRatePhaseCorrection(to: session)

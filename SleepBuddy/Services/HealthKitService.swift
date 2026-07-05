@@ -78,6 +78,27 @@ final class HealthKitService {
         }
     }
 
+    /// Komplette Herzfrequenz-Serie (z.B. Apple Watch) für ein Zeitfenster.
+    /// Wichtig: HealthKit ist bei GESPERRTEM Gerät nicht lesbar — diese Funktion ist
+    /// für das NACHLADEN beim Tracking-Stopp gedacht (Gerät entsperrt).
+    func readHeartRateSeries(from start: Date, to end: Date) async -> [(date: Date, bpm: Double)] {
+        guard HKHealthStore.isHealthDataAvailable() else { return [] }
+        return await withCheckedContinuation { continuation in
+            let pred = HKQuery.predicateForSamples(withStart: start, end: end)
+            let q = HKSampleQuery(
+                sampleType: hrType, predicate: pred, limit: HKObjectQueryNoLimit,
+                sortDescriptors: [NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: true)]
+            ) { _, samples, _ in
+                let unit = HKUnit.count().unitDivided(by: .minute())
+                let out = (samples as? [HKQuantitySample] ?? []).map {
+                    (date: $0.startDate, bpm: $0.quantity.doubleValue(for: unit))
+                }
+                continuation.resume(returning: out)
+            }
+            store.execute(q)
+        }
+    }
+
     // MARK: - Heart Rate for a time window
 
     func heartRateSummary(from start: Date, to end: Date) async -> (avgBPM: Double, sdnnMs: Double)? {
