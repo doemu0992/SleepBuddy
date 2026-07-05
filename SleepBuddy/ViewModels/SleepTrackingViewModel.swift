@@ -297,6 +297,12 @@ final class SleepTrackingViewModel {
         // Optional (Beta-Toggle): probabilistischer Gesamtnacht-Glätter als letzter Pass.
         if let ctx = modelContext { applyHMMSmoothing(to: session, context: ctx) }
 
+        // Onset NACH allen Pässen neu ableiten — die Pässe können die Abend-Wachphase
+        // verändert haben; eine veraltete Latenz verfälscht Anzeige UND Zyklus-Pässe.
+        session.sleepOnsetDate = session.phasesArray
+            .sorted { $0.startDate < $1.startDate }
+            .first(where: { $0.phaseType != .awake })?.startDate ?? session.sleepOnsetDate
+
         classifier.reset()
         try? modelContext?.save()
 
@@ -544,6 +550,9 @@ final class SleepTrackingViewModel {
             applyAlarmWake(to: session)
             applyPlausibilityCorrection(to: session)
             applyHMMSmoothing(to: session, context: context)
+            session.sleepOnsetDate = session.phasesArray
+                .sorted { $0.startDate < $1.startDate }
+                .first(where: { $0.phaseType != .awake })?.startDate ?? session.sleepOnsetDate
             count += 1
         }
         try? context.save()
@@ -715,14 +724,31 @@ final class SleepTrackingViewModel {
         }
         let med = core.sorted()[core.count / 2]
         guard med > 8 && med < 22 else { return }
-        let thresh = med + 3
+        // Schwelle relativ UND absolut über dem Median — bei niedrigem Median (11/min)
+        // lag med+3 sonst mitten im Rauschband der Minuten-Snapshots.
+        let thresh = max(med + 3, med * 1.35)
 
-        // Abend: letzte "schnelle" Minute in den ersten 75 min (mind. 3 solcher Minuten).
-        let evEnd = min(75, totalMin)
-        let evFast = (0..<evEnd).filter { cnt[$0] > 0 && br($0) >= thresh }
-        if evFast.count >= 3, let lastFast = evFast.max() {
-            markAwake(in: session, fromMinute: 0, toMinute: lastFast + 1)
-            PassAudit.note("BreathingEdgeWake: Abend-Wach 0–\(lastFast + 1) min (Median \(Int(med))/min)")
+        // Abend (Watch-kalibriert, bindend): 10-min-BLOCK-MEDIANE statt einzelner
+        // Minuten — Einzelspitzen (9,9,27,9…) sind Messrauschen, kein Wachliegen.
+        // Wach nur als ZUSAMMENHÄNGENDER Block ab Tracking-Start: der erste Block,
+        // dessen Median unter der Schwelle liegt, beendet das Abend-Wach. (Die alte
+        // "letzte schnelle Minute in 75 min"-Regel zog Wach bis Min 74, während die
+        // Watch ab Min 16 Schlaf und ab Min 47 TIEFSCHLAF zeigte — und verschob damit
+        // das gesamte Zyklusmodell um ~1 h.)
+        let evEnd = min(80, totalMin)
+        var wakeEnd = 0
+        var b = 0
+        while b + 10 <= evEnd {
+            let block = (b..<(b + 10)).compactMap { cnt[$0] > 0 ? br($0) : nil }
+            guard block.count >= 5 else { break }             // zu wenig Messung → stopp
+            let bMed = block.sorted()[block.count / 2]
+            if bMed >= thresh { wakeEnd = b + 10; b += 10 } else { break }
+        }
+        if wakeEnd > 0 {
+            markAwake(in: session, fromMinute: 0, toMinute: wakeEnd)
+            PassAudit.note("BreathingEdgeWake: Abend-Wach 0–\(wakeEnd) min (Block-Median, Nacht-Median \(Int(med))/min)")
+        } else {
+            PassAudit.note("BreathingEdgeWake: kein Abend-Wach (erster 10-min-Block unter Schwelle)")
         }
         // Morgen: NUR ein zusammenhängender schneller Block, der bis zum Tracking-Ende
         // reicht (wer morgens wach ist, schläft nicht wieder ein). Die frühere Regel
