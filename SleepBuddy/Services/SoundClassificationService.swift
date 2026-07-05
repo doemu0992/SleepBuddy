@@ -254,11 +254,21 @@ final class SoundClassificationService: NSObject {
             }
         }
         let boosted = Self.applyGain(buffer, gain: adaptiveGain) ?? buffer
-        let sampleTime = time.sampleTime
+        // EIGENER monotoner Positionszähler statt time.sampleTime (bindend, nachtbelegt):
+        // Beim Bildschirm-Sperren rekonfiguriert sich die Audio-Route und der Tap-Zähler
+        // kann zurückspringen. SNAudioStreamAnalyzer verlangt streng monotone Positionen
+        // und verwirft nach einem Rückwärtssprung STILL alle weiteren Buffer — das ML-Log
+        // bewies es: letzte Ergebnisse ~35 s nach Start (Sperren), danach die ganze Nacht
+        // nichts, auf beiden Geräten. Events gab es nur bei Bildschirm-an (Start/Wecker).
+        let pos = framePosition
+        framePosition += Int64(buffer.frameLength)
         analysisQueue.async {
-            analyzer.analyze(boosted, atAudioFramePosition: sampleTime)
+            analyzer.analyze(boosted, atAudioFramePosition: pos)
         }
     }
+
+    // Monoton wachsende Analyzer-Position (unabhängig von Route-/Engine-Neustarts).
+    private var framePosition: Int64 = 0
 
     // Ruheboden-Schätzung (Decay-Min) + daraus abgeleiteter ML-Verstärkungsfaktor.
     private var floorRMS: Float = 0.001
@@ -311,6 +321,7 @@ final class SoundClassificationService: NSObject {
     func stop() {
         analyzer = nil
         bufferCounter = 0
+        framePosition = 0
         floorRMS = 0.001
         adaptiveGain = 8.0
     }
@@ -417,7 +428,16 @@ extension SoundClassificationService: SNResultsObserving {
         }
     }
 
-    func request(_ request: SNRequest, didFailWithError error: Error) {}
+    func request(_ request: SNRequest, didFailWithError error: Error) {
+        // Fehler sichtbar machen — ein stilles Analyzer-Sterben kostete uns Nächte.
+        let f = DateFormatter(); f.dateFormat = "HH:mm:ss"
+        let line = "\(f.string(from: Date())),FEHLER,\(error.localizedDescription)\n"
+        if let h = try? FileHandle(forWritingTo: Self.mlLogURL) {
+            h.seekToEndOfFile()
+            if let d = line.data(using: .utf8) { h.write(d) }
+            try? h.close()
+        }
+    }
 
     /// Adjusts the base confidence threshold using cumulative user feedback stored in UserDefaults.
     /// False positives (rejections) raise the threshold; missed detections lower it.
