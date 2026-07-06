@@ -247,13 +247,57 @@ struct EntwickleroptionenView: View {
             phasen += "]"
             let phasenURL = dir.appendingPathComponent("Phasen.json")
             try? phasen.write(to: phasenURL, atomically: true, encoding: .utf8)
+
+            // TrainingSamples.csv — die maßgebliche Eingabe ALLER Korrektur-Pässe
+            // (Bewegung/Atem/Regularität pro 30 s). Ohne sie rechnet das Offline-
+            // Replay mit anderen Daten als das Gerät (real passiert: 50 % → 42 %).
+            let sStart = session.startDate
+            let sEnd = session.endDate ?? Date()
+            let tsDesc = FetchDescriptor<TrainingSample>(
+                predicate: #Predicate { $0.timestamp >= sStart && $0.timestamp <= sEnd },
+                sortBy: [SortDescriptor(\.timestamp)]
+            )
+            if let samples = try? modelContext.fetch(tsDesc), !samples.isEmpty {
+                let df = DateFormatter(); df.dateFormat = "yyyy-MM-dd HH:mm:ss"
+                var csv = "timestamp,amp,ampVar,atem_bpm,atem_reg,bewegung,schnarchen,label,korrigiert\n"
+                for s in samples {
+                    csv += "\(df.string(from: s.timestamp)),\(s.averageAmplitude),\(s.amplitudeVariance),\(s.breathingRateBPM),\(s.breathingRegularity),\(s.movementIntensity),\(s.snoringIntensity),\(s.label),\(s.isUserCorrected)\n"
+                }
+                try? csv.write(to: dir.appendingPathComponent("TrainingSamples.csv"), atomically: true, encoding: .utf8)
+            }
+
+            // SessionState.json — alles, was die Pässe außerhalb der Samples lesen:
+            // Session-Zeiten, Onset, Wecker, gespeicherte Puls-Reihe (inkl. Watch-
+            // Backfill) und die über Nächte gelernten persönlichen Baselines.
+            let df2 = DateFormatter(); df2.dateFormat = "yyyy-MM-dd HH:mm:ss"
+            let hrList = session.heartRateSamples.map { String(format: "%.1f", $0) }.joined(separator: ",")
+            let noiseList = session.noiseSamples.map { String(format: "%.1f", $0) }.joined(separator: ",")
+            func d(_ date: Date?) -> String { date.map { "\"\(df2.string(from: $0))\"" } ?? "null" }
+            let state = """
+            {
+              "startDate": \(d(session.startDate)),
+              "endDate": \(d(session.endDate)),
+              "sleepOnsetDate": \(d(session.sleepOnsetDate)),
+              "alarmFiredDate": \(d(session.alarmFiredDate)),
+              "heartRateSamples": [\(hrList)],
+              "noiseSamples": [\(noiseList)],
+              "cal_hrMedian": \(ud.double(forKey: "cal_hrMedian")),
+              "cal_hrDeepFloor": \(ud.double(forKey: "cal_hrDeepFloor")),
+              "cal_brSlowRate": \(ud.double(forKey: "cal_brSlowRate")),
+              "cal_brRegHigh": \(ud.double(forKey: "cal_brRegHigh")),
+              "cal_brRegLow": \(ud.double(forKey: "cal_brRegLow")),
+              "cal_quietAmplitude": \(ud.double(forKey: "cal_quietAmplitude")),
+              "cal_nightCount": \(ud.integer(forKey: "cal_nightCount"))
+            }
+            """
+            try? state.write(to: dir.appendingPathComponent("SessionState.json"), atomically: true, encoding: .utf8)
         }
 
         let infoURL = dir.appendingPathComponent("DebugInfo.txt")
         try? info.write(to: infoURL, atomically: true, encoding: .utf8)
 
         var items: [URL] = [infoURL]
-        for name in ["Phasen.json", "SonarNightLog.csv", "MLLog.csv", "WatchRef.csv"] {
+        for name in ["Phasen.json", "TrainingSamples.csv", "SessionState.json", "SonarNightLog.csv", "MLLog.csv", "WatchRef.csv"] {
             let u = dir.appendingPathComponent(name)
             if FileManager.default.fileExists(atPath: u.path) { items.append(u) }
         }
