@@ -467,7 +467,10 @@ final class SleepTrackingViewModel {
         currentConfidence = result.confidence
 
         // Feature-Nachtlog (1 Zeile/min, intern gedrosselt): alle Sensorwerte + Live-Label.
-        FeatureNightLog.shared.append(audio: audio, motion: motionIn, sonar: latestSonar,
+        // WICHTIG: das gemergte `motion` loggen (nicht motionIn) — atem_best/reg_best
+        // müssen exakt das widerspiegeln, was Klassifikator + TrainingSamples sehen,
+        // sonst rechnet das Offline-Replay mit anderen Daten als der Geräte-Pass.
+        FeatureNightLog.shared.append(audio: audio, motion: motion, sonar: latestSonar,
                                       sonarLevel: sonar.signalLevel,
                                       bcgHR: Int(liveBCGHeartRateBPM), watchHR: liveHeartRateBPM,
                                       phase: result.phase)
@@ -819,7 +822,11 @@ final class SleepTrackingViewModel {
 
         var regSum = [Float](repeating: 0, count: totalMin)
         var regCnt = [Int](repeating: 0, count: totalMin)
-        for smp in samples where smp.breathingRateBPM > 6 && smp.breathingRateBPM < 30 && smp.breathingRegularity > 0 {
+        // reg >= 0.95 ist die Audio-Fallback-Signatur (1/(1+var*1000) sättigt in stiller
+        // Umgebung auf 1.0) — als "nicht gemessen" behandeln, sonst verschieben die
+        // gepinnten 1.0-Minuten p65 auf 1.0 und REM wird flächig falsch demotiert
+        // (real beobachtet: 50 % -> 42 % Phasen-Übereinstimmung nach Neuberechnen).
+        for smp in samples where smp.breathingRateBPM > 6 && smp.breathingRateBPM < 30 && smp.breathingRegularity > 0 && smp.breathingRegularity < 0.95 {
             let m = Int(smp.timestamp.timeIntervalSince(start) / 60)
             if m >= 0 && m < totalMin { regSum[m] += smp.breathingRegularity; regCnt[m] += 1 }
         }
