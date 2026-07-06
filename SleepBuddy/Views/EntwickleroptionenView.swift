@@ -302,7 +302,28 @@ struct EntwickleroptionenView: View {
             if FileManager.default.fileExists(atPath: u.path) { items.append(u) }
         }
         if let latestFeature = FeatureNightLog.allLogs().first { items.append(latestFeature) }
-        debugPaketDateien = items
+
+        // ALLES in EIN Zip packen (Upload-Limits: 8 Einzeldateien sind zu viele).
+        // NSFileCoordinator mit .forUploading zippt einen Ordner ohne Fremdbibliothek.
+        let fm = FileManager.default
+        let df = DateFormatter(); df.dateFormat = "yyyyMMdd-HHmm"
+        let bundleDir = fm.temporaryDirectory.appendingPathComponent("DebugPaket-\(df.string(from: Date()))")
+        try? fm.removeItem(at: bundleDir)
+        try? fm.createDirectory(at: bundleDir, withIntermediateDirectories: true)
+        for u in items {
+            try? fm.copyItem(at: u, to: bundleDir.appendingPathComponent(u.lastPathComponent))
+        }
+        var zipURL: URL?
+        let coordinator = NSFileCoordinator()
+        var coordError: NSError?
+        coordinator.coordinate(readingItemAt: bundleDir, options: .forUploading, error: &coordError) { tempZip in
+            // tempZip lebt nur innerhalb des Blocks — an einen stabilen Ort kopieren.
+            let dest = dir.appendingPathComponent(bundleDir.lastPathComponent + ".zip")
+            try? fm.removeItem(at: dest)
+            if (try? fm.copyItem(at: tempZip, to: dest)) != nil { zipURL = dest }
+        }
+        // Fallback: Zippen fehlgeschlagen → Einzeldateien wie bisher teilen.
+        debugPaketDateien = zipURL.map { [$0] } ?? items
         zeigeDebugPaket = true
     }
 
