@@ -287,17 +287,30 @@ struct EntwickleroptionenView: View {
               "cal_brRegHigh": \(ud.double(forKey: "cal_brRegHigh")),
               "cal_brRegLow": \(ud.double(forKey: "cal_brRegLow")),
               "cal_quietAmplitude": \(ud.double(forKey: "cal_quietAmplitude")),
-              "cal_nightCount": \(ud.integer(forKey: "cal_nightCount"))
+              "cal_nightCount": \(ud.integer(forKey: "cal_nightCount")),
+              "usageIntervals": \((ud.array(forKey: "usageIntervals.\(Int(session.startDate.timeIntervalSince1970))") as? [Double] ?? []).description)
             }
             """
             try? state.write(to: dir.appendingPathComponent("SessionState.json"), atomically: true, encoding: .utf8)
+
+            // SoundEvents.csv — Schnarchen & Co. mit Zeit/Typ/Dauer/dB/Konfidenz
+            // (fließen in Score, Apnoe-Risiko und snoringBoost — gehören ins Replay).
+            let events = session.soundEventsArray.sorted { $0.timestamp < $1.timestamp }
+            if !events.isEmpty {
+                let df3 = DateFormatter(); df3.dateFormat = "yyyy-MM-dd HH:mm:ss"
+                var ecsv = "timestamp,typ,dauer_s,db,konfidenz,korrigiert,mlLabel\n"
+                for e in events {
+                    ecsv += "\(df3.string(from: e.timestamp)),\(e.typeRaw),\(e.durationSeconds),\(e.decibelLevel),\(e.confidenceScore),\(e.isUserCorrected),\(e.mlLabel ?? "")\n"
+                }
+                try? ecsv.write(to: dir.appendingPathComponent("SoundEvents.csv"), atomically: true, encoding: .utf8)
+            }
         }
 
         let infoURL = dir.appendingPathComponent("DebugInfo.txt")
         try? info.write(to: infoURL, atomically: true, encoding: .utf8)
 
         var items: [URL] = [infoURL]
-        for name in ["Phasen.json", "TrainingSamples.csv", "SessionState.json", "SonarNightLog.csv", "MLLog.csv", "WatchRef.csv"] {
+        for name in ["Phasen.json", "TrainingSamples.csv", "SessionState.json", "SoundEvents.csv", "SonarNightLog.csv", "MLLog.csv", "WatchRef.csv"] {
             let u = dir.appendingPathComponent(name)
             if FileManager.default.fileExists(atPath: u.path) { items.append(u) }
         }

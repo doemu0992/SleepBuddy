@@ -583,6 +583,7 @@ final class SleepTrackingViewModel {
             applyEdgeWakeCorrection(to: session)
             applyBreathingEdgeWake(to: session, context: context)
             applyMovementWake(to: session, context: context)
+            applyPersistedUsageAwake(to: session)
             applyAlarmWake(to: session)
             applyPlausibilityCorrection(to: session)
             applyHMMSmoothing(to: session, context: context)
@@ -1556,12 +1557,33 @@ final class SleepTrackingViewModel {
         usageObservers.removeAll()
     }
 
+    /// Wendet die beim Tracking-Stopp persistierten Nutzungs-Intervalle rückwirkend an
+    /// (Neuberechnen-Batch) — gleiche Regeln wie applyUsageAwake (< 90 s ignoriert).
+    private func applyPersistedUsageAwake(to session: SleepSession) {
+        let start = session.startDate
+        let end = session.endDate ?? Date()
+        let flat = UserDefaults.standard.array(forKey: "usageIntervals.\(Int(start.timeIntervalSince1970))") as? [Double] ?? []
+        guard flat.count >= 2 else { return }
+        let totalMin = max(1, Int(end.timeIntervalSince(start) / 60))
+        for i in stride(from: 0, to: flat.count - 1, by: 2) {
+            let s = Date(timeIntervalSince1970: flat[i]), e = Date(timeIntervalSince1970: flat[i + 1])
+            guard e.timeIntervalSince(s) >= 90 else { continue }
+            let from = max(0, Int(s.timeIntervalSince(start) / 60))
+            let to = min(totalMin, Int(ceil(e.timeIntervalSince(start) / 60)))
+            if to > from { markAwake(in: session, fromMinute: from, toMinute: to) }
+        }
+    }
+
     /// Marks every interval the phone was unlocked / in use during the night as awake.
     /// Short glances (< 90 s) are ignored so a quick time-check isn't over-weighted.
     private func applyUsageAwake(to session: SleepSession) {
         let start = session.startDate
         let end = session.endDate ?? Date()
         let totalMin = max(1, Int(end.timeIntervalSince(start) / 60))
+        // Intervalle persistieren (UserDefaults, Key = Session-Start) — sonst sind sie
+        // nach der Nacht weg und weder Replay noch Neuberechnen können sie anwenden.
+        let flat = usageAwakeIntervals.flatMap { [$0.start.timeIntervalSince1970, $0.end.timeIntervalSince1970] }
+        UserDefaults.standard.set(flat, forKey: "usageIntervals.\(Int(start.timeIntervalSince1970))")
         var marked = false
         for interval in usageAwakeIntervals {
             guard interval.end.timeIntervalSince(interval.start) >= 90 else { continue }
