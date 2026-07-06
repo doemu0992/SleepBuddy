@@ -174,6 +174,17 @@ struct SleepTrackingView: View {
                 .animation(.spring(response: 0.4, dampingFraction: 0.7), value: viewModel.isSnoring)
                 .animation(.spring(response: 0.4, dampingFraction: 0.7), value: viewModel.isSleepOnsetDetected)
 
+            // Selbsttest-Warnung: totes Subsystem sofort sichtbar machen (statt morgens im Log)
+            if let warnung = viewModel.systemWarning {
+                Text(warnung)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.orange)
+                    .padding(.horizontal, 12).padding(.vertical, 6)
+                    .background(Capsule().fill(Color.orange.opacity(0.15)))
+                    .overlay(Capsule().strokeBorder(Color.orange.opacity(0.35), lineWidth: 1))
+                    .transition(.opacity)
+            }
+
             Spacer()
 
             // Aufwachen-Button

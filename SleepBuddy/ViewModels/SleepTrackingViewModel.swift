@@ -16,6 +16,9 @@ final class SleepTrackingViewModel {
     private(set) var errorMessage: String?
     private(set) var liveHeartRateBPM: Double = 0   // HealthKit Watch HR (primary)
     private(set) var liveBCGHeartRateBPM: Float = 0 // BCG accelerometer HR (fallback)
+    /// Selbsttest-Warnung (nil = alles ok) — wird auf dem Tracking-Screen angezeigt,
+    /// damit tote Subsysteme (ML, Sonar, Watch) SOFORT auffallen, nicht erst morgens.
+    private(set) var systemWarning: String?
 
     // Services
     let insights = SleepInsightService()
@@ -57,6 +60,8 @@ final class SleepTrackingViewModel {
     private var lastBCGUpdate = Date.distantPast
     /// Letzter echt gemessener HR-Wert (Watch/BCG) — Anker für den Sonar-Lücken-Füller.
     private var lastGoodHRForSonar: Double = 0
+    /// Letztes Audio/Motion-Feature-Update — Selbsttest-Puls der Sensor-Pipeline.
+    private var lastFeatureUpdate = Date.distantPast
 
     // Snoring pattern analysis: rolling timestamps of last 12 snoring events
     private var snoringTimestamps: [Date] = []
@@ -216,8 +221,39 @@ final class SleepTrackingViewModel {
 
             isTracking = true
             SleepBuddyApp.isTrackingActive = true
+
+            // Selbsttest: nach 3 min und dann alle 10 min prüfen, ob alle Subsysteme
+            // leben — tote Systeme (ML-Analyzer, stummer Sonar-Ton, versiegte Sensor-
+            // Pipeline) sollen SOFORT sichtbar sein, nicht erst morgens in den Logs.
+            systemWarning = nil
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(nanoseconds: 180_000_000_000)
+                while let self, self.isTracking {
+                    self.runSelfTest()
+                    try? await Task.sleep(nanoseconds: 600_000_000_000)
+                }
+            }
         } catch {
             errorMessage = "Mikrofon konnte nicht gestartet werden: \(error.localizedDescription)"
+        }
+    }
+
+    /// Prüft die kritischen Subsysteme und setzt/löscht die Tracking-Screen-Warnung.
+    private func runSelfTest() {
+        var warnings: [String] = []
+        if Date().timeIntervalSince(lastFeatureUpdate) > 120 {
+            warnings.append("Sensor-Pipeline liefert keine Daten")
+        }
+        if UserDefaults.standard.bool(forKey: "soundEvents_enabled"), !soundClassifier.isAlive {
+            warnings.append("Geräusch-Erkennung stumm")
+        }
+        if sonarEnabled, sonar.signalLevel < 0.0002 {
+            warnings.append("Sonar-Ton stumm (Medienlautstärke prüfen)")
+        }
+        let new = warnings.isEmpty ? nil : "⚠︎ " + warnings.joined(separator: " · ")
+        if new != systemWarning {
+            systemWarning = new
+            if let new { PassAudit.note("Selbsttest: \(new)") }
         }
     }
 
@@ -257,6 +293,14 @@ final class SleepTrackingViewModel {
             .first(where: { $0.phaseType != .awake })?.startDate
             ?? onsetDetector.sleepOnset
         session.alarmFiredDate = smartAlarm.alarmFiredDate
+
+        // Nachtcheck: eine Bilanz-Zeile ins Korrektur-Protokoll — tote Subsysteme
+        // stehen morgens sofort im DebugInfo, ohne die CSVs durchsuchen zu müssen.
+        let mlStatus = soundClassifier.isAlive ? "aktiv" : "TOT"
+        let hrCov = session.heartRateSamples.isEmpty ? 0 :
+            100 * session.heartRateSamples.filter { $0 > 0 }.count / session.heartRateSamples.count
+        let sonarPct = Int(sonar.nightLockRate * 100)
+        PassAudit.note("Nachtcheck: ML \(mlStatus) · Sonar-Lock \(sonarPct) % · HR-Abdeckung \(hrCov) % · \(session.soundEventsArray.count) Sound-Events · Watch-HR live \(liveHeartRateBPM > 0 ? "ja" : "nein")")
         session.sleepQualityScore = Double(SchlafindexView.score(for: session))
 
         if let context = modelContext {
@@ -392,6 +436,7 @@ final class SleepTrackingViewModel {
     // MARK: - Feature handling
 
     private func handleFeatures(audio: AudioFeatures, motion motionIn: MotionFeatures) {
+        lastFeatureUpdate = Date()
         // Sonar (experimentell): wenn ein sauberes Reflexionssignal vorliegt, ist es die
         // bevorzugte Atem-/Bewegungsquelle (funktioniert auch vom Nachttisch). Mit vollem
         // Fallback: ohne Signal bleibt alles beim Accelerometer/Mikro.

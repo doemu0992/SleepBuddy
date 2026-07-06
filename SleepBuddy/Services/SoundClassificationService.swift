@@ -304,6 +304,8 @@ final class SoundClassificationService: NSObject {
     private var lastAnalyzerRebuild = Date.distantPast
     /// Zeitpunkt des letzten ML-Ergebnisses — der Watchdog rebuildet bei > 120 s Stille.
     private var lastResultDate = Date()
+    /// Selbsttest: kamen in den letzten 2 min ML-Ergebnisse?
+    var isAlive: Bool { Date().timeIntervalSince(lastResultDate) < 120 }
 
     // Ruheboden-Schätzung (Decay-Min) + daraus abgeleiteter ML-Verstärkungsfaktor.
     private var floorRMS: Float = 0.001
