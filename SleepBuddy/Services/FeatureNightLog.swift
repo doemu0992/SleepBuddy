@@ -36,7 +36,7 @@ final class FeatureNightLog {
             + "sounds=\(ud.bool(forKey: "soundEvents_enabled")) hmm=\(ud.bool(forKey: "hmm_enabled"))\n"
         let header = "# SLEEPBUDDY FEATURELOG — Start \(Date())\n" + params
             + "zeit,amp,ampVar,atem_best,reg_best,atem_audio,atem_accel,reg_accel,bewegung,onMattress,"
-            + "sonar_atem,sonar_reg,sonar_bew,sonar_pegel,sonar_signal,sonar_puls,bcg_hr,watch_hr,phase\n"
+            + "sonar_atem,sonar_reg,sonar_bew,sonar_pegel,sonar_signal,sonar_puls,bcg_hr,watch_hr,phase,konfidenz,hrv_ms\n"
         try? header.write(to: file, atomically: true, encoding: .utf8)
         url = file
         active = true
@@ -50,13 +50,14 @@ final class FeatureNightLog {
 
     /// Eine Zeile pro Minute (intern gedrosselt) — Aufruf aus handleFeatures ist billig.
     func append(audio: AudioFeatures, motion: MotionFeatures, sonar: SonarFeatures,
-                sonarLevel: Float, bcgHR: Int, watchHR: Double, phase: SleepPhaseType) {
+                sonarLevel: Float, bcgHR: Int, watchHR: Double, phase: SleepPhaseType,
+                confidence: Double = 0, hrvMs: Double = 0) {
         guard active, let url, Date().timeIntervalSince(lastRow) >= 60 else { return }
         lastRow = Date()
         let f = DateFormatter(); f.dateFormat = "HH:mm:ss"
         let bestBreath = motion.breathingRateBPM > 0 ? motion.breathingRateBPM : audio.breathingRateBPM
         let bestReg = motion.breathingRateBPM > 0 ? motion.breathingRegularity : audio.breathingRegularity
-        let line = String(format: "%@,%.5f,%.6f,%.1f,%.2f,%.1f,%.1f,%.2f,%.3f,%d,%.1f,%.2f,%.2f,%.5f,%d,%d,%d,%.0f,%@\n",
+        let line = String(format: "%@,%.5f,%.6f,%.1f,%.2f,%.1f,%.1f,%.2f,%.3f,%d,%.1f,%.2f,%.2f,%.5f,%d,%d,%d,%.0f,%@,%.2f,%.0f\n",
                           f.string(from: Date()),
                           audio.averageAmplitude, audio.amplitudeVariance,
                           bestBreath, bestReg,
@@ -64,7 +65,7 @@ final class FeatureNightLog {
                           motion.movementIntensity, motion.isOnMattress ? 1 : 0,
                           sonar.breathingRateBPM, sonar.breathingRegularity, sonar.movementIntensity,
                           sonarLevel, sonar.signalPresent ? 1 : 0, Int(sonar.heartRateBPM),
-                          bcgHR, watchHR, phase.rawValue)
+                          bcgHR, watchHR, phase.rawValue, confidence, hrvMs)
         if let h = try? FileHandle(forWritingTo: url) {
             h.seekToEndOfFile()
             if let d = line.data(using: .utf8) { h.write(d) }

@@ -476,7 +476,9 @@ final class SleepTrackingViewModel {
         FeatureNightLog.shared.append(audio: audio, motion: motion, sonar: latestSonar,
                                       sonarLevel: sonar.signalLevel,
                                       bcgHR: Int(liveBCGHeartRateBPM), watchHR: liveHeartRateBPM,
-                                      phase: result.phase)
+                                      phase: result.phase,
+                                      confidence: result.confidence,
+                                      hrvMs: classifier.currentHRVms)
 
         // Ambient noise: accumulate amplitude and store one dB sample per minute
         noiseAccumulator.append(audio.averageAmplitude)
