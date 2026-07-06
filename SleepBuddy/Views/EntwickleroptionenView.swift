@@ -431,14 +431,38 @@ struct EntwickleroptionenView: View {
 
     private func korrigierePhasen() {
         phasenLaeuft = true
-        let descriptor = FetchDescriptor<SleepSession>()
-        let sessions = (try? modelContext.fetch(descriptor)) ?? []
-        let vm = SleepTrackingViewModel()
-        let n = vm.reapplyPhaseCorrections(to: sessions, context: modelContext)
-        phasenLaeuft = false
-        phasenErgebnis = n > 0
-            ? "\(n) Nacht/Nächte wurden aus den Rohdaten neu berechnet."
-            : "Keine Nächte mit gespeicherten Messdaten gefunden (Testnächte haben keine)."
+        Task { @MainActor in
+            let descriptor = FetchDescriptor<SleepSession>()
+            let sessions = (try? modelContext.fetch(descriptor)) ?? []
+            // Watch-Puls-Backfill RÜCKWIRKEND: die echten HR-Daten liegen ohnehin in
+            // HealthKit — vor dem Neuberechnen jede Nacht mit der echten Watch-Reihe
+            // überschreiben, damit die HR-Pässe mit echten Werten rechnen (bisher lief
+            // der Backfill nur beim Tracking-Stopp; bei gesperrter HR-Berechtigung
+            // blieb die Reihe dauerhaft BCG/Sonar-verschmutzt).
+            let hk = HealthKitService()
+            await hk.requestAuthorization()
+            var backfilled = 0
+            for session in sessions where !session.isActive {
+                guard let sEnd = session.endDate else { continue }
+                let series = await hk.readHeartRateSeries(from: session.startDate, to: sEnd)
+                guard series.count >= 10 else { continue }
+                let totalMin = max(1, Int(sEnd.timeIntervalSince(session.startDate) / 60))
+                if session.heartRateSamples.count < totalMin {
+                    session.heartRateSamples.append(contentsOf: [Double](repeating: 0, count: totalMin - session.heartRateSamples.count))
+                }
+                for (d, bpm) in series where bpm >= 35 && bpm <= 140 {
+                    let m = Int(d.timeIntervalSince(session.startDate) / 60)
+                    if m >= 0 && m < session.heartRateSamples.count { session.heartRateSamples[m] = bpm }
+                }
+                backfilled += 1
+            }
+            let vm = SleepTrackingViewModel()
+            let n = vm.reapplyPhaseCorrections(to: sessions, context: modelContext)
+            phasenLaeuft = false
+            phasenErgebnis = n > 0
+                ? "\(n) Nacht/Nächte neu berechnet (\(backfilled) mit Watch-Puls aus HealthKit)."
+                : "Keine Nächte mit gespeicherten Messdaten gefunden (Testnächte haben keine)."
+        }
     }
 
     private func testdatenLoeschen() {
