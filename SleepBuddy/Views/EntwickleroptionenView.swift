@@ -372,11 +372,23 @@ struct EntwickleroptionenView: View {
                 watchVergleichErgebnis = "Keine überlappenden Minuten gefunden."
                 return
             }
-            // Ground-Truth-CSV für Replay/Tuning: Apples Phase pro Minute neben unserer.
-            var refCSV = "# WATCH-REFERENZ \(session.startDate)\nminute,watch,app\n"
+            // Ground-Truth-CSV für Replay/Tuning: Apples Phase pro Minute neben unserer,
+            // plus echter Watch-Puls (welche Puls-Signatur haben die ECHTEN Phasen —
+            // und wo weicht unsere gespeicherte BCG/Sonar-Reihe vom echten Puls ab?)
+            // und unsere gespeicherte HR-Reihe zum direkten Vergleich.
+            let watchHRSeries = await hk.readHeartRateSeries(from: session.startDate, to: sEnd)
+            var hrByMin: [Int: Double] = [:]
+            for (d, bpm) in watchHRSeries {
+                let m = Int(d.timeIntervalSince(session.startDate) / 60)
+                hrByMin[m] = bpm   // letzter Wert der Minute genügt
+            }
+            var refCSV = "# WATCH-REFERENZ \(session.startDate)\nminute,watch,app,watch_hr,app_hr\n"
             var tt = session.startDate; var mi = 0
             while tt < sEnd {
-                refCSV += "\(mi),\(watchPhase(tt)?.rawValue ?? "-"),\(ourPhase(tt)?.rawValue ?? "-")\n"
+                let whr = hrByMin[mi].map { String(format: "%.0f", $0) } ?? "-"
+                let ahr = mi < session.heartRateSamples.count && session.heartRateSamples[mi] > 0
+                    ? String(format: "%.0f", session.heartRateSamples[mi]) : "-"
+                refCSV += "\(mi),\(watchPhase(tt)?.rawValue ?? "-"),\(ourPhase(tt)?.rawValue ?? "-"),\(whr),\(ahr)\n"
                 tt = tt.addingTimeInterval(60); mi += 1
             }
             let refURL = FeatureNightLog.logDirectory.appendingPathComponent("WatchRef.csv")
