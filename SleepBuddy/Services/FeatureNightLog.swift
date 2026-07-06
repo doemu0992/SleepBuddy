@@ -30,7 +30,7 @@ final class FeatureNightLog {
         let ud = UserDefaults.standard
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
         let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?"
-        let params = "# version=\(version)(\(build)) sonar=\(ud.bool(forKey: "sonar_enabled")) "
+        let params = "# version=\(version)(\(build)) algo=\(AlgoVersion.current) sonar=\(ud.bool(forKey: "sonar_enabled")) "
             + "sonarGoodAmp=\(ud.double(forKey: "device.sonarGoodAmp")) "
             + "partner=\(ud.bool(forKey: "partnerModus_aktiv"))/\(ud.integer(forKey: "partnerModus_stufe")) "
             + "sounds=\(ud.bool(forKey: "soundEvents_enabled")) hmm=\(ud.bool(forKey: "hmm_enabled"))\n"
@@ -75,6 +75,14 @@ final class FeatureNightLog {
 }
 
 
+
+// MARK: - AlgoVersion
+
+/// Manuell gepflegte Algorithmus-Version — bei JEDER Tuning-/Pass-Änderung hochzählen.
+/// Ordnet Debug-Pakete eindeutig einem Code-Stand zu (CFBundleVersion bleibt oft "1").
+enum AlgoVersion {
+    static let current = "2026-07-06.1"
+}
 
 // MARK: - PassAudit (Korrektur-Protokoll)
 

@@ -628,27 +628,69 @@ final class SleepTrackingViewModel {
         modelContext = context
         var count = 0
         for session in sessions where !session.isActive {
+            // Pass-Bilanz: existiert eine Watch-Referenz für diese Nacht, wird die
+            // Übereinstimmung NACH JEDEM Pass gemessen — zeigt sofort, welcher Pass
+            // trägt und welcher schadet (statt nur das Endergebnis zu sehen).
+            let watchRef = loadGoldenWatchRef(for: session)
+            var bilanz: [String] = []
+            func snap(_ label: String) {
+                if let ref = watchRef, let pct = stageAgreementPct(session, ref: ref) {
+                    bilanz.append("\(label) \(pct)%")
+                }
+            }
             cleanHeartRateFlatlines(session)
             guard rebuildPhasesFromSamples(session, context: context) else { continue }
-            applyHeartRatePhaseCorrection(to: session)
-            applyCycleRemRefinement(to: session)
-            applyBreathingRefinement(to: session, context: context)
-            applyRegularityRemRefinement(to: session, context: context)
-            applyDeepRedistribution(to: session)
-            applyEdgeWakeCorrection(to: session)
-            applyBreathingEdgeWake(to: session, context: context)
-            applyMovementWake(to: session, context: context)
+            snap("Rebuild")
+            applyHeartRatePhaseCorrection(to: session); snap("HR")
+            applyCycleRemRefinement(to: session); snap("ZyklusREM")
+            applyBreathingRefinement(to: session, context: context); snap("Atem")
+            applyRegularityRemRefinement(to: session, context: context); snap("RegREM")
+            applyDeepRedistribution(to: session); snap("DeepRedist")
+            applyEdgeWakeCorrection(to: session); snap("EdgeWake")
+            applyBreathingEdgeWake(to: session, context: context); snap("AtemWake")
+            applyMovementWake(to: session, context: context); snap("BewegWake")
             applyPersistedUsageAwake(to: session)
             applyAlarmWake(to: session)
-            applyPlausibilityCorrection(to: session)
+            applyPlausibilityCorrection(to: session); snap("Final")
             applyHMMSmoothing(to: session, context: context)
             session.sleepOnsetDate = session.phasesArray
                 .sorted { $0.startDate < $1.startDate }
                 .first(where: { $0.phaseType != .awake })?.startDate ?? session.sleepOnsetDate
+            if !bilanz.isEmpty {
+                PassAudit.note("Pass-Bilanz \(session.startDate.formatted(date: .abbreviated, time: .omitted)): " + bilanz.joined(separator: " → "))
+            }
             count += 1
         }
         try? context.save()
         return count
+    }
+
+    /// Lädt die datierte Watch-Referenz dieser Nacht (vom Watch-Vergleich gespeichert).
+    private func loadGoldenWatchRef(for session: SleepSession) -> [Int: SleepPhaseType]? {
+        let url = FeatureNightLog.logDirectory
+            .appendingPathComponent("WatchRef-\(Int(session.startDate.timeIntervalSince1970)).csv")
+        guard let content = try? String(contentsOf: url, encoding: .utf8) else { return nil }
+        var ref: [Int: SleepPhaseType] = [:]
+        for line in content.split(separator: "\n") where !line.hasPrefix("#") && !line.hasPrefix("minute") {
+            let c = line.split(separator: ",", omittingEmptySubsequences: false)
+            guard c.count >= 2, let m = Int(c[0]), let ph = SleepPhaseType(rawValue: String(c[1])) else { continue }
+            ref[m] = ph
+        }
+        return ref.isEmpty ? nil : ref
+    }
+
+    /// Phasen-Übereinstimmung (in %) der aktuellen Session-Phasen gegen eine Watch-Referenz.
+    private func stageAgreementPct(_ session: SleepSession, ref: [Int: SleepPhaseType]) -> Int? {
+        let phases = session.phasesArray.sorted { $0.startDate < $1.startDate }
+        guard !phases.isEmpty else { return nil }
+        var agree = 0, total = 0
+        for (m, w) in ref {
+            let t = session.startDate.addingTimeInterval(Double(m) * 60 + 30)
+            guard let o = phases.first(where: { $0.startDate <= t && t < $0.endDate })?.phaseType else { continue }
+            total += 1
+            if o == w { agree += 1 }
+        }
+        return total > 0 ? 100 * agree / total : nil
     }
 
     // MARK: - HMM-Glätter (Beta, Toggle "hmm_enabled" in Entwickleroptionen)
@@ -1307,8 +1349,19 @@ final class SleepTrackingViewModel {
         let totalSleep = sleepPhases.reduce(0) { $0 + dur($1) }
         guard totalSleep > 0 else { return }
 
-        let deepCap = 0.22 * totalSleep
-        let remCap  = 0.25 * totalSleep
+        // Personalisierte Budgets: aus den Watch-Nächten gelernte Anteile (EMA im
+        // Watch-Vergleich, "cal_watchDeepPct"/"cal_watchRemPct") ersetzen ab 3
+        // Watch-Nächten die Population-Defaults 22 %/25 % — geklemmt auf
+        // physiologisch sinnvolle Bereiche.
+        let ud = UserDefaults.standard
+        var deepPct = 0.22, remPct = 0.25
+        if ud.integer(forKey: "cal_watchNights") >= 3 {
+            let dp = ud.double(forKey: "cal_watchDeepPct"), rp = ud.double(forKey: "cal_watchRemPct")
+            if dp > 0 { deepPct = min(max(dp, 0.10), 0.28) }
+            if rp > 0 { remPct = min(max(rp, 0.15), 0.30) }
+        }
+        let deepCap = deepPct * totalSleep
+        let remCap  = remPct * totalSleep
         var changed = false
 
         var deepDur = sleepPhases.filter { $0.phaseType == .deep }.reduce(0) { $0 + dur($1) }

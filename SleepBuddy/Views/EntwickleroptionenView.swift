@@ -225,7 +225,7 @@ struct EntwickleroptionenView: View {
 
         var info = """
         SLEEPBUDDY DEBUG-PAKET — \(Date())
-        Version: \(version) (\(build))
+        Version: \(version) (\(build)) | Algo: \(AlgoVersion.current)
         Sonar: \(ud.bool(forKey: "sonar_enabled")) | Ton aktuell: \(ud.double(forKey: "debug.sonarAmpCurrent")) | Sweet-Spot: \(ud.double(forKey: "device.sonarGoodAmp"))
         Partner: \(ud.bool(forKey: "partnerModus_aktiv")) Stufe \(ud.integer(forKey: "partnerModus_stufe")) | Sounds: \(ud.bool(forKey: "soundEvents_enabled")) | HMM: \(ud.bool(forKey: "hmm_enabled"))
         Letzter Tracking-Heartbeat: \(hbText)
@@ -372,22 +372,95 @@ struct EntwickleroptionenView: View {
             func watchPhase(_ t: Date) -> SleepPhaseType? {
                 segments.first(where: { $0.start <= t && t < $0.end })?.phase
             }
-            var total = 0, both = 0, stageAgree = 0, wsAgree = 0
+            // Pro-Minute-Sequenzen (Basis für alle Metriken)
+            let totalMinutes = Int(sEnd.timeIntervalSince(session.startDate) / 60)
+            var wSeq = [SleepPhaseType?](repeating: nil, count: totalMinutes)
+            var oSeq = [SleepPhaseType?](repeating: nil, count: totalMinutes)
+            for m in 0..<totalMinutes {
+                let t = session.startDate.addingTimeInterval(Double(m) * 60 + 30)
+                wSeq[m] = watchPhase(t); oSeq[m] = ourPhase(t)
+            }
+            let total = totalMinutes
+            var both = 0, stageAgree = 0, wsAgree = 0
             var confusion: [String: Int] = [:]
-            var t = session.startDate
-            while t < sEnd {
-                total += 1
-                if let o = ourPhase(t), let w = watchPhase(t) {
-                    both += 1
-                    if o == w { stageAgree += 1 }
-                    if (o == .awake) == (w == .awake) { wsAgree += 1 }
-                    if o != w { confusion["\(w.rawValue)→\(o.rawValue)", default: 0] += 1 }
-                }
-                t = t.addingTimeInterval(60)
+            var wCount: [SleepPhaseType: Int] = [:], oCount: [SleepPhaseType: Int] = [:]
+            var hitPerPhase: [SleepPhaseType: Int] = [:]
+            for m in 0..<totalMinutes {
+                guard let w = wSeq[m], let o = oSeq[m] else { continue }
+                both += 1
+                wCount[w, default: 0] += 1; oCount[o, default: 0] += 1
+                if o == w { stageAgree += 1; hitPerPhase[w, default: 0] += 1 }
+                if (o == .awake) == (w == .awake) { wsAgree += 1 }
+                if o != w { confusion["\(w.rawValue)→\(o.rawValue)", default: 0] += 1 }
             }
             guard both > 0 else {
                 watchVergleichErgebnis = "Keine überlappenden Minuten gefunden."
                 return
+            }
+            // Cohen's Kappa (zufallskorrigiert — 4-Klassen-Prozent allein ist irreführend)
+            let po = Double(stageAgree) / Double(both)
+            let pe = SleepPhaseType.allCases.reduce(0.0) {
+                $0 + Double(wCount[$1] ?? 0) * Double(oCount[$1] ?? 0) / Double(both * both)
+            }
+            let kappa = pe < 1 ? (po - pe) / (1 - pe) : 0
+            // Sensitivität pro Phase: wieviel % der echten Watch-Minuten finden wir?
+            let sensText = [SleepPhaseType.deep, .rem, .light, .awake].compactMap { ph -> String? in
+                guard let n = wCount[ph], n > 0 else { return nil }
+                return "\(ph.rawValue) \(100 * (hitPerPhase[ph] ?? 0) / n) %"
+            }.joined(separator: " · ")
+            // Klinische Aggregate: Einschlaflatenz, WASO, REM-Latenz, Aufwachungen
+            func clinical(_ seq: [SleepPhaseType?]) -> (sol: Int, waso: Int, remLat: Int?, wakes: Int) {
+                let onset = seq.firstIndex(where: { $0 != nil && $0 != .awake }) ?? 0
+                var waso = 0, wakes = 0, inWake = false
+                for m in onset..<seq.count {
+                    if seq[m] == .awake { waso += 1; if !inWake { wakes += 1; inWake = true } }
+                    else if seq[m] != nil { inWake = false }
+                }
+                let remLat = seq[onset...].firstIndex(where: { $0 == .rem }).map { $0 - onset }
+                return (onset, waso, remLat, wakes)
+            }
+            let cw = clinical(wSeq), co = clinical(oSeq)
+            // Signalqualitäts-Stratifizierung: Übereinstimmung mit vs. ohne Sonar-Lock
+            var stratText = ""
+            if let flog = FeatureNightLog.allLogs().first,
+               let content = try? String(contentsOf: flog, encoding: .utf8) {
+                var sonarMin = Set<Int>()
+                let fmt = DateFormatter(); fmt.dateFormat = "HH:mm:ss"
+                let cal = Calendar.current
+                for line in content.split(separator: "\n") where !line.hasPrefix("#") && !line.hasPrefix("zeit") {
+                    let c = line.split(separator: ",", omittingEmptySubsequences: false)
+                    guard c.count > 10, let sa = Float(c[10]), sa > 0, let t0 = fmt.date(from: String(c[0])) else { continue }
+                    let comps = cal.dateComponents([.hour, .minute, .second], from: t0)
+                    var full = cal.date(bySettingHour: comps.hour ?? 0, minute: comps.minute ?? 0, second: comps.second ?? 0, of: session.startDate) ?? session.startDate
+                    if full < session.startDate { full = cal.date(byAdding: .day, value: 1, to: full) ?? full }
+                    let m = Int(full.timeIntervalSince(session.startDate) / 60)
+                    if m >= 0 && m < totalMinutes { sonarMin.insert(m) }
+                }
+                if !sonarMin.isEmpty {
+                    var a1 = 0, n1 = 0, a2 = 0, n2 = 0
+                    for m in 0..<totalMinutes {
+                        guard let w = wSeq[m], let o = oSeq[m] else { continue }
+                        if sonarMin.contains(m) { n1 += 1; if w == o { a1 += 1 } }
+                        else { n2 += 1; if w == o { a2 += 1 } }
+                    }
+                    if n1 > 0 && n2 > 0 {
+                        stratText = "\nMit Sonar-Lock: \(100 * a1 / n1) % (\(n1) min) · ohne: \(100 * a2 / n2) % (\(n2) min)"
+                    }
+                }
+            }
+            // Persönliche Schlafarchitektur aus der Watch lernen (EMA über Nächte):
+            // REM-/Tief-Anteil und REM-Latenz — Priors für Zyklusmodell + Umverteilung.
+            let watchSleep = both - (wCount[.awake] ?? 0)
+            if watchSleep >= 200 {
+                let ud = UserDefaults.standard
+                func ema(_ key: String, _ v: Double) {
+                    let old = ud.double(forKey: key)
+                    ud.set(old <= 0 ? v : old * 0.7 + v * 0.3, forKey: key)
+                }
+                ema("cal_watchDeepPct", Double(wCount[.deep] ?? 0) / Double(watchSleep))
+                ema("cal_watchRemPct", Double(wCount[.rem] ?? 0) / Double(watchSleep))
+                if let rl = cw.remLat { ema("cal_watchRemLatencyMin", Double(rl)) }
+                ud.set(ud.integer(forKey: "cal_watchNights") + 1, forKey: "cal_watchNights")
             }
             // Ground-Truth-CSV für Replay/Tuning: Apples Phase pro Minute neben unserer,
             // plus echter Watch-Puls (welche Puls-Signatur haben die ECHTEN Phasen —
@@ -421,14 +494,22 @@ struct EntwickleroptionenView: View {
             }
             let refURL = FeatureNightLog.logDirectory.appendingPathComponent("WatchRef.csv")
             try? refCSV.write(to: refURL, atomically: true, encoding: .utf8)
+            // Golden Night: datierte Kopie (nicht rotiert) — Trainingskorpus für HMM
+            // und Referenz für die Pass-Bilanz/Regression über alle Watch-Nächte.
+            let goldenURL = FeatureNightLog.logDirectory
+                .appendingPathComponent("WatchRef-\(Int(session.startDate.timeIntervalSince1970)).csv")
+            try? refCSV.write(to: goldenURL, atomically: true, encoding: .utf8)
 
             let topConf = confusion.sorted { $0.value > $1.value }.prefix(3)
                 .map { "\($0.key): \($0.value)m" }.joined(separator: ", ")
+            func lat(_ v: Int?) -> String { v.map { "\($0)m" } ?? "–" }
             watchVergleichErgebnis = """
             Überlappung: \(both)/\(total) Minuten
             Wach/Schlaf-Übereinstimmung: \(100 * wsAgree / both) %
-            Phasen-Übereinstimmung: \(100 * stageAgree / both) %
-            Häufigste Abweichungen (Watch→App): \(topConf)
+            Phasen-Übereinstimmung: \(100 * stageAgree / both) % (Kappa \(String(format: "%.2f", kappa)))
+            Sensitivität: \(sensText)
+            Watch vs. App — Einschlafen: \(cw.sol)m/\(co.sol)m · WASO: \(cw.waso)m/\(co.waso)m · REM-Latenz: \(lat(cw.remLat))/\(lat(co.remLat)) · Aufwachen: \(cw.wakes)×/\(co.wakes)×
+            Häufigste Abweichungen (Watch→App): \(topConf)\(stratText)
             """
         }
     }
