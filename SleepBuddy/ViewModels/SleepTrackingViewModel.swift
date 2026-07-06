@@ -55,6 +55,8 @@ final class SleepTrackingViewModel {
     // The live badge may hold the last value, but the stored per-minute series must only
     // use BCG when it is fresh — otherwise a stale value freezes into a fake flat line.
     private var lastBCGUpdate = Date.distantPast
+    /// Letzter echt gemessener HR-Wert (Watch/BCG) — Anker für den Sonar-Lücken-Füller.
+    private var lastGoodHRForSonar: Double = 0
 
     // Snoring pattern analysis: rolling timestamps of last 12 snoring events
     private var snoringTimestamps: [Date] = []
@@ -118,6 +120,7 @@ final class SleepTrackingViewModel {
 
         lastBCGSampleDate = .distantPast
         lastBCGUpdate = .distantPast
+        lastGoodHRForSonar = 0
         snoringTimestamps.removeAll()
         snoringIsObstructive = false
 
@@ -516,11 +519,18 @@ final class SleepTrackingViewModel {
                 } else {
                     hr = bcgHR
                 }
-            } else if sonarValid {
-                hr = sonarHR                       // BCG ohne Lock (z.B. Nachttisch) → Sonar füllt
+            } else if sonarValid, lastGoodHRForSonar > 0, abs(sonarHR - lastGoodHRForSonar) <= 15 {
+                // Sonar füllt Lücken NUR, wenn es an den letzten echt gemessenen Wert
+                // (Watch/BCG) anschließt. Nie frei laufen lassen: Der rohe Sonar-Puls
+                // kann stabil auf einer Artefakt-Familie locken (real beobachtet,
+                // Nachttisch: 93/96/100/103 in 94 % der Fenster, ganze Nacht) — das
+                // Stabilitäts-Gate allein hält so etwas nicht auf.
+                hr = sonarHR
             } else {
                 hr = 0                             // implausible / stale / no data
             }
+            if watchHR >= 40 && watchHR <= 110 { lastGoodHRForSonar = watchHR }
+            else if bcgHR >= 40 && bcgHR <= 110 { lastGoodHRForSonar = bcgHR }
             session.heartRateSamples.append(hr)
             lastBCGSampleDate = Date()
         }

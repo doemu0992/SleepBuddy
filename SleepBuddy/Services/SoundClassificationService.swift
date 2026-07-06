@@ -216,6 +216,7 @@ final class SoundClassificationService: NSObject {
         guard #available(iOS 15, *) else { return }
         do {
             try? "# SLEEPBUDDY ML-LOG — Start \(Date())\n".write(to: Self.mlLogURL, atomically: true, encoding: .utf8)
+            lastResultDate = Date()
             try buildAnalyzer(format: format)
         } catch {
             analyzer = nil
@@ -236,7 +237,16 @@ final class SoundClassificationService: NSObject {
         // vermutlich internes Format-/Route-Update). Nach einem gemeldeten Fehler wird
         // er hier mit dem AKTUELLEN Buffer-Format neu aufgebaut (gedrosselt, max. alle
         // 10 s) und die Erkennung läuft weiter, statt für den Rest der Nacht tot zu sein.
-        if needsAnalyzerRebuild, Date().timeIntervalSince(lastAnalyzerRebuild) >= 10 {
+        // WATCHDOG zusätzlich zum Fehler-Flag (bindend, nachtbelegt): In einer realen
+        // Nacht kam um 22:38:22 ein FEHLER, aber NIE ein REBUILD — der Flag-Pfad allein
+        // reicht nicht (SoundAnalysis entfernt den Request still / Flag-Sichtbarkeit
+        // über Threads). Deshalb: Ergebnisse kommen normal alle < 1 s — bleiben sie
+        // 120 s aus, obwohl Buffer fließen, wird zwangsweise neu aufgebaut, egal ob
+        // je ein Fehler gemeldet wurde.
+        let silentFor = Date().timeIntervalSince(max(lastResultDate, lastAnalyzerRebuild))
+        let watchdogFired = silentFor >= 120
+        if (needsAnalyzerRebuild || watchdogFired), Date().timeIntervalSince(lastAnalyzerRebuild) >= 10 {
+            let reason = needsAnalyzerRebuild ? "Fehler-Flag" : "Watchdog \(Int(silentFor))s ohne Ergebnis"
             lastAnalyzerRebuild = Date()
             needsAnalyzerRebuild = false
             framePosition = 0
@@ -244,7 +254,7 @@ final class SoundClassificationService: NSObject {
             let f = DateFormatter(); f.dateFormat = "HH:mm:ss"
             if let h = try? FileHandle(forWritingTo: Self.mlLogURL) {
                 h.seekToEndOfFile()
-                if let d = "\(f.string(from: Date())),REBUILD,Analyzer neu aufgebaut\n".data(using: .utf8) { h.write(d) }
+                if let d = "\(f.string(from: Date())),REBUILD,\(reason)\n".data(using: .utf8) { h.write(d) }
                 try? h.close()
             }
         }
@@ -292,6 +302,8 @@ final class SoundClassificationService: NSObject {
     private var framePosition: Int64 = 0
     private var needsAnalyzerRebuild = false
     private var lastAnalyzerRebuild = Date.distantPast
+    /// Zeitpunkt des letzten ML-Ergebnisses — der Watchdog rebuildet bei > 120 s Stille.
+    private var lastResultDate = Date()
 
     // Ruheboden-Schätzung (Decay-Min) + daraus abgeleiteter ML-Verstärkungsfaktor.
     private var floorRMS: Float = 0.001
@@ -382,6 +394,7 @@ final class SoundClassificationService: NSObject {
 @available(iOS 15, *)
 extension SoundClassificationService: SNResultsObserving {
     func request(_ request: SNRequest, didProduce result: SNResult) {
+        lastResultDate = Date()   // Watchdog-Futter: Analyzer lebt
         guard let classifications = result as? SNClassificationResult else { return }
         logTopClasses(classifications)
         let mappings = SoundClassificationService.mappings
