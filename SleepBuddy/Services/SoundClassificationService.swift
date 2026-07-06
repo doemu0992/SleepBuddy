@@ -216,17 +216,38 @@ final class SoundClassificationService: NSObject {
         guard #available(iOS 15, *) else { return }
         do {
             try? "# SLEEPBUDDY ML-LOG — Start \(Date())\n".write(to: Self.mlLogURL, atomically: true, encoding: .utf8)
-            analyzer = SNAudioStreamAnalyzer(format: format)
-            let request = try SNClassifySoundRequest(classifierIdentifier: .version1)
-            request.windowDuration = CMTimeMakeWithSeconds(1.5, preferredTimescale: 44100)
-            request.overlapFactor = 0.75  // more overlap = more frequent results = less missed events
-            try analyzer?.add(request, withObserver: self)
+            try buildAnalyzer(format: format)
         } catch {
             analyzer = nil
         }
     }
 
+    private func buildAnalyzer(format: AVAudioFormat) throws {
+        analyzer = SNAudioStreamAnalyzer(format: format)
+        let request = try SNClassifySoundRequest(classifierIdentifier: .version1)
+        request.windowDuration = CMTimeMakeWithSeconds(1.5, preferredTimescale: 44100)
+        request.overlapFactor = 0.75  // more overlap = more frequent results = less missed events
+        try analyzer?.add(request, withObserver: self)
+    }
+
     func analyze(buffer: AVAudioPCMBuffer, time: AVAudioTime) {
+        // SELBSTHEILUNG (bindend, nachtbelegt): Der Analyzer stirbt beim Bildschirm-
+        // Sperren ("Error during analysis" ~35 s nach Start, danach nachtlang stumm —
+        // vermutlich internes Format-/Route-Update). Nach einem gemeldeten Fehler wird
+        // er hier mit dem AKTUELLEN Buffer-Format neu aufgebaut (gedrosselt, max. alle
+        // 10 s) und die Erkennung läuft weiter, statt für den Rest der Nacht tot zu sein.
+        if needsAnalyzerRebuild, Date().timeIntervalSince(lastAnalyzerRebuild) >= 10 {
+            lastAnalyzerRebuild = Date()
+            needsAnalyzerRebuild = false
+            framePosition = 0
+            try? buildAnalyzer(format: buffer.format)
+            let f = DateFormatter(); f.dateFormat = "HH:mm:ss"
+            if let h = try? FileHandle(forWritingTo: Self.mlLogURL) {
+                h.seekToEndOfFile()
+                if let d = "\(f.string(from: Date())),REBUILD,Analyzer neu aufgebaut\n".data(using: .utf8) { h.write(d) }
+                try? h.close()
+            }
+        }
         guard let analyzer else { return }
         bufferCounter += 1
         guard bufferCounter % analyzeEveryN == 0 else { return }
@@ -269,6 +290,8 @@ final class SoundClassificationService: NSObject {
 
     // Monoton wachsende Analyzer-Position (unabhängig von Route-/Engine-Neustarts).
     private var framePosition: Int64 = 0
+    private var needsAnalyzerRebuild = false
+    private var lastAnalyzerRebuild = Date.distantPast
 
     // Ruheboden-Schätzung (Decay-Min) + daraus abgeleiteter ML-Verstärkungsfaktor.
     private var floorRMS: Float = 0.001
@@ -429,6 +452,7 @@ extension SoundClassificationService: SNResultsObserving {
     }
 
     func request(_ request: SNRequest, didFailWithError error: Error) {
+        needsAnalyzerRebuild = true   // Selbstheilung beim nächsten Buffer (siehe analyze)
         // Fehler sichtbar machen — ein stilles Analyzer-Sterben kostete uns Nächte.
         let f = DateFormatter(); f.dateFormat = "HH:mm:ss"
         let line = "\(f.string(from: Date())),FEHLER,\(error.localizedDescription)\n"
