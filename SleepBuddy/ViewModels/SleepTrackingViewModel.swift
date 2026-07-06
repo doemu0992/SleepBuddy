@@ -1055,6 +1055,31 @@ final class SleepTrackingViewModel {
             }
             i = max(j, i + 1)
         }
+        // Quantisierungs-Artefakt (Sonar-Lag-Familie, nachtbelegt): 93/96/100/103,
+        // von Null-Minuten durchsetzt — zusammenhängende Läufe erreichen nie 15 min,
+        // deshalb ein zweiter Pass über die GEMESSENEN Werte (Nullen überspringen):
+        // ≥ 15 Messwerte, Spannweite ≤ 12 BPM, ≤ 5 diskrete Stufen → Artefakt.
+        // Echter Puls streut über 15+ Messungen kontinuierlich auf mehr Stufen.
+        let idxVals = hr.enumerated().filter { $0.element > 0 }
+        var a = 0
+        while a < idxVals.count {
+            var b = a
+            var lo = idxVals[a].element, hi = idxVals[a].element
+            var steps = Set<Int>()
+            while b < idxVals.count {
+                let v = idxVals[b].element
+                if max(hi, v) - min(lo, v) > 12 { break }
+                lo = min(lo, v); hi = max(hi, v)
+                steps.insert(Int(v.rounded()))
+                b += 1
+            }
+            if b - a >= 15 && steps.count <= 5 {
+                for k in a..<b { hr[idxVals[k].offset] = 0 }
+                changed = true
+                PassAudit.note("HR-Quantisierungs-Artefakt entfernt: \(b - a) Messwerte (\(Int(lo))–\(Int(hi)) BPM)")
+            }
+            a = max(b, a + 1)
+        }
         if changed {
             session.heartRateSamples = hr
             try? modelContext?.save()
