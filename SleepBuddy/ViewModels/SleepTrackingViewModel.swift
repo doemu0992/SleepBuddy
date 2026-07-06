@@ -289,6 +289,9 @@ final class SleepTrackingViewModel {
         // Breathing-based refinement (relative, whole-night): confirm deep, support REM.
         if let ctx = modelContext { applyBreathingRefinement(to: session, context: ctx) }
 
+        // REM-Verfeinerung über Sonar-Atemregularität (Replay-validiert, +4 Pkt bei gutem Sonar).
+        if let ctx = modelContext { applyRegularityRemRefinement(to: session, context: ctx) }
+
         // Redistribute over-allocated deep sleep (circadian: deep is concentrated early).
         applyDeepRedistribution(to: session)
 
@@ -562,6 +565,7 @@ final class SleepTrackingViewModel {
             applyHeartRatePhaseCorrection(to: session)
             applyCycleRemRefinement(to: session)
             applyBreathingRefinement(to: session, context: context)
+            applyRegularityRemRefinement(to: session, context: context)
             applyDeepRedistribution(to: session)
             applyEdgeWakeCorrection(to: session)
             applyBreathingEdgeWake(to: session, context: context)
@@ -791,6 +795,98 @@ final class SleepTrackingViewModel {
             PassAudit.note("BreathingEdgeWake: Morgen-Wach ab Minute \(wakeStart)")
         }
         try? context.save()
+    }
+
+    /// REM-Verfeinerung über die ATEM-REGULARITÄT (Replay-validiert gegen 2 Watch-Nächte):
+    /// Die Sonar-Regularität trennt REM klar von Leichtschlaf (REM ~0.39 vs. Leicht ~0.60),
+    /// während Atemrate/Bewegung REM nicht sehen. Personalisierte Perzentil-Schwellen
+    /// (p35/p65 der Nacht); nur ZUSAMMENHÄNGENDE Blöcke ≥ 8 min:
+    /// (a) Leicht-Block mit anhaltend NIEDRIGER Regularität (+ Puls ≥ Nacht-Median) → REM
+    /// (b) REM-Block mit anhaltend HOHER Regularität → Leicht
+    /// Guard: braucht echte Streuung (p65−p35 ≥ 0.08) — Audio-Regularität klebt bei 1.0
+    /// und deaktiviert die Regel automatisch (Replay: gute Sonar-Nacht +4 Punkte
+    /// Phasen-Übereinstimmung, schwache Nacht exakt neutral).
+    private func applyRegularityRemRefinement(to session: SleepSession, context: ModelContext) {
+        let start = session.startDate
+        let end = session.endDate ?? Date()
+        let totalMin = Int(end.timeIntervalSince(start) / 60)
+        guard totalMin >= 120 else { return }
+        let desc = FetchDescriptor<TrainingSample>(
+            predicate: #Predicate { $0.timestamp >= start && $0.timestamp <= end },
+            sortBy: [SortDescriptor(\.timestamp)]
+        )
+        guard let samples = try? context.fetch(desc), samples.count >= 60 else { return }
+
+        var regSum = [Float](repeating: 0, count: totalMin)
+        var regCnt = [Int](repeating: 0, count: totalMin)
+        for smp in samples where smp.breathingRateBPM > 6 && smp.breathingRateBPM < 30 && smp.breathingRegularity > 0 {
+            let m = Int(smp.timestamp.timeIntervalSince(start) / 60)
+            if m >= 0 && m < totalMin { regSum[m] += smp.breathingRegularity; regCnt[m] += 1 }
+        }
+        func reg(_ m: Int) -> Float { regCnt[m] > 0 ? regSum[m] / Float(regCnt[m]) : 0 }
+        let valid = (0..<totalMin).compactMap { regCnt[$0] > 0 ? reg($0) : nil }.sorted()
+        guard valid.count >= 60 else { return }
+        let p35 = valid[Int(Double(valid.count) * 0.35)]
+        let p65 = valid[Int(Double(valid.count) * 0.65)]
+        guard p65 - p35 >= 0.08 else { return }   // keine Streuung (Audio-Reg) → inaktiv
+
+        let hrs = session.heartRateSamples.filter { $0 >= 40 && $0 <= 110 }.sorted()
+        let hrMed = hrs.count >= 30 ? hrs[hrs.count / 2] : nil
+        func hrAt(_ m: Int) -> Double { m < session.heartRateSamples.count ? session.heartRateSamples[m] : 0 }
+
+        let phases = session.phasesArray.sorted { $0.startDate < $1.startDate }
+        func phaseAt(_ m: Int) -> SleepPhaseType? {
+            let t = start.addingTimeInterval(Double(m) * 60 + 30)
+            return phases.first(where: { $0.startDate <= t && t < $0.endDate })?.phaseType
+        }
+        // Kandidaten-Masken
+        var toREM = [Bool](repeating: false, count: totalMin)
+        var toLight = [Bool](repeating: false, count: totalMin)
+        for m in 0..<totalMin {
+            guard regCnt[m] > 0 else { continue }
+            let p = phaseAt(m)
+            if p == .light, reg(m) <= p35,
+               hrMed == nil || hrAt(m) == 0 || hrAt(m) >= hrMed! {
+                toREM[m] = true
+            } else if p == .rem, reg(m) >= p65 {
+                toLight[m] = true
+            }
+        }
+        // Nur zusammenhängende Blöcke ≥ 8 min umtypen (via markiere + Phasen-Splitting
+        // wäre schwer — stattdessen bestehende Phasen minutenweise neu gruppieren wie
+        // in rebuild: hier konservativ ganze Kandidaten-Blöcke über markAwake-ähnliche
+        // Phase-Retypisierung: wir nutzen die vorhandene Phasenliste und retypen nur
+        // Phasen, deren Minuten mehrheitlich im Block liegen).
+        func apply(_ mask: [Bool], to newType: SleepPhaseType, from oldType: SleepPhaseType) -> Int {
+            var changed = 0
+            var i = 0
+            while i < totalMin {
+                if mask[i] {
+                    var j = i
+                    while j < totalMin && mask[j] { j += 1 }
+                    if j - i >= 8 {
+                        let bs = start.addingTimeInterval(Double(i) * 60)
+                        let be = start.addingTimeInterval(Double(j) * 60)
+                        for ph in phases where ph.phaseType == oldType {
+                            let os = max(ph.startDate, bs), oe = min(ph.endDate, be)
+                            let overlap = oe.timeIntervalSince(os)
+                            if overlap > 0, overlap >= ph.endDate.timeIntervalSince(ph.startDate) * 0.6 {
+                                ph.phaseType = newType
+                                changed += 1
+                            }
+                        }
+                    }
+                    i = j
+                } else { i += 1 }
+            }
+            return changed
+        }
+        let promoted = apply(toREM, to: .rem, from: .light)
+        let demoted = apply(toLight, to: .light, from: .rem)
+        if promoted + demoted > 0 {
+            PassAudit.note("RegularityREM: \(promoted) Phasen Leicht→REM, \(demoted) REM→Leicht (p35=\(String(format: "%.2f", p35)), p65=\(String(format: "%.2f", p65)))")
+            try? context.save()
+        }
     }
 
     /// Ab dem Wecker-Klingeln ist der Nutzer wach — deterministisch, kein Sensor nötig.
