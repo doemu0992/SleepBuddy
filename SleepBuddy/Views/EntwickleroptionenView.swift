@@ -451,8 +451,13 @@ struct EntwickleroptionenView: View {
             // Persönliche Schlafarchitektur aus der Watch lernen (EMA über Nächte):
             // REM-/Tief-Anteil und REM-Latenz — Priors für Zyklusmodell + Umverteilung.
             let watchSleep = both - (wCount[.awake] ?? 0)
-            if watchSleep >= 200 {
+            // Nur EINMAL pro Nacht lernen — mehrfache Vergleiche derselben Nacht würden
+            // die EMA-Budgets wiederholt verschieben und den Nacht-Zähler aufblähen
+            // (real beobachtet: Ergebnis schwankte 55 % → 50 % zwischen Läufen).
+            let learnKey = Int(session.startDate.timeIntervalSince1970)
+            if watchSleep >= 200, UserDefaults.standard.integer(forKey: "cal_watchLastLearned") != learnKey {
                 let ud = UserDefaults.standard
+                ud.set(learnKey, forKey: "cal_watchLastLearned")
                 func ema(_ key: String, _ v: Double) {
                     let old = ud.double(forKey: key)
                     ud.set(old <= 0 ? v : old * 0.7 + v * 0.3, forKey: key)
