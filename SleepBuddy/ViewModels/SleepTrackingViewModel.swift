@@ -528,7 +528,15 @@ final class SleepTrackingViewModel {
         // Ambient noise: accumulate amplitude and store one dB sample per minute
         noiseAccumulator.append(audio.averageAmplitude)
         if Date().timeIntervalSince(lastNoiseSampleDate) >= 60, let session = currentSession {
-            let avg = noiseAccumulator.reduce(0, +) / max(Float(noiseAccumulator.count), 1)
+            var avg = noiseAccumulator.reduce(0, +) / max(Float(noiseAccumulator.count), 1)
+            // Sonar-Kompensation: Der 19-kHz-Ton lässt die Mikrofon-Hardware die
+            // Empfindlichkeit um ~10–12 dB absenken → die dB-Kurve klebt bei ~15 dB
+            // (real beobachtet, Matratze). Der ML-Pfad misst diese Dämpfung bereits
+            // über den Ruheboden (adaptiveGain, Referenz ×8 ohne Sonar) — derselbe
+            // Faktor hebt die dB-Skala zurück auf das Nicht-Sonar-Niveau.
+            if sonarEnabled {
+                avg *= max(soundClassifier.adaptiveGain / 8.0, 1.0)
+            }
             let db = max(0, min(120, 20.0 * log10(max(Double(avg), 1e-6)) + 90.0))
             session.noiseSamples.append(db)
             noiseAccumulator.removeAll()

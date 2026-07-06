@@ -309,7 +309,7 @@ final class SoundClassificationService: NSObject {
 
     // Ruheboden-Schätzung (Decay-Min) + daraus abgeleiteter ML-Verstärkungsfaktor.
     private var floorRMS: Float = 0.001
-    private var adaptiveGain: Float = 8.0
+    private(set) var adaptiveGain: Float = 8.0
 
     // ML-Klassen-Log: Top-3 Apple-Klassen alle ~30 s (Debug: sieht das Modell z.B.
     // "snoring" knapp unter der Schwelle oder gar nichts?). Datei wird bei start()
