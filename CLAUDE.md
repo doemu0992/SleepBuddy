@@ -396,7 +396,7 @@ Score 0–100, zusammengesetzt aus:
 |-----------|-----|-----------|
 | Dauer | 50 | `actualSleep / zielStunden * 50` (capped) |
 | Effizienz | 30 | `(efficiency - 0.50) / 0.40 * 30` (ab 50% linear bis 90%) |
-| Unterbrechungen | 20 | `(1 - min(postOnsetAwakeMin / 45, 1)) * 20` |
+| Unterbrechungen | 20 | `(1 - min(postOnsetAwakeMin / 90, 1)) * 20` — `postOnsetAwakeMinutes(for:)` schließt die **terminale Morgen-Wachphase aus** (Aufstehen ≠ Unterbrechung; wird schon über Dauer + Effizienz bewertet). /90 statt /45 — Null-Punkte nur bei echter Fragmentierung (Apple-Vergleich: 66 vs. 91 kam v.a. aus dieser Doppelbestrafung) |
 
 ```swift
 // Statische Methode — von überall aufrufbar

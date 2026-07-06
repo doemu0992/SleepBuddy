@@ -18,18 +18,22 @@ struct SchlafindexView: View {
         let efficiency = total > 0 ? actualSleep / total : 0
         let effizienzScore = Int(max(0, min((efficiency - 0.50) / 0.40, 1.0)) * 30)
 
-        // Unterbrechungen: nur Wachphasen NACH dem Einschlafen
-        let postOnsetAwakeMin: Double
-        if let onset = session.sleepOnsetDate {
-            postOnsetAwakeMin = session.phasesArray
-                .filter { $0.phaseType == .awake && $0.startDate >= onset }
-                .reduce(0.0) { $0 + $1.duration } / 60
-        } else {
-            postOnsetAwakeMin = session.awakeDuration / 60
-        }
-        let unterbrechungsScore = Int((1 - min(postOnsetAwakeMin / 45, 1.0)) * 20)
+        let unterbrechungsScore = Int((1 - min(Self.postOnsetAwakeMinutes(for: session) / 90, 1.0)) * 20)
 
         return dauerScore + effizienzScore + unterbrechungsScore
+    }
+
+    // Unterbrechungen: Wachphasen NACH dem Einschlafen, OHNE die terminale
+    // Morgen-Wachphase (Aufstehen vor Tracker-Stopp ist keine Schlafunterbrechung —
+    // sie wird bereits über Dauer + Effizienz bewertet)
+    static func postOnsetAwakeMinutes(for session: SleepSession) -> Double {
+        let sorted = session.phasesArray.sorted { $0.startDate < $1.startDate }
+        guard let onset = session.sleepOnsetDate else { return session.awakeDuration / 60 }
+        var awake = sorted.filter { $0.phaseType == .awake && $0.startDate >= onset }
+        if let last = sorted.last, last.phaseType == .awake, awake.last === last {
+            awake.removeLast()
+        }
+        return awake.reduce(0.0) { $0 + $1.duration } / 60
     }
 
     // Sub-scores: Dauer /50 + Effizienz /30 + Unterbrechungen /20 = 100
@@ -51,16 +55,11 @@ struct SchlafindexView: View {
     }
 
     private var postOnsetAwakeMinutes: Double {
-        if let onset = session.sleepOnsetDate {
-            return session.phasesArray
-                .filter { $0.phaseType == .awake && $0.startDate >= onset }
-                .reduce(0.0) { $0 + $1.duration } / 60
-        }
-        return session.awakeDuration / 60
+        Self.postOnsetAwakeMinutes(for: session)
     }
 
     private var unterbrechungsScore: Int {
-        Int((1 - min(postOnsetAwakeMinutes / 45, 1.0)) * 20)
+        Int((1 - min(postOnsetAwakeMinutes / 90, 1.0)) * 20)
     }
 
     private var score: Int { dauerScore + effizienzScore + unterbrechungsScore }
