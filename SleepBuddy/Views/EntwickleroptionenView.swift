@@ -376,19 +376,30 @@ struct EntwickleroptionenView: View {
             // plus echter Watch-Puls (welche Puls-Signatur haben die ECHTEN Phasen —
             // und wo weicht unsere gespeicherte BCG/Sonar-Reihe vom echten Puls ab?)
             // und unsere gespeicherte HR-Reihe zum direkten Vergleich.
-            let watchHRSeries = await hk.readHeartRateSeries(from: session.startDate, to: sEnd)
-            var hrByMin: [Int: Double] = [:]
-            for (d, bpm) in watchHRSeries {
-                let m = Int(d.timeIntervalSince(session.startDate) / 60)
-                hrByMin[m] = bpm   // letzter Wert der Minute genügt
+            // Watch-Ground-Truth-Serien: Puls, Atemfrequenz, SpO₂, HRV. Alles pro
+            // Minute neben die Phasen — Basis für Signatur-Analysen und HMM-Training.
+            func byMinute(_ series: [(date: Date, value: Double)]) -> [Int: Double] {
+                var out: [Int: Double] = [:]
+                for (d, v) in series {
+                    out[Int(d.timeIntervalSince(session.startDate) / 60)] = v
+                }
+                return out
             }
-            var refCSV = "# WATCH-REFERENZ \(session.startDate)\nminute,watch,app,watch_hr,app_hr\n"
+            let hrByMin = byMinute(await hk.readHeartRateSeries(from: session.startDate, to: sEnd)
+                .map { (date: $0.date, value: $0.bpm) })
+            let atemByMin = byMinute(await hk.readRespiratorySeries(from: session.startDate, to: sEnd))
+            let spo2ByMin = byMinute(await hk.readSpO2Series(from: session.startDate, to: sEnd))
+            let hrvByMin = byMinute(await hk.readHRVSeries(from: session.startDate, to: sEnd))
+            func fmt(_ v: Double?, _ format: String = "%.0f") -> String {
+                v.map { String(format: format, $0) } ?? "-"
+            }
+            var refCSV = "# WATCH-REFERENZ \(session.startDate)\nminute,watch,app,watch_hr,app_hr,watch_atem,watch_spo2,watch_hrv\n"
             var tt = session.startDate; var mi = 0
             while tt < sEnd {
-                let whr = hrByMin[mi].map { String(format: "%.0f", $0) } ?? "-"
                 let ahr = mi < session.heartRateSamples.count && session.heartRateSamples[mi] > 0
                     ? String(format: "%.0f", session.heartRateSamples[mi]) : "-"
-                refCSV += "\(mi),\(watchPhase(tt)?.rawValue ?? "-"),\(ourPhase(tt)?.rawValue ?? "-"),\(whr),\(ahr)\n"
+                refCSV += "\(mi),\(watchPhase(tt)?.rawValue ?? "-"),\(ourPhase(tt)?.rawValue ?? "-"),"
+                refCSV += "\(fmt(hrByMin[mi])),\(ahr),\(fmt(atemByMin[mi], "%.1f")),\(fmt(spo2ByMin[mi])),\(fmt(hrvByMin[mi]))\n"
                 tt = tt.addingTimeInterval(60); mi += 1
             }
             let refURL = FeatureNightLog.logDirectory.appendingPathComponent("WatchRef.csv")

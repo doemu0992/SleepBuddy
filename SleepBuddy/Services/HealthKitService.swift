@@ -9,6 +9,7 @@ final class HealthKitService {
     private let hrType     = HKObjectType.quantityType(forIdentifier: .heartRate)!
     private let hrvType    = HKObjectType.quantityType(forIdentifier: .heartRateVariabilitySDNN)!
     private let spo2Type   = HKObjectType.quantityType(forIdentifier: .oxygenSaturation)!
+    private let respType   = HKObjectType.quantityType(forIdentifier: .respiratoryRate)!
 
     var isAuthorized: Bool {
         guard HKHealthStore.isHealthDataAvailable() else { return false }
@@ -29,7 +30,7 @@ final class HealthKitService {
         guard HKHealthStore.isHealthDataAvailable() else { return }
         try? await store.requestAuthorization(
             toShare: [sleepType],
-            read: [hrType, hrvType, spo2Type, sleepType]
+            read: [hrType, hrvType, spo2Type, respType, sleepType]
         )
     }
 
@@ -97,6 +98,42 @@ final class HealthKitService {
             }
             store.execute(q)
         }
+    }
+
+    /// Generische Quantity-Serie für ein Zeitfenster (Watch-Ground-Truth-Exporte).
+    private func readQuantitySeries(_ type: HKQuantityType, unit: HKUnit,
+                                    from start: Date, to end: Date) async -> [(date: Date, value: Double)] {
+        guard HKHealthStore.isHealthDataAvailable() else { return [] }
+        return await withCheckedContinuation { continuation in
+            let pred = HKQuery.predicateForSamples(withStart: start, end: end)
+            let q = HKSampleQuery(
+                sampleType: type, predicate: pred, limit: HKObjectQueryNoLimit,
+                sortDescriptors: [NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: true)]
+            ) { _, samples, _ in
+                let out = (samples as? [HKQuantitySample] ?? []).map {
+                    (date: $0.startDate, value: $0.quantity.doubleValue(for: unit))
+                }
+                continuation.resume(returning: out)
+            }
+            store.execute(q)
+        }
+    }
+
+    /// Atemfrequenz-Serie (Watch misst im Schlaf ~1 Wert/min) — Ground Truth für
+    /// Sonar-/Accelerometer-Atmung und die Atem-basierten Korrektur-Pässe.
+    func readRespiratorySeries(from start: Date, to end: Date) async -> [(date: Date, value: Double)] {
+        await readQuantitySeries(respType, unit: HKUnit.count().unitDivided(by: .minute()), from: start, to: end)
+    }
+
+    /// SpO₂-Serie (Series 6+, periodische Nachtmessungen) in Prozent 0–100.
+    func readSpO2Series(from start: Date, to end: Date) async -> [(date: Date, value: Double)] {
+        (await readQuantitySeries(spo2Type, unit: .percent(), from: start, to: end))
+            .map { (date: $0.date, value: $0.value * 100) }
+    }
+
+    /// HRV-Serie (SDNN, ms) — nachts nur sporadisch, als Zusatzspalte trotzdem nützlich.
+    func readHRVSeries(from start: Date, to end: Date) async -> [(date: Date, value: Double)] {
+        await readQuantitySeries(hrvType, unit: .secondUnit(with: .milli), from: start, to: end)
     }
 
     // MARK: - Heart Rate for a time window
