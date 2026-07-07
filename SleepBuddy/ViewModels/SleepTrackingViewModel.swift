@@ -635,7 +635,8 @@ final class SleepTrackingViewModel {
             var bilanz: [String] = []
             func snap(_ label: String) {
                 if let ref = watchRef, let pct = stageAgreementPct(session, ref: ref) {
-                    bilanz.append("\(label) \(pct)%")
+                    let wMin = Int(session.awakeDuration / 60)
+                    bilanz.append("\(label) \(pct)%/\(wMin)W")
                 }
             }
             cleanHeartRateFlatlines(session)
@@ -1073,7 +1074,10 @@ final class SleepTrackingViewModel {
                 steps.insert(Int(v.rounded()))
                 b += 1
             }
-            if b - a >= 15 && steps.count <= 5 {
+            // NUR im Hochpuls-Band (≥ 85): die Artefakt-Familie liegt bei 93–103.
+            // Echter stabiler Schlafpuls (54–63 über sparse Watch-Messungen) erfüllt
+            // die Stufen-Signatur ebenfalls — der wurde real fälschlich gelöscht.
+            if b - a >= 15 && steps.count <= 5 && lo >= 85 {
                 for k in a..<b { hr[idxVals[k].offset] = 0 }
                 changed = true
                 PassAudit.note("HR-Quantisierungs-Artefakt entfernt: \(b - a) Messwerte (\(Int(lo))–\(Int(hi)) BPM)")

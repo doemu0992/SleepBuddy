@@ -223,12 +223,41 @@ final class SoundClassificationService: NSObject {
         }
     }
 
+    // KANONISCHES FORMAT (bindend, nachtbelegt): Der Analyzer stirbt beim Sperren mit
+    // "Error during analysis" DAUERHAFT — 2705 Rebuilds mit buffer.format halfen nicht
+    // (das Format-Objekt der Tap-Buffer beschreibt nach dem Route-Wechsel offenbar nicht
+    // mehr die echten Daten). Deshalb: JEDER Buffer wird per AVAudioConverter auf ein
+    // festes 16-kHz-Mono-Format gebracht; der Analyzer wird einmal damit gebaut und ist
+    // gegen Route-/Format-Wechsel immun. 16 kHz genügt dem Klassifikator (Sprachband).
+    private let canonicalFormat = AVAudioFormat(standardFormatWithSampleRate: 16_000, channels: 1)!
+    private var converter: AVAudioConverter?
+    private var converterInFormat: AVAudioFormat?
+
     private func buildAnalyzer(format: AVAudioFormat) throws {
-        analyzer = SNAudioStreamAnalyzer(format: format)
+        analyzer = SNAudioStreamAnalyzer(format: canonicalFormat)
         let request = try SNClassifySoundRequest(classifierIdentifier: .version1)
         request.windowDuration = CMTimeMakeWithSeconds(1.5, preferredTimescale: 44100)
         request.overlapFactor = 0.75  // more overlap = more frequent results = less missed events
         try analyzer?.add(request, withObserver: self)
+    }
+
+    /// Konvertiert einen Buffer ins kanonische 16-kHz-Mono-Format (nil bei Fehler).
+    private func canonical(_ buffer: AVAudioPCMBuffer) -> AVAudioPCMBuffer? {
+        if converter == nil || converterInFormat != buffer.format {
+            converter = AVAudioConverter(from: buffer.format, to: canonicalFormat)
+            converterInFormat = buffer.format
+        }
+        guard let converter else { return nil }
+        let ratio = canonicalFormat.sampleRate / buffer.format.sampleRate
+        let capacity = AVAudioFrameCount(Double(buffer.frameLength) * ratio) + 32
+        guard let out = AVAudioPCMBuffer(pcmFormat: canonicalFormat, frameCapacity: capacity) else { return nil }
+        var fed = false
+        var err: NSError?
+        converter.convert(to: out, error: &err) { _, status in
+            if fed { status.pointee = .noDataNow; return nil }
+            fed = true; status.pointee = .haveData; return buffer
+        }
+        return (err == nil && out.frameLength > 0) ? out : nil
     }
 
     func analyze(buffer: AVAudioPCMBuffer, time: AVAudioTime) {
@@ -245,7 +274,10 @@ final class SoundClassificationService: NSObject {
         // je ein Fehler gemeldet wurde.
         let silentFor = Date().timeIntervalSince(max(lastResultDate, lastAnalyzerRebuild))
         let watchdogFired = silentFor >= 120
-        if (needsAnalyzerRebuild || watchdogFired), Date().timeIntervalSince(lastAnalyzerRebuild) >= 10 {
+        // Backoff: scheitern Rebuilds in Serie (Fehler kommt sofort wieder), Intervall
+        // verdoppeln (10 s … 10 min) — 2705 nutzlose Rebuilds/Nacht kosten nur Akku.
+        let rebuildInterval = min(10.0 * pow(2.0, Double(consecutiveFailedRebuilds)), 600.0)
+        if (needsAnalyzerRebuild || watchdogFired), Date().timeIntervalSince(lastAnalyzerRebuild) >= rebuildInterval {
             let reason = needsAnalyzerRebuild ? "Fehler-Flag" : "Watchdog \(Int(silentFor))s ohne Ergebnis"
             lastAnalyzerRebuild = Date()
             needsAnalyzerRebuild = false
@@ -285,6 +317,9 @@ final class SoundClassificationService: NSObject {
             }
         }
         let boosted = Self.applyGain(buffer, gain: adaptiveGain) ?? buffer
+        // Ins kanonische 16-kHz-Mono-Format konvertieren (siehe buildAnalyzer) —
+        // schützt den Analyzer vor Route-/Format-Wechseln beim Sperren.
+        guard let canon = canonical(boosted) else { return }
         // EIGENER monotoner Positionszähler statt time.sampleTime (bindend, nachtbelegt):
         // Beim Bildschirm-Sperren rekonfiguriert sich die Audio-Route und der Tap-Zähler
         // kann zurückspringen. SNAudioStreamAnalyzer verlangt streng monotone Positionen
@@ -292,9 +327,9 @@ final class SoundClassificationService: NSObject {
         // bewies es: letzte Ergebnisse ~35 s nach Start (Sperren), danach die ganze Nacht
         // nichts, auf beiden Geräten. Events gab es nur bei Bildschirm-an (Start/Wecker).
         let pos = framePosition
-        framePosition += Int64(buffer.frameLength)
+        framePosition += Int64(canon.frameLength)
         analysisQueue.async {
-            analyzer.analyze(boosted, atAudioFramePosition: pos)
+            analyzer.analyze(canon, atAudioFramePosition: pos)
         }
     }
 
@@ -302,6 +337,8 @@ final class SoundClassificationService: NSObject {
     private var framePosition: Int64 = 0
     private var needsAnalyzerRebuild = false
     private var lastAnalyzerRebuild = Date.distantPast
+    /// Anzahl direkt hintereinander gescheiterter Rebuilds (Fehler < 60 s danach) — Backoff.
+    private var consecutiveFailedRebuilds = 0
     /// Zeitpunkt des letzten ML-Ergebnisses — der Watchdog rebuildet bei > 120 s Stille.
     private var lastResultDate = Date()
     /// Selbsttest: kamen in den letzten 2 min ML-Ergebnisse?
@@ -397,6 +434,7 @@ final class SoundClassificationService: NSObject {
 extension SoundClassificationService: SNResultsObserving {
     func request(_ request: SNRequest, didProduce result: SNResult) {
         lastResultDate = Date()   // Watchdog-Futter: Analyzer lebt
+        consecutiveFailedRebuilds = 0
         guard let classifications = result as? SNClassificationResult else { return }
         logTopClasses(classifications)
         let mappings = SoundClassificationService.mappings
@@ -468,6 +506,8 @@ extension SoundClassificationService: SNResultsObserving {
 
     func request(_ request: SNRequest, didFailWithError error: Error) {
         needsAnalyzerRebuild = true   // Selbstheilung beim nächsten Buffer (siehe analyze)
+        // Fehler kurz nach einem Rebuild = Rebuild wirkungslos → Backoff hochzählen.
+        if Date().timeIntervalSince(lastAnalyzerRebuild) < 60 { consecutiveFailedRebuilds += 1 }
         // Fehler sichtbar machen — ein stilles Analyzer-Sterben kostete uns Nächte.
         let f = DateFormatter(); f.dateFormat = "HH:mm:ss"
         let line = "\(f.string(from: Date())),FEHLER,\(error.localizedDescription)\n"
