@@ -1936,8 +1936,16 @@ final class SleepTrackingViewModel {
         // Terminal awake: if the session is long (> 5 h) and the final phase is not already
         // awake, the user was very likely lying still in bed before stopping the tracker.
         // Reclassify the last 15 minutes as awake to capture this "resting in bed" period.
+        // ALARM-GATE (wie EdgeWake, watch-validiert): Hat der Wecker geweckt, schlief
+        // der Nutzer bis zum Klingeln — die 15-min-Pauschale zeichnete sonst genau
+        // das Falsch-Wach wieder ein, das das EdgeWake-Gate entfernt hatte (+15W real).
+        let alarmWoke: Bool = {
+            guard let fired = session.alarmFiredDate, let e = session.endDate else { return false }
+            return e.timeIntervalSince(fired) < 180
+        }()
         let sorted2 = session.phasesArray.sorted { $0.startDate < $1.startDate }
-        if session.totalDuration > 5 * 3600,
+        if !alarmWoke,
+           session.totalDuration > 5 * 3600,
            let lastPhase = sorted2.last,
            lastPhase.phaseType != .awake,
            let end = session.endDate {
