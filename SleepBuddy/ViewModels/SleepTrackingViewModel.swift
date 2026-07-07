@@ -1454,9 +1454,11 @@ final class SleepTrackingViewModel {
         // Learn personal breathing baseline, then blend night + personal for stability.
         let cal = PersonalCalibrationService.shared
         cal.updateBreathBaseline(slowRate: nSlow, regHigh: nRegHigh, regLow: nRegLow)
+        // Baseline-Werte >= 0.9 sind aus der Pin-Ära gelernt (real: 0.9999/0.958) —
+        // ignorieren, bis die EMA mit pin-freien Nächten neu gelernt hat.
         let slowRate = cal.brSlowRate.map { 0.5 * $0 + 0.5 * nSlow } ?? nSlow
-        let regHigh  = cal.brRegHigh.map  { 0.5 * $0 + 0.5 * nRegHigh } ?? nRegHigh
-        let regLow   = cal.brRegLow.map   { 0.5 * $0 + 0.5 * nRegLow } ?? nRegLow
+        let regHigh  = (cal.brRegHigh.flatMap { $0 < 0.9 ? $0 : nil }).map { 0.5 * $0 + 0.5 * nRegHigh } ?? nRegHigh
+        let regLow   = (cal.brRegLow.flatMap  { $0 < 0.9 ? $0 : nil }).map { 0.5 * $0 + 0.5 * nRegLow } ?? nRegLow
 
         let L = Double(detectCycleLength(session))
         let onsetMin = session.sleepOnsetDate.map { $0.timeIntervalSince(start) / 60 } ?? 0
