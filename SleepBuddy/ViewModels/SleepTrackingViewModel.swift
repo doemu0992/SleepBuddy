@@ -1573,11 +1573,21 @@ final class SleepTrackingViewModel {
         let extendThreshold = max(sleepMedian + 3.0, 60.0)
         let manualStop = session.alarmFiredDate == nil
 
+        // ALARM-GATE (bindend, watch-validiert): Hat der Wecker den Nutzer geweckt
+        // (alarmFiredDate ≈ Session-Ende), gab es VOR dem Alarm kein Morgen-Wach —
+        // er hat bis zum Klingeln geschlafen (Watch: REM bis zur letzten Minute; die
+        // Rückwärts-Erweiterung zeichnete trotzdem bis zu 30 min Falsch-Wach).
+        let alarmWokeUser: Bool = {
+            guard let fired = session.alarmFiredDate, let end = session.endDate else { return false }
+            return end.timeIntervalSince(fired) < 180
+        }()
         // Wake detected if any of the last 4 measured minutes are clearly elevated,
         // or the BCG signal dropped out in the last 2 min (≈ got up / moved).
-        var morningDetected = (sessionMaxMin - maxIdx) >= 2
-        for i in stride(from: maxIdx, through: max(0, maxIdx - 4), by: -1) {
-            if let hr = hrByMin[i], hr >= awakeHR { morningDetected = true; break }
+        var morningDetected = !alarmWokeUser && (sessionMaxMin - maxIdx) >= 2
+        if !alarmWokeUser {
+            for i in stride(from: maxIdx, through: max(0, maxIdx - 4), by: -1) {
+                if let hr = hrByMin[i], hr >= awakeHR { morningDetected = true; break }
+            }
         }
 
         var morningStart: Int? = nil
@@ -1748,10 +1758,20 @@ final class SleepTrackingViewModel {
         guard let samples = try? context.fetch(desc), !samples.isEmpty else { return }
         let totalMin = max(1, Int(end.timeIntervalSince(start) / 60))
         var rawMove = [Float](repeating: 0, count: totalMin)
+        // Minuten-MINIMUM zusätzlich: eine Minute gilt nur als "erhöht", wenn BEIDE
+        // 30-s-Messungen über der Schwelle liegen (Ganz-Minuten-Bewegung). REM-Zuckungen
+        // sind halbe-Minuten-Spitzen (0.5–1.0 für ein Sample, danach still) — echtes
+        // Aufstehen/Wälzen ist durchgängig. Watch-validiert (2 Nächte): die alte
+        // Nur-Max-Zählung erzeugte 46–48 Falsch-Wach-Minuten AUF Watch-REM-Blöcken.
+        var rawMoveMin = [Float](repeating: -1, count: totalMin)
         for s in samples {
             let m = Int(s.timestamp.timeIntervalSince(start) / 60)
-            if m >= 0 && m < totalMin { rawMove[m] = max(rawMove[m], s.movementIntensity) }
+            if m >= 0 && m < totalMin {
+                rawMove[m] = max(rawMove[m], s.movementIntensity)
+                rawMoveMin[m] = rawMoveMin[m] < 0 ? s.movementIntensity : min(rawMoveMin[m], s.movementIntensity)
+            }
         }
+        for m in 0..<totalMin where rawMoveMin[m] < 0 { rawMoveMin[m] = 0 }
 
         // Actigraphy (Cole-Kripke-inspired): weight each minute by its neighbours so
         // a movement event counts across its surroundings, not just one isolated bin.
@@ -1778,7 +1798,9 @@ final class SleepTrackingViewModel {
         // movementIntensity hebt den Grundpegel; eine Deckelung (früher 0.30) lag dann UNTER
         // dem Median → praktisch alles galt als „erhöht" → massive Falsch-Wach (39 % beobachtet).
         // Schwellen skalieren jetzt mit dem tatsächlichen Nacht-Niveau.
-        let elevated: Float = max(baseline * 2.5, 0.12) * pf   // klar über dem Ruhe-Niveau
+        // Floor 0.20 (war 0.12): 0.12 lag unter typischen REM-Twitch-Spitzen; mit dem
+        // Ganz-Minuten-Kriterium + 0.20 sind beide Watch-Nächte falsch-wach-frei.
+        let elevated: Float = max(baseline * 2.5, 0.20) * pf   // klar über dem Ruhe-Niveau
         let strong:   Float = max(p90 * 1.3, baseline * 4.0, 0.40) * pf   // starker Einzel-Spike
         var changed = false
         var i = 0
@@ -1792,7 +1814,14 @@ final class SleepTrackingViewModel {
                 // a single turn-over spike into a 3–5 min "elevated" run, which made the
                 // smoothed run length alone always pass. A turn-over has 1–2 raw elevated
                 // minutes; getting up (toilet) has several — only the latter is a wake.
-                let rawElev = (i..<j).filter { rawMove[$0] > elevated }.count
+                // KONSEKUTIV + GANZE MINUTEN (bindend, watch-validiert): verstreute
+                // Zuckungen über einen verschmierten Lauf zählten sonst zusammen.
+                var best = 0, cur = 0
+                for k in i..<j {
+                    cur = (rawMove[k] > elevated && rawMoveMin[k] > elevated) ? cur + 1 : 0
+                    best = max(best, cur)
+                }
+                let rawElev = best
                 if runLen >= 3 && rawElev >= 3 {
                     markAwake(in: session, fromMinute: i, toMinute: j)
                     changed = true
@@ -1815,7 +1844,7 @@ final class SleepTrackingViewModel {
             let hi = min(totalMin, m + windowLen)
             // RAW minutes — smoothed counting let two turn-over spikes (smeared to
             // ~5 min each) fill the window and flag calm sleep as restless.
-            let active = (m..<hi).filter { rawMove[$0] > elevated }.count
+            let active = (m..<hi).filter { rawMove[$0] > elevated && rawMoveMin[$0] > elevated }.count
             let hasStrong = (m..<hi).contains { rawMove[$0] > strong }
             if active >= minActive && hasStrong {
                 markAwake(in: session, fromMinute: m, toMinute: hi)
