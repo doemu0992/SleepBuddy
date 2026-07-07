@@ -1433,7 +1433,12 @@ final class SleepTrackingViewModel {
         var regSum  = [Double](repeating: 0, count: totalMin)
         var cnt     = [Int](repeating: 0, count: totalMin)
         for s in samples {
-            guard s.breathingRateBPM > 5, s.breathingRateBPM < 35, s.breathingRegularity > 0 else { continue }
+            // reg >= 0.95 = Audio-Pin-Signatur (sättigt auf 1.0) → "nicht gemessen".
+            // Ohne den Filter verschieben die Pins die Perzentile (regHigh → ~1.0) und
+            // der Pass verfeinert mit Phantom-Schwellen (Pass-Bilanz: −7 Punkte real).
+            // Identischer Fix wie in applyRegularityRemRefinement (bindend).
+            guard s.breathingRateBPM > 5, s.breathingRateBPM < 35,
+                  s.breathingRegularity > 0, s.breathingRegularity < 0.95 else { continue }
             let m = Int(s.timestamp.timeIntervalSince(start) / 60)
             if m >= 0 && m < totalMin {
                 rateSum[m] += Double(s.breathingRateBPM); regSum[m] += Double(s.breathingRegularity); cnt[m] += 1
