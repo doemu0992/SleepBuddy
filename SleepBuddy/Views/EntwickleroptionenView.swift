@@ -561,6 +561,11 @@ struct EntwickleroptionenView: View {
             }
             let vm = SleepTrackingViewModel()
             let n = vm.reapplyPhaseCorrections(to: sessions, context: modelContext)
+            // Clip-Nachklassifikation (async, im Hintergrund) — nur die letzten 3 Nächte,
+            // sonst blockieren alte Testdaten-Clips das Neuberechnen minutenlang.
+            let recent = sessions.filter { !$0.isActive }
+                .sorted { $0.startDate > $1.startDate }.prefix(3)
+            for s in recent { await vm.classifyClipsPostHoc(s) }
             phasenLaeuft = false
             phasenErgebnis = n > 0
                 ? "\(n) Nacht/Nächte neu berechnet (\(backfilled) mit Watch-Puls aus HealthKit)."

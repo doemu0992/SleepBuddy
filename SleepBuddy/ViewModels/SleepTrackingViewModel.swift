@@ -365,7 +365,7 @@ final class SleepTrackingViewModel {
 
         // Optional (Beta-Toggle): probabilistischer Gesamtnacht-Glätter als letzter Pass.
         if let ctx = modelContext { applyHMMSmoothing(to: session, context: ctx) }
-        classifyClipsPostHoc(session)
+        await classifyClipsPostHoc(session)
 
         // Onset NACH allen Pässen neu ableiten — die Pässe können die Abend-Wachphase
         // verändert haben; eine veraltete Latenz verfälscht Anzeige UND Zyklus-Pässe.
@@ -655,7 +655,6 @@ final class SleepTrackingViewModel {
             applyAlarmWake(to: session)
             applyPlausibilityCorrection(to: session); snap("Final")
             applyHMMSmoothing(to: session, context: context)
-            classifyClipsPostHoc(session)
             session.sleepOnsetDate = session.phasesArray
                 .sorted { $0.startDate < $1.startDate }
                 .first(where: { $0.phaseType != .awake })?.startDate ?? session.sleepOnsetDate
@@ -672,14 +671,26 @@ final class SleepTrackingViewModel {
     /// Sperrzustand — die gespeicherten 30-s-Clips werden deshalb nachträglich
     /// (Stopp/Neuberechnen, Gerät entsperrt) klassifiziert und die Events benannt.
     /// Nutzer-Korrekturen werden nie überschrieben.
-    private func classifyClipsPostHoc(_ session: SleepSession) {
-        var renamed = 0
+    /// ASYNC (bindend): SNAudioFileAnalyzer.analyze() ist synchron und CPU-lastig —
+    /// auf dem Main-Thread fror das Neuberechnen bei vielen Clips minutenlang ein
+    /// (real gemeldet: "Neu berechnen hängt"). Analyse pro Clip via Task.detached,
+    /// Deckel 40 Clips pro Lauf.
+    func classifyClipsPostHoc(_ session: SleepSession) async {
+        var pairs: [(SleepSoundEvent, URL)] = []
         for event in session.soundEventsArray where !event.isUserCorrected {
             guard event.type == .other || event.type == .ambient,
                   let fn = event.iCloudFileName,
                   let url = Self.resolveClipURL(fileName: fn),
                   FileManager.default.fileExists(atPath: url.path) else { continue }
-            if let best = SoundClassificationService.classifyClipFile(at: url) {
+            pairs.append((event, url))
+            if pairs.count >= 40 { break }
+        }
+        var renamed = 0
+        for (event, url) in pairs {
+            let best = await Task.detached(priority: .utility) {
+                SoundClassificationService.classifyClipFile(at: url)
+            }.value
+            if let best {
                 if event.originalTypeRaw == nil { event.originalTypeRaw = event.typeRaw }
                 event.typeRaw = best.type.rawValue
                 event.confidenceScore = best.confidence
