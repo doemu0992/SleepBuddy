@@ -70,6 +70,8 @@ final class SonarService {
 
     // Stabilitäts-Historie des Sonar-Pulses (Gate für die Fusion).
     private var recentSonarHR: [Float] = []
+    /// Zähler für das Atem-Artefakt-Band (20.3–21.4/min) — Veto ab 5 Treffern.
+    private var recentArtifactBand = 0
 
     // Nacht-Statistik: Anteil der Fenster mit Atem-Lock (Geräteprofil-Grundlage).
     private(set) var emitCount = 0
@@ -173,6 +175,7 @@ final class SonarService {
     }
 
     private func reset() {
+        recentArtifactBand = 0
         carrierPhase = 0
         demodAccI = 0; demodAccQ = 0; demodCnt = 0
         emitCount = 0
@@ -311,6 +314,23 @@ final class SonarService {
         }
         recentSonarHR.append(sonarHR)
         if recentSonarHR.count > 6 { recentSonarHR.removeFirst() }
+
+        // ARTEFAKT-VETO (bindend, 2 Geräte × 2 Nächte belegt): Ohne starkes Körper-
+        // Signal (Nachttisch) lockt die Atem-ACF auf eine INTERNE Störperiode von
+        // ~2.86–2.88 s → konstant 20.8–21.1 „Atemzüge"/min die GANZE Nacht, auf
+        // beiden Geräten identisch (real: 15–16/min laut Watch). Ein konstanter
+        // Wert in genau diesem schmalen Band über viele Fenster ist physiologisch
+        // ausgeschlossen — echte Atmung variiert. Deshalb: Lockt die Rate wiederholt
+        // (≥ 5 der letzten 6 Fenster) ins Band 20.3–21.4, gilt die Messung als
+        // Artefakt → kein Atem-Lock (Accelerometer/Audio übernehmen).
+        if bpm >= 20.3 && bpm <= 21.4 {
+            recentArtifactBand += 1
+        } else if bpm > 0 {
+            recentArtifactBand = max(0, recentArtifactBand - 2)
+        }
+        if bpm >= 20.3 && bpm <= 21.4 && recentArtifactBand >= 5 {
+            bpm = 0; reg = 0
+        }
 
         // Kontinuität: letzten guten Atemwert über kurze Lücken halten, solange ruhig
         // (kein starkes Wälzen) und der letzte Lock < 25 s her ist. Regularität wird dabei
