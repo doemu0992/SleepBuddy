@@ -365,6 +365,7 @@ final class SleepTrackingViewModel {
 
         // Optional (Beta-Toggle): probabilistischer Gesamtnacht-Glätter als letzter Pass.
         if let ctx = modelContext { applyHMMSmoothing(to: session, context: ctx) }
+        classifyClipsPostHoc(session)
 
         // Onset NACH allen Pässen neu ableiten — die Pässe können die Abend-Wachphase
         // verändert haben; eine veraltete Latenz verfälscht Anzeige UND Zyklus-Pässe.
@@ -654,6 +655,7 @@ final class SleepTrackingViewModel {
             applyAlarmWake(to: session)
             applyPlausibilityCorrection(to: session); snap("Final")
             applyHMMSmoothing(to: session, context: context)
+            classifyClipsPostHoc(session)
             session.sleepOnsetDate = session.phasesArray
                 .sorted { $0.startDate < $1.startDate }
                 .first(where: { $0.phaseType != .awake })?.startDate ?? session.sleepOnsetDate
@@ -664,6 +666,48 @@ final class SleepTrackingViewModel {
         }
         try? context.save()
         return count
+    }
+
+    /// Plan B der Geräuscherkennung: der Live-Analyzer stirbt bei aktivem Sonar im
+    /// Sperrzustand — die gespeicherten 30-s-Clips werden deshalb nachträglich
+    /// (Stopp/Neuberechnen, Gerät entsperrt) klassifiziert und die Events benannt.
+    /// Nutzer-Korrekturen werden nie überschrieben.
+    private func classifyClipsPostHoc(_ session: SleepSession) {
+        var renamed = 0
+        for event in session.soundEventsArray where !event.isUserCorrected {
+            guard event.type == .other || event.type == .ambient,
+                  let fn = event.iCloudFileName,
+                  let url = Self.resolveClipURL(fileName: fn),
+                  FileManager.default.fileExists(atPath: url.path) else { continue }
+            if let best = SoundClassificationService.classifyClipFile(at: url) {
+                if event.originalTypeRaw == nil { event.originalTypeRaw = event.typeRaw }
+                event.typeRaw = best.type.rawValue
+                event.confidenceScore = best.confidence
+                event.mlLabel = best.label
+                renamed += 1
+            }
+        }
+        if renamed > 0 {
+            PassAudit.note("Clip-Klassifikation: \(renamed) Event(s) nachbenannt")
+            try? modelContext?.save()
+        }
+    }
+
+    /// Auflösung des Clip-Speicherorts (lokal bevorzugt bei "local://", sonst iCloud).
+    private static func resolveClipURL(fileName: String) -> URL? {
+        let soundsFolder = "SleepSounds"
+        let local = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first?
+            .appendingPathComponent(soundsFolder)
+        let iCloud = FileManager.default
+            .url(forUbiquityContainerIdentifier: "iCloud.DG-Software-Solution.PainDiary")?
+            .appendingPathComponent("Documents").appendingPathComponent(soundsFolder)
+        let bare = fileName.hasPrefix("local://") ? String(fileName.dropFirst("local://".count)) : fileName
+        let preferICloud = !fileName.hasPrefix("local://")
+        let primary = (preferICloud ? iCloud : local)?.appendingPathComponent(bare)
+        let fallback = (preferICloud ? local : iCloud)?.appendingPathComponent(bare)
+        if let p = primary, FileManager.default.fileExists(atPath: p.path) { return p }
+        if let f = fallback, FileManager.default.fileExists(atPath: f.path) { return f }
+        return nil
     }
 
     /// Lädt die datierte Watch-Referenz dieser Nacht (vom Watch-Vergleich gespeichert).

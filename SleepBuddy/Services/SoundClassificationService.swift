@@ -504,6 +504,67 @@ extension SoundClassificationService: SNResultsObserving {
         }
     }
 
+    // MARK: - Nachträgliche Clip-Klassifikation (Plan B, bindend)
+    //
+    // Der LIVE-Analyzer stirbt bei aktivem Sonar im Sperrzustand dauerhaft
+    // ("Error during analysis" — 16-kHz-Kanonisch-Format und Rebuilds halfen nicht,
+    // nachtbelegt 2×). DATEI-Analyse funktioniert morgens bei entsperrtem Gerät
+    // dagegen zuverlässig. Deshalb: Die amplitude-getriggerten 30-s-Clips werden
+    // beim Tracking-Stopp/Neuberechnen nachklassifiziert und die Events benannt.
+
+    /// Klassifiziert einen gespeicherten Clip mit denselben Mappings/Schwellen wie live.
+    static func classifyClipFile(at url: URL) -> (type: SoundEventType, confidence: Double, label: String?)? {
+        guard #available(iOS 15, *),
+              let analyzer = try? SNAudioFileAnalyzer(url: url),
+              let req = try? SNClassifySoundRequest(classifierIdentifier: .version1) else { return nil }
+        req.windowDuration = CMTimeMakeWithSeconds(1.5, preferredTimescale: 44100)
+        req.overlapFactor = 0.5
+        let obs = ClipObserver()
+        do { try analyzer.add(req, withObserver: obs) } catch { return nil }
+        analyzer.analyze()   // synchron — 30-s-Clip, schnell
+        var best: (type: SoundEventType, confidence: Double, label: String?)?
+        for m in mappings {
+            let off = m.type == .snoring ? 0.0 : sensitivityOffset
+            let minConf = max(0.25, m.minConf - off)
+            if let c = obs.maxConf[m.id], c >= minConf, c > (best?.confidence ?? 0) {
+                best = (m.type, c, nil)
+            }
+        }
+        // Schnarch-Verwechslungs-Schutz wie live: Tier-Klasse präsent → kein Schnarchen.
+        if best?.type == .snoring {
+            let animals = ["dog", "dog_bark", "dog_bow_wow", "bark", "cat", "cat_meow", "bird", "animal"]
+            if animals.contains(where: { (obs.maxConf[$0] ?? 0) >= 0.20 }) {
+                var second: (type: SoundEventType, confidence: Double, label: String?)?
+                for m in mappings where m.type != .snoring {
+                    let minConf = max(0.25, m.minConf - sensitivityOffset)
+                    if let c = obs.maxConf[m.id], c >= minConf, c > (second?.confidence ?? 0) {
+                        second = (m.type, c, nil)
+                    }
+                }
+                best = second
+            }
+        }
+        if best == nil, catchAllEnabled {
+            for (id, c) in obs.maxConf.sorted(by: { $0.value > $1.value })
+            where c >= catchAllThreshold && !mappedIDs.contains(id) && !catchAllExcluded.contains(id) {
+                best = (.ambient, c, germanName(for: id))
+                break
+            }
+        }
+        return best
+    }
+
+    private final class ClipObserver: NSObject, SNResultsObserving {
+        var maxConf: [String: Double] = [:]
+        func request(_ request: SNRequest, didProduce result: SNResult) {
+            guard let c = result as? SNClassificationResult else { return }
+            for cl in c.classifications.prefix(12) {
+                maxConf[cl.identifier] = max(maxConf[cl.identifier] ?? 0, cl.confidence)
+            }
+        }
+        func request(_ request: SNRequest, didFailWithError error: Error) {}
+    }
+
     func request(_ request: SNRequest, didFailWithError error: Error) {
         needsAnalyzerRebuild = true   // Selbstheilung beim nächsten Buffer (siehe analyze)
         // Fehler kurz nach einem Rebuild = Rebuild wirkungslos → Backoff hochzählen.
