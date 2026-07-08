@@ -514,8 +514,7 @@ extension SoundClassificationService: SNResultsObserving {
 
     /// Klassifiziert einen gespeicherten Clip mit denselben Mappings/Schwellen wie live.
     static func classifyClipFile(at url: URL) -> (type: SoundEventType, confidence: Double, label: String?)? {
-        guard #available(iOS 15, *),
-              let analyzer = try? SNAudioFileAnalyzer(url: url),
+        guard let analyzer = try? SNAudioFileAnalyzer(url: url),
               let req = try? SNClassifySoundRequest(classifierIdentifier: .version1) else { return nil }
         req.windowDuration = CMTimeMakeWithSeconds(1.5, preferredTimescale: 44100)
         req.overlapFactor = 0.5
