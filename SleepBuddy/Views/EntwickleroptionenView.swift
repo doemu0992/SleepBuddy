@@ -292,6 +292,10 @@ struct EntwickleroptionenView: View {
               "cal_brRegLow": \(ud.double(forKey: "cal_brRegLow")),
               "cal_quietAmplitude": \(ud.double(forKey: "cal_quietAmplitude")),
               "cal_nightCount": \(ud.integer(forKey: "cal_nightCount")),
+              "cal_watchNights": \(ud.integer(forKey: "cal_watchNights")),
+              "cal_watchDeepPct": \(ud.double(forKey: "cal_watchDeepPct")),
+              "cal_watchRemPct": \(ud.double(forKey: "cal_watchRemPct")),
+              "cal_watchRemLatencyMin": \(ud.double(forKey: "cal_watchRemLatencyMin")),
               "usageIntervals": \((ud.array(forKey: "usageIntervals.\(Int(session.startDate.timeIntervalSince1970))") as? [Double] ?? []).description)
             }
             """

@@ -81,7 +81,7 @@ final class FeatureNightLog {
 /// Manuell gepflegte Algorithmus-Version — bei JEDER Tuning-/Pass-Änderung hochzählen.
 /// Ordnet Debug-Pakete eindeutig einem Code-Stand zu (CFBundleVersion bleibt oft "1").
 enum AlgoVersion {
-    static let current = "2026-07-08.3"
+    static let current = "2026-07-09.1"
 }
 
 // MARK: - PassAudit (Korrektur-Protokoll)

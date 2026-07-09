@@ -1448,19 +1448,54 @@ final class SleepTrackingViewModel {
         let remCap  = remPct * totalSleep
         var changed = false
 
-        var deepDur = sleepPhases.filter { $0.phaseType == .deep }.reduce(0) { $0 + dur($1) }
-        if deepDur > deepCap {
-            for p in sleepPhases.filter({ $0.phaseType == .deep }).sorted(by: { $0.startDate > $1.startDate }) {
-                if deepDur <= deepCap { break }
-                p.phaseType = .light; deepDur -= dur(p); changed = true
+        // Hilfsfunktion: den späteren Teil einer Phase ab `keep` Sekunden ab Phasenstart
+        // zu `.light` machen (Split), den früheren Teil behalten.
+        func splitTailToLight(_ p: SleepPhase, keepSeconds: TimeInterval) {
+            let splitDate = p.startDate.addingTimeInterval(keepSeconds)
+            guard splitDate > p.startDate, splitDate < p.endDate else {
+                if keepSeconds <= 0 { p.phaseType = .light }
+                return
             }
+            let tail = SleepPhase(startDate: splitDate, endDate: p.endDate, phaseType: .light, confidence: 0.7)
+            p.endDate = splitDate
+            tail.session = session
+            modelContext?.insert(tail); session.phases?.append(tail)
         }
 
-        var remDur = sleepPhases.filter { $0.phaseType == .rem }.reduce(0) { $0 + dur($1) }
-        if remDur > remCap {
-            for p in sleepPhases.filter({ $0.phaseType == .rem }).sorted(by: { $0.startDate < $1.startDate }) {
-                if remDur <= remCap { break }
-                p.phaseType = .light; remDur -= dur(p); changed = true
+        // TIEFSCHLAF: die FRÜHESTEN `deepCap` Sekunden behalten, Rest → Leicht.
+        // Kritisch (bindend, nachtbelegt): früher wurden GANZE Phasen demotiert — eine
+        // einzige große Tiefschlaf-Phase schoss dabei über das Budget hinaus bis auf
+        // NULL (real: 287 min Live-Tief → 0 min final, obwohl BCG-Puls 53 = echtes
+        // Tief). Jetzt wird die Grenzphase gesplittet, sodass exakt `deepCap` früher
+        // Tiefschlaf erhalten bleibt.
+        let deepAsc = sleepPhases.filter { $0.phaseType == .deep }.sorted { $0.startDate < $1.startDate }
+        var deepAcc: TimeInterval = 0
+        for p in deepAsc {
+            let d = dur(p)
+            if deepAcc + d <= deepCap { deepAcc += d; continue }
+            splitTailToLight(p, keepSeconds: deepCap - deepAcc)
+            deepAcc = deepCap; changed = true
+        }
+
+        // REM: die SPÄTESTEN `remCap` Sekunden behalten (REM nimmt gegen Morgen zu),
+        // die frühesten demotieren — ebenfalls per Split der Grenzphase.
+        let remPhases = sleepPhases.filter { $0.phaseType == .rem }.sorted { $0.startDate < $1.startDate }
+        let remTotal = remPhases.reduce(0) { $0 + dur($1) }
+        var toRemove = remTotal - remCap
+        if toRemove > 0 {
+            for p in remPhases {
+                if toRemove <= 0 { break }
+                let d = dur(p)
+                if d <= toRemove { p.phaseType = .light; toRemove -= d; changed = true }
+                else {
+                    // frühesten Teil [start, start+toRemove] → Leicht, Rest bleibt REM
+                    let splitDate = p.startDate.addingTimeInterval(toRemove)
+                    let head = SleepPhase(startDate: p.startDate, endDate: splitDate, phaseType: .light, confidence: 0.7)
+                    p.startDate = splitDate
+                    head.session = session
+                    modelContext?.insert(head); session.phases?.append(head)
+                    toRemove = 0; changed = true
+                }
             }
         }
         if changed { try? modelContext?.save() }
