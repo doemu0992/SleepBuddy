@@ -468,6 +468,49 @@ final class SoundEventService {
         }
     }
 
+    // MARK: - Periodische Fenster-Analyse (bindend, nachtbelegt)
+    //
+    // Der Live-SNAudioStreamAnalyzer stirbt bei aktivem Sonar im Sperrzustand — und
+    // die amplitude-getriggerten Clips feuern in einem ruhigen Schlafzimmer kaum.
+    // Folge: viel zu wenige Geräusche erkannt (real: 5/Nacht). Deshalb wird der
+    // rollende Roh-Audio-Puffer (liegt ohnehin im RAM) alle ~60 s per DATEI-Analyse
+    // klassifiziert (SNAudioFileAnalyzer läuft robust, auch bei gesperrtem Gerät).
+    // Erfasst v.a. LEISES SCHNARCHEN, das die Amplitude-Schwelle verpasst. Nur
+    // PERSÖNLICHE Typen (kein Ambient-Spam); eigener Cooldown; nie während eines
+    // laufenden Amplitude-Events.
+    private var lastPeriodicScan = Date.distantPast
+    private var lastPeriodicEvent = Date.distantPast
+    private let periodicCooldown: TimeInterval = 18   // s zwischen Fenster-Events
+
+    func scanRecentAudioIfDue() {
+        guard isEnabled, !suppressed, eventStartDate == nil else { return }
+        guard Date().timeIntervalSince(lastPeriodicScan) >= 55 else { return }
+        lastPeriodicScan = Date()
+        guard Date().timeIntervalSince(lastPeriodicEvent) >= periodicCooldown else { return }
+        // Letzte ~15 s aus dem Ring-Puffer.
+        let sr = sampleRate
+        let window = Int(sr * 15)
+        let buf = circularBuffer
+        guard buf.count >= Int(sr * 3) else { return }
+        let samples = Array(buf.suffix(window))
+        let ts = Date()
+        Task.detached(priority: .utility) { [weak self] in
+            guard let self else { return }
+            let tmp = FileManager.default.temporaryDirectory
+                .appendingPathComponent("scan-\(UUID().uuidString).m4a")
+            defer { try? FileManager.default.removeItem(at: tmp) }
+            guard self.writeAAC(samples: self.normalized(samples), sampleRate: sr, to: tmp) else { return }
+            guard let best = SoundClassificationService.classifyClipFile(at: tmp),
+                  !best.type.isExternal, best.type != .other else { return }
+            let db = self.computeDecibelLevel(samples)
+            let fileName = self.saveToICloud(samples: samples, sampleRate: sr, timestamp: ts)
+            await MainActor.run {
+                self.lastPeriodicEvent = Date()
+                self.onEventCaptured?(ts, best.type, 15, fileName, db, best.confidence, best.label)
+            }
+        }
+    }
+
     // MARK: - iCloud save
 
     private var iCloudDocumentsURL: URL? {

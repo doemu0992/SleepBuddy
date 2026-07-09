@@ -486,6 +486,10 @@ final class SleepTrackingViewModel {
         // false positives from fans/HVAC. We keep isSnoring for the live badge only.
         isSnoring = audio.snoringIntensity > 0.4
 
+        // Periodische Fenster-Analyse: erfasst leises Schnarchen, das die Amplitude-
+        // Schwelle verpasst (Live-ML-Analyzer stirbt bei aktivem Sonar im Sperrzustand).
+        soundEventService.scanRecentAudioIfDue()
+
         // Smart alarm check
         smartAlarm.checkPhase(result.phase)
 
