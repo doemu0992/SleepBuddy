@@ -338,6 +338,7 @@ final class SleepTrackingViewModel {
 
         // REM-Verfeinerung über Sonar-Atemregularität (Replay-validiert, +4 Pkt bei gutem Sonar).
         if let ctx = modelContext { applyRegularityRemRefinement(to: session, context: ctx) }
+        applyPulseRemRefinement(to: session)
 
         // Redistribute over-allocated deep sleep (circadian: deep is concentrated early).
         applyDeepRedistribution(to: session)
@@ -651,6 +652,7 @@ final class SleepTrackingViewModel {
             applyCycleRemRefinement(to: session); snap("ZyklusREM")
             applyBreathingRefinement(to: session, context: context); snap("Atem")
             applyRegularityRemRefinement(to: session, context: context); snap("RegREM")
+            applyPulseRemRefinement(to: session); snap("PulsREM")
             applyDeepRedistribution(to: session); snap("DeepRedist")
             applyEdgeWakeCorrection(to: session); snap("EdgeWake")
             applyBreathingEdgeWake(to: session, context: context); snap("AtemWake")
@@ -1418,6 +1420,98 @@ final class SleepTrackingViewModel {
             if centerMin - onsetMin < 20 { phase.phaseType = .light; changed = true }
         }
         if changed { try? modelContext?.save() }
+    }
+
+    // MARK: - Puls-basierte REM-Verfeinerung (korpus-validiert, bindend)
+    //
+    // Über 5 Watch-Nächte belegt: Das EINZIGE konsistent REM-diskriminierende
+    // Sensor-Merkmal ist der ERHÖHTE PULS (REM +4…+8 BPM über Leichtschlaf, in
+    // JEDER Nacht). Atem-Regularität trennt NICHT (0.9/0.9, 0.5/0.5 — reversiert
+    // sogar). Deshalb ist DIES der primäre REM-Anker, nicht die Regularität.
+    // Watch-frei: nutzt den gespeicherten Puls (BCG auf der Matratze, Watch als
+    // Bonus); ohne Puls (Nachttisch) greift die Regel nicht → Zyklusmodell bleibt,
+    // kein Regressionsrisiko. Replay Δ+3 BPM: verbessert alle 5 Nächte (nie
+    // schlechter), REM-Sensitivität steigt (z.B. Nacht 8.7: 1 % → 4 %, 15 → 26 %).
+    private func applyPulseRemRefinement(to session: SleepSession) {
+        let pts = cleanedHeartRate(session)
+        var hr: [Int: Double] = [:]
+        for p in pts where !p.estimated { hr[p.index] = p.bpm }
+        guard hr.count >= 15 else { return }   // zu wenig gemessener Puls (z.B. Nachttisch)
+
+        let start = session.startDate
+        let end = session.endDate ?? Date()
+        let totalMin = max(1, Int(end.timeIntervalSince(start) / 60))
+        func phaseTypeAt(_ m: Int) -> SleepPhaseType? {
+            let t = start.addingTimeInterval(Double(m) * 60 + 30)
+            return session.phasesArray.first { $0.startDate <= t && t < $0.endDate }?.phaseType
+        }
+        // Leichtschlaf-Puls-Baseline (persönlich, pro Nacht).
+        let lightHR = (0..<totalMin).compactMap { m in phaseTypeAt(m) == .light ? hr[m] : nil }.sorted()
+        guard lightHR.count >= 10 else { return }
+        let base = lightHR[lightHR.count / 2]
+
+        let cyc = Double(detectCycleLength(session))
+        let onsetMin = session.sleepOnsetDate.map { $0.timeIntervalSince(start) / 60 } ?? 0
+        func inREMWindow(_ m: Int) -> Bool {
+            (Double(m) - onsetMin).truncatingRemainder(dividingBy: cyc) / cyc >= 0.55
+        }
+
+        // Kandidaten-Minuten: Leicht + REM-Fenster + Puls ≥ base+3 → REM;
+        // REM + klar niedriger Puls (< base-1) → Leicht (konservative Rücknahme).
+        var toREM = [Bool](repeating: false, count: totalMin)
+        var toLight = [Bool](repeating: false, count: totalMin)
+        for m in 0..<totalMin {
+            guard let h = hr[m] else { continue }
+            let p = phaseTypeAt(m)
+            if p == .light, inREMWindow(m), h >= base + 3 { toREM[m] = true }
+            else if p == .rem, h < base - 1 { toLight[m] = true }
+        }
+        // Nur zusammenhängende Blöcke ≥ 5 min umtypen (Phasen-Split am Blockrand).
+        var changed = false
+        func retypeBlocks(_ mask: [Bool], to newType: SleepPhaseType, from oldType: SleepPhaseType) {
+            var i = 0
+            while i < totalMin {
+                if mask[i] {
+                    var j = i
+                    while j < totalMin && mask[j] { j += 1 }
+                    if j - i >= 5 { retypeRange(session, fromMinute: i, toMinute: j, to: newType, onlyFrom: oldType); changed = true }
+                    i = j
+                } else { i += 1 }
+            }
+        }
+        retypeBlocks(toREM, to: .rem, from: .light)
+        retypeBlocks(toLight, to: .light, from: .rem)
+        if changed {
+            let nR = toREM.filter { $0 }.count, nL = toLight.filter { $0 }.count
+            PassAudit.note("PulsREM: \(nR) min Leicht→REM, \(nL) min REM→Leicht (base \(Int(base)) BPM)")
+            try? modelContext?.save()
+        }
+    }
+
+    /// Retypisiert [fromMinute, toMinute) zu `newType`, aber nur Phasenteile die
+    /// aktuell `onlyFrom` sind (splittet Phasen am Bereichsrand). Analog markAwake.
+    private func retypeRange(_ session: SleepSession, fromMinute: Int, toMinute: Int,
+                             to newType: SleepPhaseType, onlyFrom: SleepPhaseType) {
+        let rs = session.startDate.addingTimeInterval(Double(fromMinute) * 60)
+        let re = session.startDate.addingTimeInterval(Double(toMinute) * 60)
+        for phase in session.phasesArray where phase.phaseType == onlyFrom
+            && !(phase.endDate <= rs || phase.startDate >= re) {
+            let a = max(phase.startDate, rs), b = min(phase.endDate, re)
+            if a <= phase.startDate && b >= phase.endDate {
+                phase.phaseType = newType
+            } else {
+                // Mittelteil [a,b] → newType, Ränder behalten onlyFrom
+                if a > phase.startDate {
+                    let head = SleepPhase(startDate: phase.startDate, endDate: a, phaseType: onlyFrom, confidence: phase.confidence)
+                    head.session = session; modelContext?.insert(head); session.phases?.append(head)
+                }
+                if b < phase.endDate {
+                    let tail = SleepPhase(startDate: b, endDate: phase.endDate, phaseType: onlyFrom, confidence: phase.confidence)
+                    tail.session = session; modelContext?.insert(tail); session.phases?.append(tail)
+                }
+                phase.startDate = a; phase.endDate = b; phase.phaseType = newType
+            }
+        }
     }
 
     // MARK: - Deep-sleep circadian redistribution
