@@ -1433,14 +1433,24 @@ final class SleepTrackingViewModel {
     // kein Regressionsrisiko. Replay Δ+3 BPM: verbessert alle 5 Nächte (nie
     // schlechter), REM-Sensitivität steigt (z.B. Nacht 8.7: 1 % → 4 %, 15 → 26 %).
     private func applyPulseRemRefinement(to session: SleepSession) {
-        let pts = cleanedHeartRate(session)
-        var hr: [Int: Double] = [:]
-        for p in pts where !p.estimated { hr[p.index] = p.bpm }
-        guard hr.count >= 15 else { return }   // zu wenig gemessener Puls (z.B. Nachttisch)
-
         let start = session.startDate
         let end = session.endDate ?? Date()
         let totalMin = max(1, Int(end.timeIntervalSince(start) / 60))
+
+        // Gemessene Puls-Minuten, Lücken bis 3 min mit dem letzten guten Wert
+        // überbrückt (Variante B, korpus-validiert: verdoppelt die Abdeckung und
+        // verbessert jede der 5 Watch-Nächte — z.B. Nacht 5.7: 28 % → 33 %). Ohne
+        // die Brücke werten wir nur ~⅓ der Nacht; BCG lockt lückenhaft.
+        let pts = cleanedHeartRate(session)
+        var measured: [Int: Double] = [:]
+        for p in pts where !p.estimated { measured[p.index] = p.bpm }
+        guard measured.count >= 15 else { return }   // zu wenig Puls (z.B. Nachttisch)
+        var hr: [Int: Double] = [:]
+        var lastVal: Double? = nil, lastIdx = -999
+        for m in 0..<totalMin {
+            if let v = measured[m] { lastVal = v; lastIdx = m; hr[m] = v }
+            else if let v = lastVal, m - lastIdx <= 3 { hr[m] = v }
+        }
         func phaseTypeAt(_ m: Int) -> SleepPhaseType? {
             let t = start.addingTimeInterval(Double(m) * 60 + 30)
             return session.phasesArray.first { $0.startDate <= t && t < $0.endDate }?.phaseType
