@@ -178,10 +178,77 @@ final class AudioAnalysisService {
             }
         }
         isRunning = true
+        installRecoveryObservers()
+    }
+
+    // MARK: - Audio-Wiederherstellung (bindend, nachtbelegt)
+    //
+    // KRITISCH: Ohne diese Handler stirbt die Aufzeichnung mitten in der Nacht STILL
+    // (real belegt: FeatureLog + TrainingSamples enden 02:39, Session bis 06:12 →
+    // 3,5 h ohne Sensordaten, Hypnogramm danach flach). Wenn die AVAudioEngine durch
+    // Route-/Format-Wechsel (v.a. mit Sonar-Ton), Interruption (Anruf/Wecker) oder
+    // Media-Reset stoppt, muss sie WIEDER ANLAUFEN — sonst entzieht iOS der App die
+    // Hintergrund-Audioausführung und suspendiert sie. Drei Notifications + ein
+    // Watchdog (ensureRunning, vom Minuten-Tick).
+    private var recoveryObservers: [NSObjectProtocol] = []
+    private func installRecoveryObservers() {
+        let nc = NotificationCenter.default
+        removeRecoveryObservers()
+        // Engine stoppt bei Route-/Format-Wechsel → muss neu gestartet werden.
+        recoveryObservers.append(nc.addObserver(forName: .AVAudioEngineConfigurationChange,
+                                                object: engine, queue: .main) { [weak self] _ in
+            self?.restartEngine(reason: "ConfigChange")
+        })
+        // Interruption (Anruf/Wecker): bei .ended reaktivieren.
+        recoveryObservers.append(nc.addObserver(forName: AVAudioSession.interruptionNotification,
+                                                object: nil, queue: .main) { [weak self] note in
+            guard let self, let info = note.userInfo,
+                  let raw = info[AVAudioSessionInterruptionTypeKey] as? UInt,
+                  AVAudioSession.InterruptionType(rawValue: raw) == .ended else { return }
+            self.restartEngine(reason: "InterruptionEnded")
+        })
+        // Media-Services-Reset: alles verloren → volle Neu-Einrichtung.
+        recoveryObservers.append(nc.addObserver(forName: AVAudioSession.mediaServicesWereResetNotification,
+                                                object: nil, queue: .main) { [weak self] _ in
+            self?.restartEngine(reason: "MediaReset")
+        })
+    }
+    private func removeRecoveryObservers() {
+        recoveryObservers.forEach { NotificationCenter.default.removeObserver($0) }
+        recoveryObservers.removeAll()
+    }
+
+    /// Watchdog: vom ViewModel jede Minute aufgerufen — läuft die Engine nicht mehr,
+    /// obwohl sie laufen soll, wird sie neu gestartet.
+    func ensureRunning() {
+        guard isRunning, !engine.isRunning else { return }
+        restartEngine(reason: "Watchdog")
+    }
+
+    private var lastRestart = Date.distantPast
+    private func restartEngine(reason: String) {
+        guard isRunning else { return }
+        guard Date().timeIntervalSince(lastRestart) >= 5 else { return }   // Drossel
+        lastRestart = Date()
+        let session = AVAudioSession.sharedInstance()
+        do {
+            try session.setActive(true, options: .notifyOthersOnDeactivation)
+            if !engine.isRunning { try engine.start() }
+            // Sonar-Ton nach Neustart wieder anwerfen.
+            if sonarActive, let fmt = sonarToneFormat {
+                sonarTonePlayer.scheduleBuffer(makeSonarTone(format: fmt, amp: sonarAmpCurrent), at: nil, options: .loops)
+                sonarTonePlayer.play()
+                engine.mainMixerNode.outputVolume = 1.0
+            }
+            PassAudit.note("Audio-Neustart (\(reason))")
+        } catch {
+            PassAudit.note("Audio-Neustart FEHLGESCHLAGEN (\(reason)): \(error.localizedDescription)")
+        }
     }
 
     func stop() {
         guard isRunning else { return }
+        removeRecoveryObservers()
         if sonarActive {
             sonarRampTimer?.invalidate()
             sonarRampTimer = nil

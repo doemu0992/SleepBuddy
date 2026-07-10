@@ -491,6 +491,10 @@ final class SleepTrackingViewModel {
         // Schwelle verpasst (Live-ML-Analyzer stirbt bei aktivem Sonar im Sperrzustand).
         soundEventService.scanRecentAudioIfDue()
 
+        // Audio-Engine-Watchdog: stoppt die Engine (Route-/Format-Wechsel), muss sie
+        // neu starten — sonst suspendiert iOS die App und die halbe Nacht fehlt.
+        audioService.ensureRunning()
+
         // Smart alarm check
         smartAlarm.checkPhase(result.phase)
 
